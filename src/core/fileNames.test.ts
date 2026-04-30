@@ -14,6 +14,14 @@ describe("sanitizeFileBaseName", () => {
   it("falls back to image when empty", () => {
     expect(sanitizeFileBaseName('  <>:"/\\|?*  ')).toBe("image");
   });
+
+  it("keeps meaningful mixed-language custom names", () => {
+    expect(sanitizeFileBaseName(" 封面 图 Image 01 ")).toBe("封面-图-image-01");
+  });
+
+  it("makes reserved Windows names safe", () => {
+    expect(sanitizeFileBaseName("CON")).toBe("con-file");
+  });
 });
 
 describe("summarizePrompt", () => {
@@ -25,6 +33,10 @@ describe("summarizePrompt", () => {
     expect(
       summarizePrompt("one two three four five six seven eight nine ten"),
     ).toBe("one-two-three-four-five-six-seven-eight");
+  });
+
+  it("keeps Chinese terms when present", () => {
+    expect(summarizePrompt("夜晚 城市 skyline 灯光 reflections")).toBe("夜晚-城市-skyline-灯光-reflections");
   });
 });
 
@@ -75,6 +87,18 @@ describe("buildImageFileName", () => {
         generatedAt,
         format: "png",
         existingFileNames: ["my-final-render.png"],
+      }),
+    ).toBe("my-final-render-2.png");
+  });
+
+  it("treats case variants as collisions", () => {
+    expect(
+      buildImageFileName({
+        customName: "My Final Render",
+        prompt: "ignored prompt",
+        generatedAt,
+        format: "png",
+        existingFileNames: ["MY-FINAL-RENDER.PNG"],
       }),
     ).toBe("my-final-render-2.png");
   });

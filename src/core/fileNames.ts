@@ -2,9 +2,34 @@ export type BuildImageFileNameInput = {
   customName: string;
   prompt: string;
   generatedAt: Date;
-  format: string;
+  format: "png" | "jpeg" | "webp";
   existingFileNames: string[];
 };
+
+const RESERVED_WINDOWS_NAMES = new Set([
+  "con",
+  "prn",
+  "aux",
+  "nul",
+  "com1",
+  "com2",
+  "com3",
+  "com4",
+  "com5",
+  "com6",
+  "com7",
+  "com8",
+  "com9",
+  "lpt1",
+  "lpt2",
+  "lpt3",
+  "lpt4",
+  "lpt5",
+  "lpt6",
+  "lpt7",
+  "lpt8",
+  "lpt9",
+]);
 
 export function formatDateFolder(date: Date): string {
   return [date.getFullYear(), pad(date.getMonth() + 1), pad(date.getDate())].join("-");
@@ -19,10 +44,14 @@ export function sanitizeFileBaseName(value: string): string {
     .toLowerCase()
     .replace(/[<>:"/\\|?*\u0000-\u001f]+/g, " ")
     .replace(/['`]+/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
     .replace(/^-+|-+$/g, "");
 
-  return sanitized || "image";
+  if (!sanitized) {
+    return "image";
+  }
+
+  return RESERVED_WINDOWS_NAMES.has(sanitized) ? `${sanitized}-file` : sanitized;
 }
 
 export function summarizePrompt(prompt: string): string {
@@ -49,15 +78,15 @@ export function buildOutputPath(outputDirectory: string, generatedAt: Date, file
 }
 
 function addCollisionSuffix(baseName: string, extension: string, existingFileNames: string[]): string {
-  const existing = new Set(existingFileNames);
+  const existing = new Set(existingFileNames.map((fileName) => fileName.toLowerCase()));
   const initialFileName = `${baseName}.${extension}`;
 
-  if (!existing.has(initialFileName)) {
+  if (!existing.has(initialFileName.toLowerCase())) {
     return initialFileName;
   }
 
   let index = 2;
-  while (existing.has(`${baseName}-${index}.${extension}`)) {
+  while (existing.has(`${baseName}-${index}.${extension}`.toLowerCase())) {
     index += 1;
   }
 
