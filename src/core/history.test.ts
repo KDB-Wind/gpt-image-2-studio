@@ -37,7 +37,7 @@ describe("sortHistoryNewestFirst", () => {
 });
 
 describe("groupHistoryByDate", () => {
-  it("groups records by local date label", () => {
+  it("groups records by output path date labels when present", () => {
     const may2Morning = createRecord({
       id: "may-2-morning",
       createdAt: "2026-05-02T08:00:00.000Z",
@@ -66,22 +66,17 @@ describe("groupHistoryByDate", () => {
     ]);
   });
 
-  it("uses the output path date before the createdAt local day", () => {
+  it("uses the output path date before the createdAt-derived day in every timezone", () => {
     const outputPathWins = createRecord({
       id: "output-path-wins",
-      createdAt: "2026-05-01T23:30:00.000Z",
-      outputPath: "outputs/2026-05-01/output-path-wins.png",
-    });
-    const createdAtFallback = createRecord({
-      id: "created-at-fallback",
-      createdAt: "2026-05-01T08:00:00.000Z",
-      outputPath: "output-without-date-folder.png",
+      createdAt: "2026-05-01T12:00:00.000Z",
+      outputPath: "outputs/2026-04-20/output-path-wins.png",
     });
 
-    expect(groupHistoryByDate([createdAtFallback, outputPathWins])).toEqual([
+    expect(groupHistoryByDate([outputPathWins])).toEqual([
       {
-        date: "2026-05-01",
-        records: [outputPathWins, createdAtFallback],
+        date: "2026-04-20",
+        records: [outputPathWins],
       },
     ]);
   });
