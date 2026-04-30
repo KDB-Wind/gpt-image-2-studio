@@ -66,6 +66,24 @@ fn missing_config_file_defaults_but_invalid_config_json_errors() {
 }
 
 #[test]
+fn valid_but_wrong_shape_config_json_errors() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-config-shape-test-{}",
+        std::process::id()
+    ));
+    let wrong_shape_path = temp_root.join("wrong-shape-config.json");
+
+    std::fs::create_dir_all(&temp_root).unwrap();
+    std::fs::write(&wrong_shape_path, "[]").unwrap();
+
+    let error = crate::storage::load_config_from_path(&wrong_shape_path).unwrap_err();
+
+    assert!(error.contains("config"));
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
 fn history_for_save_keeps_parse_fallback_but_returns_io_errors() {
     let temp_root = std::env::temp_dir().join(format!(
         "chat-to-image-history-test-{}",

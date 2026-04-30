@@ -366,9 +366,11 @@ pub fn parse_history_json(raw: &str) -> Vec<ImageRecord> {
 }
 
 pub fn load_config_from_path(path: &Path) -> Result<AppConfig, String> {
-    Ok(read_json_value_result(path, "config.json")?
-        .map(merge_config_value)
-        .unwrap_or_else(default_config))
+    match read_json_value_result(path, "config.json")? {
+        Some(value) if value.is_object() => Ok(merge_config_value(value)),
+        Some(_) => Err("Failed to parse config.json: config root must be a JSON object".to_string()),
+        None => Ok(default_config()),
+    }
 }
 
 fn load_history_for_display(path: &Path) -> Result<Vec<ImageRecord>, String> {
