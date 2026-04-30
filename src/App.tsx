@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   generateImages,
@@ -28,6 +28,7 @@ type PreviewState =
       imageUrl: string;
       record: ImageRecord;
       customName: string;
+      source: "generated" | "history";
     }
   | {
       status: "failed";
@@ -93,6 +94,8 @@ export default function App() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isTestingText, setIsTestingText] = useState(false);
   const [isTestingImage, setIsTestingImage] = useState(false);
+  const promptRef = useRef(prompt);
+  const optimizeRequestIdRef = useRef(0);
 
   const validation = useMemo(() => validateConfig(config), [config]);
   const historyGroups = useMemo(() => groupHistoryByDate(history), [history]);
@@ -102,6 +105,10 @@ export default function App() {
     () => history.find((record) => record.id === selectedHistoryId) ?? null,
     [history, selectedHistoryId],
   );
+
+  useEffect(() => {
+    promptRef.current = prompt;
+  }, [prompt]);
 
   useEffect(() => {
     let isMounted = true;
@@ -180,7 +187,12 @@ export default function App() {
     }
 
     setActiveTab("settings");
-    setAppMessage(`${actionLabel} requires valid settings. ${nextValidation.errors.join(" ")}`);
+    const message = `${actionLabel} requires valid settings. ${nextValidation.errors.join(" ")}`;
+    setAppMessage(message);
+    setSettingsMessage({
+      tone: "error",
+      text: message,
+    });
     return false;
   }
 
@@ -207,14 +219,28 @@ export default function App() {
 
     setIsOptimizing(true);
     setAppMessage("");
+    const requestId = optimizeRequestIdRef.current + 1;
+    optimizeRequestIdRef.current = requestId;
 
     try {
       const revisedPrompt = await optimizePrompt(config, nextPrompt);
+
+      if (optimizeRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      if (promptRef.current.trim() !== nextPrompt) {
+        setAppMessage("Prompt changed before optimization finished. Discarded the stale optimized result.");
+        return;
+      }
+
       setOptimizedPrompt(revisedPrompt.trim());
     } catch (error) {
       setAppMessage(`Prompt optimization failed. ${getErrorMessage(error)}`);
     } finally {
-      setIsOptimizing(false);
+      if (optimizeRequestIdRef.current === requestId) {
+        setIsOptimizing(false);
+      }
     }
   }
 
@@ -275,6 +301,7 @@ export default function App() {
         imageUrl: savedResult.previewUrl,
         record: savedResult.record,
         customName: customName.trim(),
+        source: "generated",
       });
     } catch (error) {
       setPreviewState({
@@ -427,6 +454,7 @@ export default function App() {
           imageUrl: convertFileSrc(record.outputPath),
           record,
           customName: "",
+          source: "history",
         });
         return;
       }
@@ -444,6 +472,24 @@ export default function App() {
         message: `Could not prepare a preview for this saved output. ${getErrorMessage(error)}`,
       });
     }
+  }
+
+  function handlePreviewImageError(successState: Extract<PreviewState, { status: "success" }>) {
+    if (successState.source === "history") {
+      setPreviewState({
+        status: "history-unavailable",
+        record: successState.record,
+        message: "The saved output file could not be loaded for preview. It may have been moved, deleted, or become unreadable.",
+      });
+      return;
+    }
+
+    setPreviewState({
+      status: "failed",
+      prompt: successState.prompt,
+      message: "The generated image preview could not be loaded after save.",
+      durationMs: successState.record.durationMs,
+    });
   }
 
   return (
@@ -547,10 +593,10 @@ export default function App() {
                 <button type="button" className="secondary-button" onClick={handleOptimizePrompt} disabled={isOptimizing || isGenerating || isLoadingApp}>
                   {isOptimizing ? "Optimizing..." : "Optimize prompt"}
                 </button>
-                <button type="button" className="secondary-button" onClick={() => setOptimizedPrompt("")} disabled={!optimizedPrompt || isGenerating}>
+                <button type="button" className="secondary-button" onClick={() => setOptimizedPrompt("")} disabled={!optimizedPrompt || isGenerating || isOptimizing}>
                   Clear optimized
                 </button>
-                <button type="button" className="primary-button" onClick={handleGenerate} disabled={isGenerating || isLoadingApp || !runtime}>
+                <button type="button" className="primary-button" onClick={handleGenerate} disabled={isGenerating || isLoadingApp || !runtime || isOptimizing}>
                   {isGenerating ? "Generating..." : "Generate image"}
                 </button>
               </div>
@@ -816,7 +862,11 @@ export default function App() {
             {previewState.status === "success" ? (
               <div className="preview-success">
                 <div className="preview-frame">
-                  <img src={previewState.imageUrl} alt={previewState.prompt} />
+                  <img
+                    src={previewState.imageUrl}
+                    alt={previewState.prompt}
+                    onError={() => handlePreviewImageError(previewState)}
+                  />
                 </div>
                 <div className="info-card preview-details">
                   <h3>Saved image</h3>
