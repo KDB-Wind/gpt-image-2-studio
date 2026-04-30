@@ -41,13 +41,7 @@ export function normalizeBaseUrl(value: string): string {
 }
 
 export function mergeConfig(value: Partial<AppConfig> | null | undefined): AppConfig {
-  const merged: AppConfig = { ...DEFAULT_CONFIG };
-
-  for (const [key, fieldValue] of Object.entries(value ?? {}) as [keyof AppConfig, AppConfig[keyof AppConfig]][]) {
-    if (fieldValue !== undefined) {
-      merged[key] = fieldValue;
-    }
-  }
+  const merged: AppConfig = { ...DEFAULT_CONFIG, ...(value ?? {}) };
 
   merged.baseUrl = normalizeBaseUrl(asString(merged.baseUrl));
 
@@ -63,8 +57,8 @@ export function validateConfig(config: AppConfig): ValidationResult {
   const textModel = asString(maybeConfig.textModel);
   const imageModel = asString(maybeConfig.imageModel);
   const outputDirectory = asString(maybeConfig.outputDirectory);
-  const timeoutSeconds = maybeConfig.timeoutSeconds;
-  const defaultCount = maybeConfig.defaultCount;
+  const timeoutSeconds = asNumber(maybeConfig.timeoutSeconds);
+  const defaultCount = asNumber(maybeConfig.defaultCount);
 
   try {
     new URL(normalizeBaseUrl(baseUrl));
@@ -101,4 +95,8 @@ export function validateConfig(config: AppConfig): ValidationResult {
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function asNumber(value: unknown): number {
+  return typeof value === "number" ? value : Number.NaN;
 }
