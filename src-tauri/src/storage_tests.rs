@@ -43,3 +43,45 @@ fn invalid_history_json_falls_back_to_empty_list() {
     let history = crate::storage::parse_history_json("not-json");
     assert!(history.is_empty());
 }
+
+#[test]
+fn missing_config_file_defaults_but_invalid_config_json_errors() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-config-test-{}",
+        std::process::id()
+    ));
+    let missing_path = temp_root.join("missing-config.json");
+    let invalid_path = temp_root.join("invalid-config.json");
+
+    let loaded_missing = crate::storage::load_config_from_path(&missing_path).unwrap();
+    assert_eq!(loaded_missing.base_url, crate::storage::default_config().base_url);
+
+    std::fs::create_dir_all(&temp_root).unwrap();
+    std::fs::write(&invalid_path, "{ invalid json").unwrap();
+    let invalid_error = crate::storage::load_config_from_path(&invalid_path).unwrap_err();
+
+    assert!(invalid_error.contains("config"));
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn history_for_save_keeps_parse_fallback_but_returns_io_errors() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-history-test-{}",
+        std::process::id()
+    ));
+    let invalid_path = temp_root.join("invalid-history.json");
+    let directory_path = temp_root.join("history-dir");
+    std::fs::create_dir_all(&temp_root).unwrap();
+    std::fs::write(&invalid_path, "{ invalid json").unwrap();
+    std::fs::create_dir_all(&directory_path).unwrap();
+
+    let io_error = crate::storage::load_history_for_save(&directory_path).unwrap_err();
+    assert!(io_error.contains("history.json"));
+
+    let invalid_history = crate::storage::load_history_for_save(&invalid_path).unwrap();
+    assert!(invalid_history.is_empty());
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}

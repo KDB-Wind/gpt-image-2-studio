@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
     fs,
+    io::ErrorKind,
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
@@ -66,6 +67,16 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     ensure_parent(path)?;
     let json = serde_json::to_string_pretty(value).map_err(|error| error.to_string())?;
     fs::write(path, json).map_err(|error| error.to_string())
+}
+
+fn read_json_value_result(path: &Path, subject: &str) -> Result<Option<serde_json::Value>, String> {
+    match fs::read_to_string(path) {
+        Ok(raw) => serde_json::from_str(&raw)
+            .map(Some)
+            .map_err(|error| format!("Failed to parse {subject}: {error}")),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("Failed to read {subject}: {error}")),
+    }
 }
 
 fn read_json_value(path: &Path) -> Option<serde_json::Value> {
@@ -354,12 +365,32 @@ pub fn parse_history_json(raw: &str) -> Vec<ImageRecord> {
     serde_json::from_str(raw).unwrap_or_default()
 }
 
+pub fn load_config_from_path(path: &Path) -> Result<AppConfig, String> {
+    Ok(read_json_value_result(path, "config.json")?
+        .map(merge_config_value)
+        .unwrap_or_else(default_config))
+}
+
+fn load_history_for_display(path: &Path) -> Result<Vec<ImageRecord>, String> {
+    match fs::read_to_string(path) {
+        Ok(raw) => Ok(parse_history_json(&raw)),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(format!("Failed to read history.json: {error}")),
+    }
+}
+
+pub fn load_history_for_save(path: &Path) -> Result<Vec<ImageRecord>, String> {
+    match fs::read_to_string(path) {
+        Ok(raw) => Ok(parse_history_json(&raw)),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(format!("Failed to read history.json: {error}")),
+    }
+}
+
 #[tauri::command]
 pub fn load_config() -> Result<AppConfig, String> {
     let path = config_path()?;
-    let mut config = read_json_value(&path)
-        .map(merge_config_value)
-        .unwrap_or_else(default_config);
+    let mut config = load_config_from_path(&path)?;
     config.api_key = load_api_key(&path);
     Ok(config)
 }
@@ -379,10 +410,7 @@ pub fn save_config(mut config: AppConfig) -> Result<(), String> {
 #[tauri::command]
 pub fn load_history() -> Result<Vec<ImageRecord>, String> {
     let path = history_path()?;
-    let mut history = fs::read_to_string(path)
-        .ok()
-        .map(|raw| parse_history_json(&raw))
-        .unwrap_or_default();
+    let mut history = load_history_for_display(&path)?;
     sort_history(&mut history);
     Ok(history)
 }
@@ -405,10 +433,7 @@ pub fn save_generated_image(input: SaveGeneratedImageInput) -> Result<SaveImageR
 
     let record = create_record(input, &output_path);
     let history_file = history_path()?;
-    let mut history = fs::read_to_string(&history_file)
-        .ok()
-        .map(|raw| parse_history_json(&raw))
-        .unwrap_or_default();
+    let mut history = load_history_for_save(&history_file)?;
     history.push(record.clone());
     sort_history(&mut history);
     write_json(&history_file, &history)?;
