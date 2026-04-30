@@ -104,7 +104,7 @@ export function parseTextResponse(payload: unknown): string {
     const content = Array.isArray(itemRecord.content) ? itemRecord.content : [];
 
     for (const part of content) {
-      const text = asString(asRecord(part).text);
+      const text = readChatContentPart(asRecord(part));
       if (text) {
         responseSegments.push(text);
       }
@@ -319,7 +319,13 @@ function shouldFallbackToChatCompletions(error: unknown): boolean {
   }
 
   const haystack = `${error.message}\n${error.responseBody ?? ""}`.toLowerCase();
-  return haystack.includes("unsupported") || haystack.includes("not found") || haystack.includes("unknown endpoint");
+  return haystack.includes("unsupported")
+    || haystack.includes("unknown endpoint")
+    || haystack.includes("unknown route")
+    || haystack.includes("unknown path")
+    || haystack.includes("not implemented")
+    || haystack.includes("method not allowed")
+    || haystack.includes("no route");
 }
 
 async function readResponseText(response: Response): Promise<string> {

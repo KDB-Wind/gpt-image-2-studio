@@ -110,6 +110,21 @@ describe("parseTextResponse", () => {
       }),
     ).toBe("First line.\nSecond line.\nThird line.");
   });
+
+  it("ignores non-text response parts even when they expose a text field", () => {
+    expect(
+      parseTextResponse({
+        output: [
+          {
+            content: [
+              { type: "input_image", text: "ignore this" },
+              { type: "output_text", text: "Keep this" },
+            ],
+          },
+        ],
+      }),
+    ).toBe("Keep this");
+  });
 });
 
 describe("parseImageGenerationResponse", () => {
@@ -278,6 +293,23 @@ describe("sendTextRequest", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(sendTextRequest(config, "system", "user")).rejects.toThrow("Request failed with status 401");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.example.com/v1/responses");
+  });
+
+  it("does not fall back on model-not-found style 404 errors", async () => {
+    const fetchMock = vi
+      .fn<(_: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "Model gpt-5.4-mini not found" } }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(sendTextRequest(config, "system", "user")).rejects.toThrow("Request failed with status 404");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.example.com/v1/responses");
   });
