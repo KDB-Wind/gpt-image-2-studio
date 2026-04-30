@@ -66,6 +66,18 @@ describe("buildImageFileName", () => {
       }),
     ).toBe("my-final-render-3.png");
   });
+
+  it("uses -2 for the first collision", () => {
+    expect(
+      buildImageFileName({
+        customName: "My Final Render",
+        prompt: "ignored prompt",
+        generatedAt,
+        format: "png",
+        existingFileNames: ["my-final-render.png"],
+      }),
+    ).toBe("my-final-render-2.png");
+  });
 });
 
 describe("buildOutputPath", () => {
