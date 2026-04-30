@@ -56,7 +56,7 @@ select {
   text-transform: uppercase;
 }
 
-h1 {
+.workspace h1 {
   margin: 0;
   font-size: clamp(3rem, 10vw, 7rem);
   line-height: 0.92;
