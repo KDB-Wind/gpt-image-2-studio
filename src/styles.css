@@ -319,9 +319,17 @@ img {
 .validation-list li,
 .empty-state,
 .panel-note,
+.inline-note,
 .error-copy {
   color: var(--text-muted);
   line-height: 1.6;
+}
+
+.inline-note {
+  display: inline-flex;
+  align-items: center;
+  padding: 11px 0;
+  font-size: 0.92rem;
 }
 
 .info-card dl,

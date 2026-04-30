@@ -34,6 +34,11 @@ type PreviewState =
       prompt: string;
       message: string;
       durationMs: number;
+    }
+  | {
+      status: "history-unavailable";
+      record: ImageRecord;
+      message: string;
     };
 
 function getErrorMessage(error: unknown): string {
@@ -92,6 +97,7 @@ export default function App() {
   const validation = useMemo(() => validateConfig(config), [config]);
   const historyGroups = useMemo(() => groupHistoryByDate(history), [history]);
   const effectivePrompt = optimizedPrompt.trim() || prompt.trim();
+  const canOpenOutput = runtime?.mode === "desktop";
   const selectedRecord = useMemo(
     () => history.find((record) => record.id === selectedHistoryId) ?? null,
     [history, selectedHistoryId],
@@ -166,11 +172,36 @@ export default function App() {
     setConfig((current) => ({ ...current, [key]: value }));
   }
 
+  function requireValidConfig(actionLabel: string): boolean {
+    const nextValidation = validateConfig(config);
+
+    if (nextValidation.errors.length === 0) {
+      return true;
+    }
+
+    setActiveTab("settings");
+    setAppMessage(`${actionLabel} requires valid settings. ${nextValidation.errors.join(" ")}`);
+    return false;
+  }
+
+  function handlePromptChange(nextPrompt: string) {
+    setPrompt(nextPrompt);
+
+    if (optimizedPrompt) {
+      setOptimizedPrompt("");
+      setAppMessage("Prompt changed. Cleared the previous optimized prompt so generation uses the updated text.");
+    }
+  }
+
   async function handleOptimizePrompt() {
     const nextPrompt = prompt.trim();
 
     if (!nextPrompt) {
       setAppMessage("Enter a prompt before optimizing it.");
+      return;
+    }
+
+    if (!requireValidConfig("Prompt optimization")) {
       return;
     }
 
@@ -200,14 +231,11 @@ export default function App() {
       return;
     }
 
-    const nextValidation = validateConfig(config);
-    if (nextValidation.errors.length > 0) {
-      setActiveTab("settings");
-      setAppMessage(nextValidation.errors.join(" "));
+    if (!requireValidConfig("Image generation")) {
       setPreviewState({
         status: "failed",
         prompt: finalPrompt,
-        message: nextValidation.errors.join(" "),
+        message: validateConfig(config).errors.join(" "),
         durationMs: 0,
       });
       return;
@@ -300,6 +328,13 @@ export default function App() {
           tone: "neutral",
           text: `Output directory selected: ${selectedDirectory}`,
         });
+      } else {
+        setSettingsMessage({
+          tone: "error",
+          text: runtime.mode === "web"
+            ? "Directory picking is not available in this browser/runtime. Enter the output directory manually."
+            : "No directory was selected.",
+        });
       }
     } catch (error) {
       setSettingsMessage({
@@ -310,6 +345,10 @@ export default function App() {
   }
 
   async function handleTestTextModel() {
+    if (!requireValidConfig("Text model test")) {
+      return;
+    }
+
     setIsTestingText(true);
 
     try {
@@ -329,6 +368,10 @@ export default function App() {
   }
 
   async function handleTestImageModel() {
+    if (!requireValidConfig("Image model test")) {
+      return;
+    }
+
     setIsTestingImage(true);
 
     try {
@@ -364,6 +407,42 @@ export default function App() {
       await runtime.openOutputPath(record.outputPath);
     } catch (error) {
       setAppMessage(`Could not open output path. ${getErrorMessage(error)}`);
+    }
+  }
+
+  async function handleInspectHistory(record: ImageRecord) {
+    setSelectedHistoryId(record.id);
+
+    if (!runtime) {
+      return;
+    }
+
+    try {
+      if (runtime.mode === "desktop") {
+        const { convertFileSrc } = await import("@tauri-apps/api/core");
+        setPreviewState({
+          status: "success",
+          prompt: record.prompt,
+          optimizedPrompt: record.optimizedPrompt,
+          imageUrl: convertFileSrc(record.outputPath),
+          record,
+          customName: "",
+        });
+        return;
+      }
+
+      setPreviewState({
+        status: "history-unavailable",
+        record,
+        message:
+          "Saved history inspection cannot preview prior output files in web mode. Generate again or open the downloaded file manually.",
+      });
+    } catch (error) {
+      setPreviewState({
+        status: "history-unavailable",
+        record,
+        message: `Could not prepare a preview for this saved output. ${getErrorMessage(error)}`,
+      });
     }
   }
 
@@ -427,7 +506,7 @@ export default function App() {
                 <span>Prompt</span>
                 <textarea
                   value={prompt}
-                  onChange={(event) => setPrompt(event.target.value)}
+                  onChange={(event) => handlePromptChange(event.target.value)}
                   rows={8}
                   placeholder="Describe the image you want to generate."
                 />
@@ -458,6 +537,11 @@ export default function App() {
                   placeholder="Optional optimized prompt override."
                 />
               </label>
+              {optimizedPrompt ? (
+                <p className="panel-note">
+                  This optimized prompt is tied to the current base prompt and is cleared when the base prompt changes.
+                </p>
+              ) : null}
 
               <div className="action-row">
                 <button type="button" className="secondary-button" onClick={handleOptimizePrompt} disabled={isOptimizing || isGenerating || isLoadingApp}>
@@ -530,9 +614,13 @@ export default function App() {
                       <button type="button" className="secondary-button" onClick={() => handleReusePrompt(selectedRecord)}>
                         Reuse prompt
                       </button>
-                      <button type="button" className="secondary-button" onClick={() => void handleOpenOutput(selectedRecord)}>
-                        Open output
-                      </button>
+                      {canOpenOutput ? (
+                        <button type="button" className="secondary-button" onClick={() => void handleOpenOutput(selectedRecord)}>
+                          Open output
+                        </button>
+                      ) : (
+                        <span className="inline-note">Open output is only available in desktop runtime.</span>
+                      )}
                     </div>
                   </>
                 ) : (
@@ -704,6 +792,27 @@ export default function App() {
               </div>
             ) : null}
 
+            {previewState.status === "history-unavailable" ? (
+              <div className="preview-state">
+                <div className="preview-placeholder">History</div>
+                <div className="info-card preview-details">
+                  <h3>Selected history item</h3>
+                  <p>{previewState.record.optimizedPrompt || previewState.record.prompt}</p>
+                  <dl>
+                    <div>
+                      <dt>Created</dt>
+                      <dd>{formatDateTime(previewState.record.createdAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Output path</dt>
+                      <dd>{previewState.record.outputPath}</dd>
+                    </div>
+                  </dl>
+                </div>
+                <p className="panel-note">{previewState.message}</p>
+              </div>
+            ) : null}
+
             {previewState.status === "success" ? (
               <div className="preview-success">
                 <div className="preview-frame">
@@ -734,9 +843,13 @@ export default function App() {
                     <button type="button" className="secondary-button" onClick={() => handleReusePrompt(previewState.record)}>
                       Reuse prompt
                     </button>
-                    <button type="button" className="secondary-button" onClick={() => void handleOpenOutput(previewState.record)}>
-                      Open output
-                    </button>
+                    {canOpenOutput ? (
+                      <button type="button" className="secondary-button" onClick={() => void handleOpenOutput(previewState.record)}>
+                        Open output
+                      </button>
+                    ) : (
+                      <span className="inline-note">Open output is only available in desktop runtime.</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -789,7 +902,7 @@ export default function App() {
                           <button
                             type="button"
                             className="ghost-button"
-                            onClick={() => setSelectedHistoryId(record.id)}
+                            onClick={() => void handleInspectHistory(record)}
                           >
                             Inspect
                           </button>
@@ -800,13 +913,15 @@ export default function App() {
                           >
                             Reuse prompt
                           </button>
-                          <button
-                            type="button"
-                            className="ghost-button"
-                            onClick={() => void handleOpenOutput(record)}
-                          >
-                            Open output
-                          </button>
+                          {canOpenOutput ? (
+                            <button
+                              type="button"
+                              className="ghost-button"
+                              onClick={() => void handleOpenOutput(record)}
+                            >
+                              Open output
+                            </button>
+                          ) : null}
                         </div>
                       </article>
                     ))}
