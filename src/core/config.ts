@@ -16,6 +16,8 @@ export type ValidationResult = {
   warnings: string[];
 };
 
+type MaybeConfig = Partial<Record<keyof AppConfig, unknown>>;
+
 export const DEFAULT_CONFIG: AppConfig = {
   baseUrl: "https://ruoli.dev/v1",
   apiKey: "",
@@ -39,45 +41,64 @@ export function normalizeBaseUrl(value: string): string {
 }
 
 export function mergeConfig(value: Partial<AppConfig> | null | undefined): AppConfig {
-  return {
-    ...DEFAULT_CONFIG,
-    ...(value ?? {}),
-  };
+  const merged: AppConfig = { ...DEFAULT_CONFIG };
+
+  for (const [key, fieldValue] of Object.entries(value ?? {}) as [keyof AppConfig, AppConfig[keyof AppConfig]][]) {
+    if (fieldValue !== undefined) {
+      merged[key] = fieldValue;
+    }
+  }
+
+  merged.baseUrl = normalizeBaseUrl(asString(merged.baseUrl));
+
+  return merged;
 }
 
 export function validateConfig(config: AppConfig): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
+  const maybeConfig = config as MaybeConfig;
+  const baseUrl = asString(maybeConfig.baseUrl);
+  const apiKey = asString(maybeConfig.apiKey);
+  const textModel = asString(maybeConfig.textModel);
+  const imageModel = asString(maybeConfig.imageModel);
+  const outputDirectory = asString(maybeConfig.outputDirectory);
+  const timeoutSeconds = maybeConfig.timeoutSeconds;
+  const defaultCount = maybeConfig.defaultCount;
 
   try {
-    new URL(normalizeBaseUrl(config.baseUrl));
+    new URL(normalizeBaseUrl(baseUrl));
   } catch {
     errors.push("Base URL must be a valid URL.");
   }
 
-  if (!config.apiKey.trim()) {
+  if (!apiKey.trim()) {
     errors.push("API key is required.");
   }
 
-  if (!config.textModel.trim()) {
+  if (!textModel.trim()) {
     errors.push("Text model is required.");
   }
 
-  if (!config.imageModel.trim()) {
+  if (!imageModel.trim()) {
     errors.push("Image model is required.");
   }
 
-  if (!Number.isFinite(config.timeoutSeconds) || config.timeoutSeconds < 180) {
+  if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 180) {
     errors.push("Timeout must be at least 180 seconds.");
   }
 
-  if (!Number.isInteger(config.defaultCount) || config.defaultCount < 1 || config.defaultCount > 4) {
+  if (!Number.isInteger(defaultCount) || defaultCount < 1 || defaultCount > 4) {
     errors.push("Image count must be between 1 and 4.");
   }
 
-  if (!config.outputDirectory.trim()) {
+  if (!outputDirectory.trim()) {
     warnings.push("Output directory is empty; the app will use outputs/.");
   }
 
   return { errors, warnings };
+}
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CONFIG,
+  mergeConfig,
   normalizeBaseUrl,
   validateConfig,
   type AppConfig,
@@ -50,5 +51,34 @@ describe("validateConfig", () => {
     const result = validateConfig({ ...valid, outputDirectory: "" });
     expect(result.errors).toEqual([]);
     expect(result.warnings).toContain("Output directory is empty; the app will use outputs/.");
+  });
+});
+
+describe("mergeConfig", () => {
+  it("normalizes a host-only base URL in the merged config", () => {
+    expect(mergeConfig({ baseUrl: "https://ruoli.dev" }).baseUrl).toBe("https://ruoli.dev/v1");
+  });
+
+  it("does not let undefined partial values wipe defaults", () => {
+    const merged = mergeConfig({
+      baseUrl: undefined,
+      textModel: undefined,
+      timeoutSeconds: undefined,
+    } as Partial<AppConfig>);
+
+    expect(merged.baseUrl).toBe(DEFAULT_CONFIG.baseUrl);
+    expect(merged.textModel).toBe(DEFAULT_CONFIG.textModel);
+    expect(merged.timeoutSeconds).toBe(DEFAULT_CONFIG.timeoutSeconds);
+  });
+
+  it("returns a config that validateConfig can handle even with undefined-like partial input", () => {
+    const merged = mergeConfig({
+      apiKey: "sk-local",
+      outputDirectory: undefined,
+      imageModel: undefined,
+    } as Partial<AppConfig>);
+
+    expect(() => validateConfig(merged)).not.toThrow();
+    expect(validateConfig(merged).errors).toEqual([]);
   });
 });
