@@ -17,14 +17,19 @@ type SaveGeneratedImagePayload = {
 };
 
 async function blobToBase64(blob: Blob): Promise<string> {
-  const buffer = await blob.arrayBuffer();
-  let binary = "";
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read blob."));
+    reader.readAsDataURL(blob);
+  });
+  const [, base64 = ""] = dataUrl.split(",", 2);
 
-  for (const byte of new Uint8Array(buffer)) {
-    binary += String.fromCharCode(byte);
+  if (!base64) {
+    throw new Error("Failed to convert image blob to base64.");
   }
 
-  return btoa(binary);
+  return base64;
 }
 
 async function imageToBase64(input: SaveImageInput): Promise<string> {

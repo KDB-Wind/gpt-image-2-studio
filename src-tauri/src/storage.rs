@@ -2,6 +2,7 @@ use std::{
     collections::HashSet,
     fs,
     path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -9,16 +10,21 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::{DateTime, Local};
 use directories::ProjectDirs;
 use keyring::Entry;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::Serialize;
 
 use crate::models::{AppConfig, ImageRecord, SaveGeneratedImageInput, SaveImageResult};
 
 const KEYRING_SERVICE: &str = "chat-to-image";
 const KEYRING_ACCOUNT: &str = "default";
+const API_KEY_STORAGE_FIELD: &str = "__apiKeyStorage";
+const KEYRING_STORAGE_MODE: &str = "keyring";
+const JSON_FALLBACK_STORAGE_MODE: &str = "json-fallback";
 const RESERVED_WINDOWS_NAMES: &[&str] = &[
     "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7",
     "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
 ];
+
+static SAVE_IMAGE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 pub fn default_config() -> AppConfig {
     AppConfig {
@@ -56,51 +62,112 @@ fn ensure_parent(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn read_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, String> {
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let raw = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    serde_json::from_str(&raw)
-        .map(Some)
-        .map_err(|error| error.to_string())
-}
-
 fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     ensure_parent(path)?;
     let json = serde_json::to_string_pretty(value).map_err(|error| error.to_string())?;
     fs::write(path, json).map_err(|error| error.to_string())
 }
 
-fn read_api_key_fallback(path: &Path) -> String {
-    read_json::<serde_json::Value>(path)
+fn read_json_value(path: &Path) -> Option<serde_json::Value> {
+    fs::read_to_string(path)
         .ok()
-        .flatten()
-        .and_then(|value| value.get("apiKey").and_then(|item| item.as_str()).map(ToOwned::to_owned))
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+}
+
+fn get_string_field(value: &serde_json::Value, key: &str) -> Option<String> {
+    value.get(key).and_then(|item| item.as_str()).map(ToOwned::to_owned)
+}
+
+pub fn merge_config_value(value: serde_json::Value) -> AppConfig {
+    let mut config = default_config();
+
+    if let Some(base_url) = get_string_field(&value, "baseUrl") {
+        config.base_url = base_url;
+    }
+    if let Some(api_key) = get_string_field(&value, "apiKey") {
+        config.api_key = api_key;
+    }
+    if let Some(text_model) = get_string_field(&value, "textModel") {
+        config.text_model = text_model;
+    }
+    if let Some(image_model) = get_string_field(&value, "imageModel") {
+        config.image_model = image_model;
+    }
+    if let Some(timeout_seconds) = value.get("timeoutSeconds").and_then(|item| item.as_u64()) {
+        config.timeout_seconds = timeout_seconds;
+    }
+    if let Some(output_directory) = get_string_field(&value, "outputDirectory") {
+        config.output_directory = output_directory;
+    }
+    if let Some(default_size) = get_string_field(&value, "defaultSize") {
+        config.default_size = default_size;
+    }
+    if let Some(default_count) = value
+        .get("defaultCount")
+        .and_then(|item| item.as_u64())
+        .and_then(|count| u8::try_from(count).ok())
+    {
+        config.default_count = default_count;
+    }
+    if let Some(default_quality) = get_string_field(&value, "defaultQuality") {
+        config.default_quality = default_quality;
+    }
+    if let Some(default_format) = get_string_field(&value, "defaultFormat") {
+        config.default_format = default_format;
+    }
+
+    config
+}
+
+fn read_api_key_fallback_value(value: &serde_json::Value) -> String {
+    get_string_field(value, "apiKey").unwrap_or_default()
+}
+
+fn read_api_key_fallback(path: &Path) -> String {
+    read_json_value(path)
+        .map(|value| read_api_key_fallback_value(&value))
         .unwrap_or_default()
 }
 
+fn read_api_key_storage_mode(path: &Path) -> String {
+    read_json_value(path)
+        .and_then(|value| get_string_field(&value, API_KEY_STORAGE_FIELD))
+        .unwrap_or_else(|| KEYRING_STORAGE_MODE.to_string())
+}
+
 fn load_api_key(path: &Path) -> String {
+    if read_api_key_storage_mode(path) == JSON_FALLBACK_STORAGE_MODE {
+        return read_api_key_fallback(path);
+    }
+
     Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
         .map_err(|error| error.to_string())
         .and_then(|entry| entry.get_password().map_err(|error| error.to_string()))
         .unwrap_or_else(|_| read_api_key_fallback(path))
 }
 
-fn save_api_key(path: &Path, api_key: &str) -> Result<bool, String> {
+fn write_config_file(path: &Path, config: &AppConfig, api_key_storage_mode: &str) -> Result<(), String> {
+    let mut value = serde_json::to_value(config).map_err(|error| error.to_string())?;
+    value[API_KEY_STORAGE_FIELD] = serde_json::Value::String(api_key_storage_mode.to_string());
+    write_json(path, &value)
+}
+
+fn save_api_key(path: &Path, api_key: &str) -> Result<String, String> {
     let keyring_result = Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
         .map_err(|error| error.to_string())
         .and_then(|entry| entry.set_password(api_key).map_err(|error| error.to_string()));
 
     match keyring_result {
-        Ok(()) => Ok(true),
+        Ok(()) => Ok(KEYRING_STORAGE_MODE.to_string()),
         Err(_) => {
-            let mut value = serde_json::to_value(read_json::<AppConfig>(path)?.unwrap_or_else(default_config))
-                .map_err(|error| error.to_string())?;
+            let current_config = read_json_value(path)
+                .map(merge_config_value)
+                .unwrap_or_else(default_config);
+            let mut value = serde_json::to_value(current_config).map_err(|error| error.to_string())?;
             value["apiKey"] = serde_json::Value::String(api_key.to_string());
+            value[API_KEY_STORAGE_FIELD] = serde_json::Value::String(JSON_FALLBACK_STORAGE_MODE.to_string());
             write_json(path, &value)?;
-            Ok(false)
+            Ok(JSON_FALLBACK_STORAGE_MODE.to_string())
         }
     }
 }
@@ -181,6 +248,17 @@ fn normalize_output_directory(value: &str) -> String {
     }
 }
 
+pub fn resolve_output_root(value: &str, base_dir: &Path) -> PathBuf {
+    let normalized = normalize_output_directory(value);
+    let output_root = PathBuf::from(&normalized);
+
+    if output_root.is_absolute() {
+        output_root
+    } else {
+        base_dir.join(output_root)
+    }
+}
+
 fn normalize_extension(value: &str) -> String {
     if value.eq_ignore_ascii_case("jpeg") {
         "jpg".to_string()
@@ -235,9 +313,13 @@ fn build_file_name(input: &SaveGeneratedImageInput, directory: &Path) -> Result<
     }
 }
 
+fn output_base_dir() -> Result<PathBuf, String> {
+    Ok(project_dirs()?.data_dir().to_path_buf())
+}
+
 fn image_output_directory(input: &SaveGeneratedImageInput) -> Result<PathBuf, String> {
     let generated_at = parse_generated_at(&input.generated_at)?;
-    let output_root = PathBuf::from(normalize_output_directory(&input.config.output_directory));
+    let output_root = resolve_output_root(&input.config.output_directory, &output_base_dir()?);
     Ok(output_root.join(format_date_folder(generated_at)))
 }
 
@@ -268,10 +350,16 @@ fn sort_history(records: &mut [ImageRecord]) {
     records.sort_by(|left, right| right.created_at.cmp(&left.created_at));
 }
 
+pub fn parse_history_json(raw: &str) -> Vec<ImageRecord> {
+    serde_json::from_str(raw).unwrap_or_default()
+}
+
 #[tauri::command]
 pub fn load_config() -> Result<AppConfig, String> {
     let path = config_path()?;
-    let mut config = read_json::<AppConfig>(&path)?.unwrap_or_else(default_config);
+    let mut config = read_json_value(&path)
+        .map(merge_config_value)
+        .unwrap_or_else(default_config);
     config.api_key = load_api_key(&path);
     Ok(config)
 }
@@ -279,25 +367,32 @@ pub fn load_config() -> Result<AppConfig, String> {
 #[tauri::command]
 pub fn save_config(mut config: AppConfig) -> Result<(), String> {
     let path = config_path()?;
-    let stored_in_keyring = save_api_key(&path, &config.api_key)?;
+    let api_key_storage_mode = save_api_key(&path, &config.api_key)?;
 
-    if stored_in_keyring {
+    if api_key_storage_mode == KEYRING_STORAGE_MODE {
         config.api_key.clear();
     }
 
-    write_json(&path, &config)
+    write_config_file(&path, &config, &api_key_storage_mode)
 }
 
 #[tauri::command]
 pub fn load_history() -> Result<Vec<ImageRecord>, String> {
     let path = history_path()?;
-    let mut history = read_json::<Vec<ImageRecord>>(&path)?.unwrap_or_default();
+    let mut history = fs::read_to_string(path)
+        .ok()
+        .map(|raw| parse_history_json(&raw))
+        .unwrap_or_default();
     sort_history(&mut history);
     Ok(history)
 }
 
 #[tauri::command]
 pub fn save_generated_image(input: SaveGeneratedImageInput) -> Result<SaveImageResult, String> {
+    let _save_guard = SAVE_IMAGE_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|_| "Save image lock was poisoned.".to_string())?;
     let directory = image_output_directory(&input)?;
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
 
@@ -310,7 +405,10 @@ pub fn save_generated_image(input: SaveGeneratedImageInput) -> Result<SaveImageR
 
     let record = create_record(input, &output_path);
     let history_file = history_path()?;
-    let mut history = read_json::<Vec<ImageRecord>>(&history_file)?.unwrap_or_default();
+    let mut history = fs::read_to_string(&history_file)
+        .ok()
+        .map(|raw| parse_history_json(&raw))
+        .unwrap_or_default();
     history.push(record.clone());
     sort_history(&mut history);
     write_json(&history_file, &history)?;
