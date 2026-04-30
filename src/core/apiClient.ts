@@ -287,6 +287,10 @@ export async function generateImages(config: AppConfig, prompt: string): Promise
   return parseImageGenerationResponse(payload);
 }
 
+export function testImageModel(config: AppConfig): Promise<ParsedImage[]> {
+  return generateImages(config, "A plain single-color square swatch image.");
+}
+
 function asRecord(value: unknown): JsonRecord {
   return value !== null && typeof value === "object" ? (value as JsonRecord) : {};
 }

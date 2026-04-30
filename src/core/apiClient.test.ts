@@ -8,6 +8,7 @@ import {
   parseTextResponse,
   requestJsonWithTimeout,
   sendTextRequest,
+  testImageModel,
 } from "./apiClient";
 
 describe("buildResponsesRequest", () => {
@@ -378,5 +379,59 @@ describe("sendTextRequest", () => {
     await expect(sendTextRequest(config, "system", "user")).rejects.toThrow("Request failed with status 501");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.example.com/v1/responses");
+  });
+});
+
+describe("testImageModel", () => {
+  const config: AppConfig = {
+    ...DEFAULT_CONFIG,
+    baseUrl: "https://api.example.com",
+    apiKey: "sk-test",
+    timeoutSeconds: 5,
+    imageModel: "gpt-image-1",
+    defaultSize: "1024x1024",
+    defaultQuality: "medium",
+    defaultCount: 1,
+    defaultFormat: "png",
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("delegates to the image generation endpoint with a minimal swatch prompt", async () => {
+    const fetchMock = vi
+      .fn<(_: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ url: "https://example.com/swatch.png" }],
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(testImageModel(config)).resolves.toEqual([
+      { url: "https://example.com/swatch.png" },
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [requestUrl, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(requestUrl).toBe("https://api.example.com/v1/images/generations");
+    expect(requestInit.body).toBe(
+      JSON.stringify({
+        model: "gpt-image-1",
+        prompt: "A plain single-color square swatch image.",
+        size: "1024x1024",
+        quality: "medium",
+        n: 1,
+        output_format: "png",
+      }),
+    );
   });
 });
