@@ -236,6 +236,14 @@ export default function App() {
 
       setOptimizedPrompt(revisedPrompt.trim());
     } catch (error) {
+      if (optimizeRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      if (promptRef.current.trim() !== nextPrompt) {
+        return;
+      }
+
       setAppMessage(`Prompt optimization failed. ${getErrorMessage(error)}`);
     } finally {
       if (optimizeRequestIdRef.current === requestId) {
