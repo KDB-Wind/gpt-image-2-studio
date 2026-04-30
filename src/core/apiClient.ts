@@ -34,12 +34,28 @@ export type RequestJsonInput = {
   body: unknown;
 };
 
+type ApiClientErrorKind = "timeout" | "http" | "network";
+
 type ChatMessageContentPart = {
   type?: string;
   text?: string;
 };
 
 type JsonRecord = Record<string, unknown>;
+
+class ApiClientError extends Error {
+  kind: ApiClientErrorKind;
+  status?: number;
+  responseBody?: string;
+
+  constructor(message: string, options: { kind: ApiClientErrorKind; status?: number; responseBody?: string }) {
+    super(message);
+    this.name = "ApiClientError";
+    this.kind = options.kind;
+    this.status = options.status;
+    this.responseBody = options.responseBody;
+  }
+}
 
 export function buildResponsesRequest({ model, input }: TextRequestInput) {
   return { model, input };
@@ -82,6 +98,7 @@ export function parseTextResponse(payload: unknown): string {
   }
 
   const output = Array.isArray(record.output) ? record.output : [];
+  const responseSegments: string[] = [];
   for (const item of output) {
     const itemRecord = asRecord(item);
     const content = Array.isArray(itemRecord.content) ? itemRecord.content : [];
@@ -89,9 +106,13 @@ export function parseTextResponse(payload: unknown): string {
     for (const part of content) {
       const text = asString(asRecord(part).text);
       if (text) {
-        return text;
+        responseSegments.push(text);
       }
     }
+  }
+
+  if (responseSegments.length > 0) {
+    return responseSegments.join("\n");
   }
 
   const choices = Array.isArray(record.choices) ? record.choices : [];
@@ -175,16 +196,28 @@ export async function requestJsonWithTimeout(config: AppConfig, { path, body }: 
     if (!response.ok) {
       const details = await readResponseText(response);
       const suffix = details ? `: ${details}` : "";
-      throw new Error(`Request failed with status ${response.status}${suffix}`);
+      throw new ApiClientError(`Request failed with status ${response.status}${suffix}`, {
+        kind: "http",
+        status: response.status,
+        responseBody: details,
+      });
     }
 
     return response.json();
   } catch (error) {
     if (timedOut || isAbortError(error)) {
-      throw new Error(`Request timed out after ${config.timeoutSeconds} seconds.`);
+      throw new ApiClientError(`Request timed out after ${config.timeoutSeconds} seconds.`, {
+        kind: "timeout",
+      });
     }
 
-    throw error;
+    if (error instanceof ApiClientError) {
+      throw error;
+    }
+
+    throw new ApiClientError(error instanceof Error ? error.message : "Request failed.", {
+      kind: "network",
+    });
   } finally {
     clearTimeout(timeoutId);
   }
@@ -204,7 +237,11 @@ export async function sendTextRequest(config: AppConfig, system: string, user: s
     });
 
     return parseTextResponse(responsesPayload);
-  } catch {
+  } catch (error) {
+    if (!shouldFallbackToChatCompletions(error)) {
+      throw error;
+    }
+
     const chatPayload = await requestJsonWithTimeout(config, {
       path: "/chat/completions",
       body: buildChatCompletionsRequest({
@@ -270,6 +307,19 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException
     ? error.name === "AbortError"
     : asRecord(error).name === "AbortError";
+}
+
+function shouldFallbackToChatCompletions(error: unknown): boolean {
+  if (!(error instanceof ApiClientError) || error.kind !== "http") {
+    return false;
+  }
+
+  if (error.status !== 404 && error.status !== 405 && error.status !== 501) {
+    return false;
+  }
+
+  const haystack = `${error.message}\n${error.responseBody ?? ""}`.toLowerCase();
+  return haystack.includes("unsupported") || haystack.includes("not found") || haystack.includes("unknown endpoint");
 }
 
 async function readResponseText(response: Response): Promise<string> {
