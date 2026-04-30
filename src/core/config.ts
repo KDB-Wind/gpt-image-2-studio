@@ -41,7 +41,12 @@ export function normalizeBaseUrl(value: string): string {
 }
 
 export function mergeConfig(value: Partial<AppConfig> | null | undefined): AppConfig {
-  const merged: AppConfig = { ...DEFAULT_CONFIG, ...(value ?? {}) };
+  const merged: AppConfig = {
+    ...DEFAULT_CONFIG,
+    ...(Object.fromEntries(
+      Object.entries(value ?? {}).filter(([, fieldValue]) => fieldValue !== undefined),
+    ) as Partial<AppConfig>),
+  };
 
   merged.baseUrl = normalizeBaseUrl(asString(merged.baseUrl));
 
