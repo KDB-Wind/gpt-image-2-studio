@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { formatDateFolder } from "./fileNames";
 import {
   groupHistoryByDate,
   sortHistoryNewestFirst,
@@ -42,31 +41,48 @@ describe("groupHistoryByDate", () => {
     const may2Morning = createRecord({
       id: "may-2-morning",
       createdAt: "2026-05-02T08:00:00.000Z",
+      outputPath: "outputs/2026-05-02/may-2-morning.png",
     });
     const may2Night = createRecord({
       id: "may-2-night",
       createdAt: "2026-05-02T20:00:00.000Z",
+      outputPath: "outputs/2026-05-03/may-2-night.png",
     });
     const may1Evening = createRecord({
       id: "may-1-evening",
       createdAt: "2026-05-01T20:00:00.000Z",
+      outputPath: "outputs/2026-05-02/may-1-evening.png",
     });
 
-    const expectedGroups = new Map<string, ImageRecord[]>();
-    for (const record of [may2Night, may2Morning, may1Evening]) {
-      const date = formatDateFolder(new Date(record.createdAt));
-      const records = expectedGroups.get(date);
+    expect(groupHistoryByDate([may1Evening, may2Night, may2Morning])).toEqual([
+      {
+        date: "2026-05-03",
+        records: [may2Night],
+      },
+      {
+        date: "2026-05-02",
+        records: [may2Morning, may1Evening],
+      },
+    ]);
+  });
 
-      if (records) {
-        records.push(record);
-        continue;
-      }
+  it("uses the output path date before the createdAt local day", () => {
+    const outputPathWins = createRecord({
+      id: "output-path-wins",
+      createdAt: "2026-05-01T23:30:00.000Z",
+      outputPath: "outputs/2026-05-01/output-path-wins.png",
+    });
+    const createdAtFallback = createRecord({
+      id: "created-at-fallback",
+      createdAt: "2026-05-01T08:00:00.000Z",
+      outputPath: "output-without-date-folder.png",
+    });
 
-      expectedGroups.set(date, [record]);
-    }
-
-    expect(groupHistoryByDate([may1Evening, may2Night, may2Morning])).toEqual(
-      Array.from(expectedGroups, ([date, records]) => ({ date, records })),
-    );
+    expect(groupHistoryByDate([createdAtFallback, outputPathWins])).toEqual([
+      {
+        date: "2026-05-01",
+        records: [outputPathWins, createdAtFallback],
+      },
+    ]);
   });
 });

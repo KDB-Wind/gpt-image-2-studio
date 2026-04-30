@@ -30,7 +30,7 @@ export function groupHistoryByDate(records: ImageRecord[]): HistoryGroup[] {
   const groups = new Map<string, ImageRecord[]>();
 
   for (const record of sortHistoryNewestFirst(records)) {
-    const date = formatDateFolder(new Date(record.createdAt));
+    const date = getHistoryGroupDate(record);
     const existing = groups.get(date);
 
     if (existing) {
@@ -45,4 +45,14 @@ export function groupHistoryByDate(records: ImageRecord[]): HistoryGroup[] {
     date,
     records: groupedRecords,
   }));
+}
+
+function getHistoryGroupDate(record: ImageRecord): string {
+  const outputPathDate = record.outputPath.match(/(?:^|[\\/])(\d{4}-\d{2}-\d{2})(?:[\\/]|$)/)?.[1];
+
+  if (outputPathDate) {
+    return outputPathDate;
+  }
+
+  return formatDateFolder(new Date(record.createdAt));
 }
