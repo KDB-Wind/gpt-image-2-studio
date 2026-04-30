@@ -296,7 +296,7 @@ function asString(value: unknown): string {
 }
 
 function readChatContentPart(part: ChatMessageContentPart): string {
-  if (part.type === "output_text" || part.type === "text" || part.type === undefined) {
+  if (part.type === "output_text" || part.type === "text") {
     return asString(part.text);
   }
 
@@ -319,11 +319,15 @@ function shouldFallbackToChatCompletions(error: unknown): boolean {
   }
 
   const haystack = `${error.message}\n${error.responseBody ?? ""}`.toLowerCase();
-  return haystack.includes("unsupported")
+  return haystack.includes("unsupported endpoint")
+    || haystack.includes("unsupported route")
+    || haystack.includes("unsupported path")
     || haystack.includes("unknown endpoint")
     || haystack.includes("unknown route")
     || haystack.includes("unknown path")
-    || haystack.includes("not implemented")
+    || haystack.includes("endpoint not implemented")
+    || haystack.includes("route not implemented")
+    || haystack.includes("path not implemented")
     || haystack.includes("method not allowed")
     || haystack.includes("no route");
 }

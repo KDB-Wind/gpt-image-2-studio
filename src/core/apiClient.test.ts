@@ -125,6 +125,21 @@ describe("parseTextResponse", () => {
       }),
     ).toBe("Keep this");
   });
+
+  it("ignores untyped response parts even when they expose a text field", () => {
+    expect(
+      parseTextResponse({
+        output: [
+          {
+            content: [
+              { text: "ignore this too" },
+              { type: "output_text", text: "Keep this" },
+            ],
+          },
+        ],
+      }),
+    ).toBe("Keep this");
+  });
 });
 
 describe("parseImageGenerationResponse", () => {
@@ -310,6 +325,40 @@ describe("sendTextRequest", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(sendTextRequest(config, "system", "user")).rejects.toThrow("Request failed with status 404");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.example.com/v1/responses");
+  });
+
+  it("does not fall back on unsupported model errors", async () => {
+    const fetchMock = vi
+      .fn<(_: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "Unsupported model gpt-5.4-mini" } }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(sendTextRequest(config, "system", "user")).rejects.toThrow("Request failed with status 404");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.example.com/v1/responses");
+  });
+
+  it("does not fall back on model-scoped not-implemented errors", async () => {
+    const fetchMock = vi
+      .fn<(_: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "Not implemented for this model" } }), {
+          status: 501,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(sendTextRequest(config, "system", "user")).rejects.toThrow("Request failed with status 501");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.example.com/v1/responses");
   });
