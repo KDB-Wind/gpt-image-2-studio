@@ -103,3 +103,79 @@ fn history_for_save_keeps_parse_fallback_but_returns_io_errors() {
 
     let _ = std::fs::remove_dir_all(&temp_root);
 }
+
+#[test]
+fn keeps_keyring_storage_only_when_read_back_succeeds() {
+    assert!(crate::storage::should_use_keyring_storage(
+        Ok(()),
+        Ok("sk-local".to_string()),
+        "sk-local"
+    ));
+}
+
+#[test]
+fn falls_back_when_keyring_cannot_read_saved_value() {
+    assert!(!crate::storage::should_use_keyring_storage(
+        Ok(()),
+        Err("backend unavailable".to_string()),
+        "sk-local"
+    ));
+}
+
+#[test]
+fn falls_back_when_keyring_reads_a_different_value() {
+    assert!(!crate::storage::should_use_keyring_storage(
+        Ok(()),
+        Ok("different".to_string()),
+        "sk-local"
+    ));
+}
+
+#[test]
+fn falls_back_when_write_fails_even_if_stale_key_matches() {
+    assert!(!crate::storage::should_use_keyring_storage(
+        Err("write failed".to_string()),
+        Ok("sk-local".to_string()),
+        "sk-local"
+    ));
+}
+
+#[test]
+fn persists_api_key_in_json_fallback_mode() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-api-key-fallback-test-{}",
+        std::process::id()
+    ));
+    let config_path = temp_root.join("config.json");
+
+    std::fs::create_dir_all(&temp_root).unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "sk-local").unwrap();
+
+    let stored: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert_eq!(stored["__apiKeyStorage"], "json-fallback");
+    assert_eq!(stored["apiKey"], "sk-local");
+
+    let loaded = crate::storage::load_config_from_path(&config_path).unwrap();
+    assert_eq!(loaded.api_key, "sk-local");
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn loads_api_key_from_json_fallback_mode() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-api-key-load-fallback-test-{}",
+        std::process::id()
+    ));
+    let config_path = temp_root.join("config.json");
+
+    std::fs::create_dir_all(&temp_root).unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "sk-local").unwrap();
+
+    let loaded =
+        crate::storage::load_api_key_with_result(&config_path, Ok("wrong-keyring".to_string()));
+    assert_eq!(loaded, "sk-local");
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}

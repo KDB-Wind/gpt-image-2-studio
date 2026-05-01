@@ -146,15 +146,25 @@ fn read_api_key_storage_mode(path: &Path) -> String {
         .unwrap_or_else(|| KEYRING_STORAGE_MODE.to_string())
 }
 
-fn load_api_key(path: &Path) -> String {
+pub fn load_api_key_with_result(path: &Path, keyring_result: Result<String, String>) -> String {
+    let fallback_value = read_api_key_fallback(path);
+
     if read_api_key_storage_mode(path) == JSON_FALLBACK_STORAGE_MODE {
-        return read_api_key_fallback(path);
+        return fallback_value;
     }
 
-    Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+    match keyring_result {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => fallback_value,
+    }
+}
+
+fn load_api_key(path: &Path) -> String {
+    let keyring_result = Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
         .map_err(|error| error.to_string())
-        .and_then(|entry| entry.get_password().map_err(|error| error.to_string()))
-        .unwrap_or_else(|_| read_api_key_fallback(path))
+        .and_then(|entry| entry.get_password().map_err(|error| error.to_string()));
+
+    load_api_key_with_result(path, keyring_result)
 }
 
 fn write_config_file(path: &Path, config: &AppConfig, api_key_storage_mode: &str) -> Result<(), String> {
@@ -163,21 +173,50 @@ fn write_config_file(path: &Path, config: &AppConfig, api_key_storage_mode: &str
     write_json(path, &value)
 }
 
+pub fn should_use_keyring_storage(
+    write_result: Result<(), String>,
+    read_back_result: Result<String, String>,
+    expected_api_key: &str,
+) -> bool {
+    if write_result.is_err() {
+        return false;
+    }
+
+    matches!(read_back_result, Ok(read_back) if read_back == expected_api_key)
+}
+
+pub fn persist_api_key_json_fallback(path: &Path, api_key: &str) -> Result<(), String> {
+    let current_config = read_json_value(path)
+        .map(merge_config_value)
+        .unwrap_or_else(default_config);
+    let mut value = serde_json::to_value(current_config).map_err(|error| error.to_string())?;
+    value["apiKey"] = serde_json::Value::String(api_key.to_string());
+    value[API_KEY_STORAGE_FIELD] = serde_json::Value::String(JSON_FALLBACK_STORAGE_MODE.to_string());
+    write_json(path, &value)
+}
+
 fn save_api_key(path: &Path, api_key: &str) -> Result<String, String> {
     let keyring_result = Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
         .map_err(|error| error.to_string())
-        .and_then(|entry| entry.set_password(api_key).map_err(|error| error.to_string()));
+        .map(|entry| {
+            let write_result = entry
+                .set_password(api_key)
+                .map_err(|error| error.to_string());
+            let read_back_result = Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+                .map_err(|error| error.to_string())
+                .and_then(|fresh_entry| fresh_entry.get_password().map_err(|error| error.to_string()));
+
+            should_use_keyring_storage(write_result, read_back_result, api_key)
+        });
 
     match keyring_result {
-        Ok(()) => Ok(KEYRING_STORAGE_MODE.to_string()),
+        Ok(true) => Ok(KEYRING_STORAGE_MODE.to_string()),
         Err(_) => {
-            let current_config = read_json_value(path)
-                .map(merge_config_value)
-                .unwrap_or_else(default_config);
-            let mut value = serde_json::to_value(current_config).map_err(|error| error.to_string())?;
-            value["apiKey"] = serde_json::Value::String(api_key.to_string());
-            value[API_KEY_STORAGE_FIELD] = serde_json::Value::String(JSON_FALLBACK_STORAGE_MODE.to_string());
-            write_json(path, &value)?;
+            persist_api_key_json_fallback(path, api_key)?;
+            Ok(JSON_FALLBACK_STORAGE_MODE.to_string())
+        }
+        Ok(false) => {
+            persist_api_key_json_fallback(path, api_key)?;
             Ok(JSON_FALLBACK_STORAGE_MODE.to_string())
         }
     }
