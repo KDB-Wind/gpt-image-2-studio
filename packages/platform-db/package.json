@@ -1,0 +1,11 @@
+{
+  "name": "@chat-to-image/platform-db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/repository.ts",
+  "exports": {
+    ".": "./src/repository.ts",
+    "./in-memory": "./src/inMemoryRepository.ts"
+  }
+}
