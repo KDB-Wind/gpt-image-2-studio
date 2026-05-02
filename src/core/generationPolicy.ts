@@ -89,5 +89,5 @@ const DECISIONS = {
 } as const satisfies Record<GenerationOutcomeKind, GenerationCreditDecision>;
 
 export function getGenerationCreditDecision(outcome: GenerationOutcome): GenerationCreditDecision {
-  return DECISIONS[outcome.kind];
+  return { ...DECISIONS[outcome.kind] };
 }

@@ -35,7 +35,7 @@ describe("getGenerationCreditDecision", () => {
   });
 
   it("maps all non-chargeable failures to the expected ledger events", () => {
-    const cases: Array<{ kind: GenerationOutcomeKind; ledgerEvent: CreditLedgerEvent; costRisk?: boolean }> = [
+    const cases: Array<{ kind: GenerationOutcomeKind; ledgerEvent: CreditLedgerEvent }> = [
       { kind: "validation_error", ledgerEvent: "input_rejected_no_charge" },
       { kind: "auth_error", ledgerEvent: "auth_failure_no_charge" },
       { kind: "rate_limited", ledgerEvent: "rate_limit_no_charge" },
@@ -48,9 +48,25 @@ describe("getGenerationCreditDecision", () => {
       expect(getGenerationCreditDecision({ kind: testCase.kind })).toMatchObject({
         debitCredits: 0,
         ledgerEvent: testCase.ledgerEvent,
-        costRisk: testCase.costRisk ?? false,
+        costRisk: false,
       });
     }
+  });
+
+  it("returns a fresh decision object for each call", () => {
+    const firstDecision = getGenerationCreditDecision({ kind: "success" });
+
+    firstDecision.debitCredits = 99;
+    firstDecision.ledgerEvent = "unknown_failure_no_charge";
+    firstDecision.costRisk = true;
+    firstDecision.userMessage = "mutated";
+
+    expect(getGenerationCreditDecision({ kind: "success" })).toEqual({
+      debitCredits: 1,
+      ledgerEvent: "generation_debit",
+      costRisk: false,
+      userMessage: "Generation succeeded and 1 credit was used.",
+    });
   });
 
   it("returns a decision for every outcome kind", () => {
