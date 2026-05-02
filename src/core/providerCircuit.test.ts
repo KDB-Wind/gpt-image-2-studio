@@ -48,6 +48,26 @@ describe("provider circuit", () => {
     expect(canUseProvider(opened, nowMs, "admin_probe").allowed).toBe(true);
   });
 
+  it("lets an admin reserve a probe while the circuit is still open without changing state", () => {
+    const opened = recordProviderFailure(
+      createProviderCircuit({
+        providerId: "ruoli",
+        baseUrl: "https://ruoli.dev/v1",
+        imageModel: "gpt-image-2",
+        nowMs,
+      }),
+      classifyProviderError({ status: 524 }),
+      nowMs,
+    );
+
+    expect(() => reserveProviderProbe(opened, nowMs, "admin_probe")).not.toThrow();
+    expect(reserveProviderProbe(opened, nowMs, "admin_probe")).toMatchObject({
+      state: "open",
+      openUntilMs: nowMs + cooldownMs,
+      halfOpenProbeInFlight: false,
+    });
+  });
+
   it("moves to half_open after the open window expires and allows one probe", () => {
     const opened = recordProviderFailure(
       createProviderCircuit({
@@ -128,6 +148,7 @@ describe("provider circuit", () => {
       openUntilMs: null,
       halfOpenProbeInFlight: false,
       consecutiveCostRiskFailures: 0,
+      lastFailureReason: null,
     });
   });
 

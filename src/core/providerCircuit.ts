@@ -144,6 +144,7 @@ export function recordProviderSuccess(circuit: ProviderCircuit, nowMs: number): 
     openUntilMs: null,
     halfOpenProbeInFlight: false,
     consecutiveCostRiskFailures: 0,
+    lastFailureReason: null,
   };
 }
 
