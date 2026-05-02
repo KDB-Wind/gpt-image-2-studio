@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   classifyProviderError,
-  isCostRiskProviderError,
   type ProviderErrorInput,
 } from "./providerErrors";
 
@@ -50,17 +49,42 @@ describe("classifyProviderError", () => {
       },
     };
 
-    expect(isCostRiskProviderError(input)).toBe(true);
+    expect(classifyProviderError(input)).toMatchObject({
+      category: "cost_risk",
+      shouldOpenProviderCircuit: true,
+      shouldCooldownApiKey: true,
+      shouldDisableApiKey: false,
+      userChargeable: false,
+    });
   });
 
   it("classifies auth errors as key-disabling errors only", () => {
-    expect(classifyProviderError({ status: 401 }).category).toBe("auth");
-    expect(classifyProviderError({ status: 403 }).shouldDisableApiKey).toBe(true);
-    expect(classifyProviderError({ status: 403 }).shouldOpenProviderCircuit).toBe(false);
+    expect(
+      classifyProviderError({
+        status: 401,
+        message: "openai_error",
+      }),
+    ).toMatchObject({
+      category: "auth",
+      shouldDisableApiKey: true,
+      shouldOpenProviderCircuit: false,
+      userChargeable: false,
+    });
+    expect(
+      classifyProviderError({
+        status: 403,
+        payload: { error: { message: "openai_error" } },
+      }),
+    ).toMatchObject({
+      category: "auth",
+      shouldDisableApiKey: true,
+      shouldOpenProviderCircuit: false,
+      userChargeable: false,
+    });
   });
 
   it("classifies 429 as key cooldown and not provider circuit", () => {
-    expect(classifyProviderError({ status: 429 })).toMatchObject({
+    expect(classifyProviderError({ status: 429, code: "bad_response_status_code" })).toMatchObject({
       category: "rate_limit",
       shouldCooldownApiKey: true,
       shouldOpenProviderCircuit: false,
@@ -69,13 +93,40 @@ describe("classifyProviderError", () => {
   });
 
   it("classifies timeout and network failures without opening the supplier circuit", () => {
-    expect(classifyProviderError({ kind: "timeout" })).toMatchObject({
+    expect(classifyProviderError({ kind: "timeout", message: "openai_error" })).toMatchObject({
       category: "timeout",
       shouldOpenProviderCircuit: false,
     });
-    expect(classifyProviderError({ kind: "network" })).toMatchObject({
+    expect(classifyProviderError({ status: 408, payload: { error: { message: "openai_error" } } })).toMatchObject({
+      category: "timeout",
+      shouldOpenProviderCircuit: false,
+    });
+    expect(classifyProviderError({ kind: "network", responseBody: '{"error":{"message":"openai_error"}}' })).toMatchObject({
       category: "network",
       shouldOpenProviderCircuit: false,
+    });
+  });
+
+  it("classifies HTTP 400 without cost-risk markers as validation", () => {
+    expect(classifyProviderError({ status: 400, message: "Prompt is required." })).toMatchObject({
+      category: "validation",
+      shouldOpenProviderCircuit: false,
+      userChargeable: false,
+    });
+  });
+
+  it("still treats HTTP 400 with explicit no-image markers as cost-risk", () => {
+    expect(classifyProviderError({ status: 400, message: "no image data" }).category).toBe("cost_risk");
+    expect(classifyProviderError({ status: 400, message: "empty image response" }).category).toBe("cost_risk");
+  });
+
+  it("falls back to unknown when no rule matches", () => {
+    expect(classifyProviderError({ status: 500, message: "Internal server error" })).toMatchObject({
+      category: "unknown",
+      shouldOpenProviderCircuit: false,
+      shouldCooldownApiKey: false,
+      shouldDisableApiKey: false,
+      userChargeable: false,
     });
   });
 });

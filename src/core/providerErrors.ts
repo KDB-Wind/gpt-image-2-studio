@@ -32,17 +32,6 @@ const COST_RISK_MARKERS = [
 ] as const;
 
 export function classifyProviderError(input: ProviderErrorInput): ProviderErrorClassification {
-  if (isCostRiskProviderError(input)) {
-    return {
-      category: "cost_risk",
-      reason: "Provider failure may have consumed image-generation cost.",
-      shouldOpenProviderCircuit: true,
-      shouldCooldownApiKey: true,
-      shouldDisableApiKey: false,
-      userChargeable: false,
-    };
-  }
-
   if (input.status === 401 || input.status === 403) {
     return {
       category: "auth",
@@ -87,12 +76,25 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorC
     };
   }
 
-  if (input.status === 400) {
+  const costRisk = isCostRiskProviderError(input);
+
+  if (input.status === 400 && !costRisk) {
     return {
       category: "validation",
       reason: "Provider rejected the request as invalid.",
       shouldOpenProviderCircuit: false,
       shouldCooldownApiKey: false,
+      shouldDisableApiKey: false,
+      userChargeable: false,
+    };
+  }
+
+  if (costRisk) {
+    return {
+      category: "cost_risk",
+      reason: "Provider failure may have consumed image-generation cost.",
+      shouldOpenProviderCircuit: true,
+      shouldCooldownApiKey: true,
       shouldDisableApiKey: false,
       userChargeable: false,
     };
