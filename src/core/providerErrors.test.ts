@@ -144,6 +144,41 @@ describe("classifyProviderError", () => {
       shouldDisableApiKey: false,
       userChargeable: false,
     });
+    expect(
+      classifyProviderError({
+        status: 500,
+        payload: {
+          error: {
+            message: "Internal server error",
+          },
+        },
+      }),
+    ).toMatchObject({
+      category: "unknown",
+      shouldOpenProviderCircuit: false,
+      shouldCooldownApiKey: false,
+      shouldDisableApiKey: false,
+      userChargeable: false,
+    });
+  });
+
+  it("treats structured 500 payloads with explicit cost-risk markers as cost-risk", () => {
+    expect(
+      classifyProviderError({
+        status: 500,
+        payload: {
+          error: {
+            message: "openai_error",
+            code: "bad_response_status_code",
+          },
+        },
+      }),
+    ).toMatchObject({
+      category: "cost_risk",
+      shouldOpenProviderCircuit: true,
+      shouldCooldownApiKey: true,
+      userChargeable: false,
+    });
   });
 });
 
@@ -165,6 +200,32 @@ describe("isCostRiskProviderError", () => {
     expect(
       isCostRiskProviderError({
         status: 200,
+        payload: {
+          error: {
+            message: "openai_error",
+          },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("does not treat generic structured 500 payloads as cost-risk", () => {
+    expect(
+      isCostRiskProviderError({
+        status: 500,
+        payload: {
+          error: {
+            message: "Internal server error",
+          },
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("still treats structured 500 payloads with explicit markers as cost-risk", () => {
+    expect(
+      isCostRiskProviderError({
+        status: 500,
         payload: {
           error: {
             message: "openai_error",

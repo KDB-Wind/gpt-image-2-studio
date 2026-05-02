@@ -120,7 +120,7 @@ export function isCostRiskProviderError(input: ProviderErrorInput): boolean {
     return true;
   }
 
-  return hasStructuredErrorObject(input.payload) && input.status !== 400;
+  return hasStructuredErrorObject(input.payload) && input.status === 200;
 }
 
 function collectSearchText(input: ProviderErrorInput): string {
