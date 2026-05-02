@@ -39,7 +39,7 @@ describe("provider circuit", () => {
     expect(canUseProvider(opened, nowMs, "user")).toMatchObject({
       allowed: false,
       state: "open",
-      reason: "provider circuit is open",
+      reason: "Provider failure may have consumed image-generation cost.",
       openUntilMs: nowMs + cooldownMs,
     });
   });
@@ -59,7 +59,7 @@ describe("provider circuit", () => {
     expect(canUseProvider(opened, nowMs, "user")).toMatchObject({
       allowed: false,
       state: "open",
-      reason: "provider circuit is open",
+      reason: "Provider failure may have consumed image-generation cost.",
       openUntilMs: nowMs + cooldownMs,
     });
     expect(canUseProvider(opened, nowMs, "admin_probe")).toMatchObject({
@@ -129,6 +129,30 @@ describe("provider circuit", () => {
     expect(next.halfOpenProbeInFlight).toBe(false);
     expect(next.openUntilMs).toBeNull();
     expect(next.lastFailureReason).toBe("Network failure prevented the provider request from completing.");
+  });
+
+  it("reopens a half-open circuit after a cost-risk failure", () => {
+    const opened = recordProviderFailure(
+      createProviderCircuit({
+        providerId: "ruoli",
+        baseUrl: "https://ruoli.dev/v1",
+        imageModel: "gpt-image-2",
+        nowMs,
+      }),
+      classifyProviderError({ status: 524 }),
+      nowMs,
+    );
+    const probing = reserveProviderProbe(opened, nowMs + cooldownMs + 1, "health_probe");
+
+    const reopened = recordProviderFailure(probing, classifyProviderError({ message: "openai_error" }), nowMs + cooldownMs + 2);
+
+    expect(reopened).toMatchObject({
+      state: "open",
+      openUntilMs: nowMs + cooldownMs + 2 + cooldownMs,
+      halfOpenProbeInFlight: false,
+      consecutiveCostRiskFailures: 2,
+      lastFailureReason: "Provider failure may have consumed image-generation cost.",
+    });
   });
 
   it("rejects user actors at runtime when reserving a probe", () => {

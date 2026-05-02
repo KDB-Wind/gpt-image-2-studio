@@ -87,10 +87,12 @@ export function canUseProvider(
   }
 
   if (effectiveCircuit.state === "open") {
+    const reason = effectiveCircuit.lastFailureReason ?? "provider circuit is open";
+
     return {
       allowed: actor === "admin_probe",
       state: "open",
-      reason: actor === "admin_probe" ? null : "provider circuit is open",
+      reason: actor === "admin_probe" ? null : reason,
       openUntilMs: effectiveCircuit.openUntilMs,
     };
   }
