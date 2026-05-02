@@ -48,7 +48,7 @@ export async function runGenerationJob(input: RunGenerationJobInput) {
     const decision = getGenerationCreditDecision({ kind: "success" });
     await input.repo.addCreditLedgerEvent({
       userId: job.userId,
-      eventType: decision.ledgerEvent,
+      eventType: mapLedgerEvent(decision.ledgerEvent),
       amount: -decision.debitCredits,
       reason: decision.userMessage,
     });
