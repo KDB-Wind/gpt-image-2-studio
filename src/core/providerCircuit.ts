@@ -167,8 +167,18 @@ export function recordProviderFailure(
   const nextConsecutiveCostRiskFailures = classification.shouldOpenProviderCircuit
     ? baseCircuit.consecutiveCostRiskFailures + 1
     : baseCircuit.consecutiveCostRiskFailures;
+  const isKeyLocalHalfOpenFailure = classification.category === "auth" || classification.category === "rate_limit";
 
   if (baseCircuit.state === "half_open") {
+    if (isKeyLocalHalfOpenFailure) {
+      return {
+        ...baseCircuit,
+        halfOpenProbeInFlight: false,
+        consecutiveCostRiskFailures: nextConsecutiveCostRiskFailures,
+        lastFailureReason: classification.reason,
+      };
+    }
+
     return {
       ...baseCircuit,
       state: "open",

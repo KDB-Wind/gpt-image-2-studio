@@ -222,6 +222,69 @@ describe("apiKeyRouter", () => {
     });
   });
 
+  it("recordApiKeyResult keeps provider half-open for key-local auth failures while disabling the key", () => {
+    const opened = recordProviderFailure(provider(), classifyProviderError({ status: 524 }), nowMs);
+    const probing = reserveProviderProbe(opened, nowMs + 5 * 60 * 1000 + 1, "health_probe");
+
+    const result = recordApiKeyResult(
+      key({ inFlight: 1 }),
+      probing,
+      {
+        kind: "failure",
+        classification: classifyProviderError({ status: 401 }),
+      },
+      nowMs + 5 * 60 * 1000 + 2,
+    );
+
+    expect(result.key).toMatchObject({
+      enabled: false,
+      state: "disabled",
+      cooldownUntilMs: null,
+      inFlight: 0,
+      fail15m: 2,
+      fail1h: 3,
+      consecutiveFailures: 1,
+      lastUsedAtMs: nowMs + 5 * 60 * 1000 + 2,
+    });
+    expect(result.provider).toMatchObject({
+      state: "half_open",
+      openUntilMs: null,
+      halfOpenProbeInFlight: false,
+      consecutiveCostRiskFailures: 1,
+      lastFailureReason: "Provider rejected authentication with HTTP 401.",
+    });
+  });
+
+  it("recordApiKeyResult keeps provider half-open for key-local rate limits while cooling the key", () => {
+    const opened = recordProviderFailure(provider(), classifyProviderError({ status: 524 }), nowMs);
+    const probing = reserveProviderProbe(opened, nowMs + 5 * 60 * 1000 + 1, "health_probe");
+
+    const result = recordApiKeyResult(
+      key({ inFlight: 1 }),
+      probing,
+      {
+        kind: "failure",
+        classification: classifyProviderError({ status: 429 }),
+      },
+      nowMs + 5 * 60 * 1000 + 2,
+    );
+
+    expect(result.key).toMatchObject({
+      state: "cooldown",
+      cooldownUntilMs: nowMs + 7 * 60 * 1000 + 2,
+      inFlight: 0,
+      rateLimit15m: 1,
+      consecutiveFailures: 1,
+    });
+    expect(result.provider).toMatchObject({
+      state: "half_open",
+      openUntilMs: null,
+      halfOpenProbeInFlight: false,
+      consecutiveCostRiskFailures: 1,
+      lastFailureReason: "Provider rate-limited the API key.",
+    });
+  });
+
   it("recordApiKeyResult opens supplier circuit when one key receives cost-risk failure", () => {
     const result = recordApiKeyResult(
       key({ inFlight: 1 }),

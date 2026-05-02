@@ -136,6 +136,85 @@ describe("provider circuit", () => {
     });
   });
 
+  it("keeps a half-open circuit half-open after an auth failure", () => {
+    const opened = recordProviderFailure(
+      createProviderCircuit({
+        providerId: "ruoli",
+        baseUrl: "https://ruoli.dev/v1",
+        imageModel: "gpt-image-2",
+        nowMs,
+      }),
+      classifyProviderError({ status: 524 }),
+      nowMs,
+    );
+    const probing = reserveProviderProbe(opened, nowMs + cooldownMs + 1, "health_probe");
+
+    const failureAtMs = nowMs + cooldownMs + 2;
+    const next = recordProviderFailure(probing, classifyProviderError({ status: 401 }), failureAtMs);
+
+    expect(next).toMatchObject({
+      state: "half_open",
+      openedAtMs: null,
+      openUntilMs: null,
+      halfOpenProbeInFlight: false,
+      consecutiveCostRiskFailures: 1,
+      lastFailureReason: "Provider rejected authentication with HTTP 401.",
+    });
+  });
+
+  it("keeps a half-open circuit half-open after a rate-limit failure", () => {
+    const opened = recordProviderFailure(
+      createProviderCircuit({
+        providerId: "ruoli",
+        baseUrl: "https://ruoli.dev/v1",
+        imageModel: "gpt-image-2",
+        nowMs,
+      }),
+      classifyProviderError({ status: 524 }),
+      nowMs,
+    );
+    const probing = reserveProviderProbe(opened, nowMs + cooldownMs + 1, "health_probe");
+
+    const failureAtMs = nowMs + cooldownMs + 2;
+    const next = recordProviderFailure(probing, classifyProviderError({ status: 429 }), failureAtMs);
+
+    expect(next).toMatchObject({
+      state: "half_open",
+      openedAtMs: null,
+      openUntilMs: null,
+      halfOpenProbeInFlight: false,
+      consecutiveCostRiskFailures: 1,
+      lastFailureReason: "Provider rate-limited the API key.",
+    });
+  });
+
+  it("reopens a half-open circuit after an unknown failure and blocks an immediate second probe", () => {
+    const opened = recordProviderFailure(
+      createProviderCircuit({
+        providerId: "ruoli",
+        baseUrl: "https://ruoli.dev/v1",
+        imageModel: "gpt-image-2",
+        nowMs,
+      }),
+      classifyProviderError({ status: 524 }),
+      nowMs,
+    );
+    const probing = reserveProviderProbe(opened, nowMs + cooldownMs + 1, "health_probe");
+
+    const failureAtMs = nowMs + cooldownMs + 2;
+    const next = recordProviderFailure(probing, classifyProviderError({ message: "ordinary failure" }), failureAtMs);
+
+    expect(next).toMatchObject({
+      state: "open",
+      openedAtMs: failureAtMs,
+      openUntilMs: failureAtMs + cooldownMs,
+      halfOpenProbeInFlight: false,
+      consecutiveCostRiskFailures: 1,
+      lastFailureReason: "Provider failure did not match a known classification rule.",
+    });
+    expect(() => reserveProviderProbe(next, failureAtMs + 1, "health_probe")).toThrow(ProviderCircuitOpenError);
+  });
+
   it("reopens a half-open circuit after a cost-risk failure", () => {
     const opened = recordProviderFailure(
       createProviderCircuit({
