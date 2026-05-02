@@ -55,10 +55,11 @@ function provider() {
 describe("platformCore", () => {
   it("opens the supplier circuit after one costly failure and does not route to the other nine keys", () => {
     const hostedKeys = keys(10);
-    const selected = pickApiKey(hostedKeys, provider(), { nowMs, random: () => 0 });
+    const providerCircuit = provider();
+    const selected = pickApiKey(hostedKeys, providerCircuit, { nowMs, random: () => 0 });
     const failed = recordApiKeyResult(
       selected,
-      provider(),
+      providerCircuit,
       {
         kind: "failure",
         classification: classifyProviderError({ status: 524 }),
@@ -76,9 +77,10 @@ describe("platformCore", () => {
 
   it("allows exactly one recovery probe after the circuit window", () => {
     const hostedKeys = keys(10);
+    const providerCircuit = provider();
     const failed = recordApiKeyResult(
-      pickApiKey(hostedKeys, provider(), { nowMs, random: () => 0 }),
-      provider(),
+      pickApiKey(hostedKeys, providerCircuit, { nowMs, random: () => 0 }),
+      providerCircuit,
       {
         kind: "failure",
         classification: classifyProviderError({ status: 524 }),
