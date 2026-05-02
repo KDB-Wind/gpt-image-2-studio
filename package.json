@@ -17,6 +17,8 @@
     "test": "vitest",
     "test:run": "vitest run",
     "platform:test": "vitest run packages apps",
+    "api:dev": "tsx apps/api/src/server.ts",
+    "worker:dev": "tsx apps/worker/src/worker.ts",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build"
@@ -26,16 +28,21 @@
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-dialog": "^2.7.0",
     "@tauri-apps/plugin-opener": "^2.5.3",
+    "bullmq": "^5.76.5",
+    "fastify": "^5.8.5",
     "lucide-react": "^1.14.0",
     "react": "^19.2.5",
-    "react-dom": "^19.2.5"
+    "react-dom": "^19.2.5",
+    "zod": "^4.4.2"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1",
+    "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "jsdom": "^29.1.1",
+    "tsx": "^4.21.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.10",
     "vitest": "^4.1.5"
