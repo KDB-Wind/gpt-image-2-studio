@@ -214,10 +214,11 @@ describe("apiKeyRouter", () => {
     );
 
     expect(result.provider).toMatchObject({
-      state: "half_open",
+      state: "open",
+      openUntilMs: nowMs + 10 * 60 * 1000 + 2,
       halfOpenProbeInFlight: false,
+      consecutiveCostRiskFailures: 1,
       lastFailureReason: "Network failure prevented the provider request from completing.",
-      openUntilMs: null,
     });
   });
 
@@ -340,7 +341,8 @@ describe("apiKeyRouter", () => {
 
     expect(result.key).toMatchObject({
       enabled: false,
-      state: "healthy",
+      state: "disabled",
+      cooldownUntilMs: null,
       inFlight: 0,
       success15m: 3,
       success1h: 6,

@@ -164,6 +164,21 @@ export function recordProviderFailure(
   nowMs: number,
 ): ProviderCircuit {
   const baseCircuit = getEffectiveProviderCircuit(circuit, nowMs);
+  const nextConsecutiveCostRiskFailures = classification.shouldOpenProviderCircuit
+    ? baseCircuit.consecutiveCostRiskFailures + 1
+    : baseCircuit.consecutiveCostRiskFailures;
+
+  if (baseCircuit.state === "half_open") {
+    return {
+      ...baseCircuit,
+      state: "open",
+      openedAtMs: nowMs,
+      openUntilMs: nowMs + baseCircuit.cooldownMs,
+      halfOpenProbeInFlight: false,
+      consecutiveCostRiskFailures: nextConsecutiveCostRiskFailures,
+      lastFailureReason: classification.reason,
+    };
+  }
 
   if (!classification.shouldOpenProviderCircuit) {
     return {
@@ -179,7 +194,7 @@ export function recordProviderFailure(
     openedAtMs: nowMs,
     openUntilMs: nowMs + baseCircuit.cooldownMs,
     halfOpenProbeInFlight: false,
-    consecutiveCostRiskFailures: baseCircuit.consecutiveCostRiskFailures + 1,
+    consecutiveCostRiskFailures: nextConsecutiveCostRiskFailures,
     lastFailureReason: classification.reason,
   };
 }

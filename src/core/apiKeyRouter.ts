@@ -141,11 +141,13 @@ export function recordApiKeyResult(
   };
 
   if (result.kind === "success") {
+    const nextEnabled = baseKey.enabled;
+
     return {
       key: {
         ...baseKey,
-        enabled: baseKey.enabled,
-        state: "healthy",
+        enabled: nextEnabled,
+        state: nextEnabled ? "healthy" : "disabled",
         cooldownUntilMs: null,
         success15m: baseKey.success15m + 1,
         success1h: baseKey.success1h + 1,

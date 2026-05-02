@@ -110,7 +110,7 @@ describe("provider circuit", () => {
     expect(() => reserveProviderProbe(firstProbe, afterCooldown, "health_probe")).toThrow(ProviderCircuitOpenError);
   });
 
-  it("keeps a half-open circuit half-open after a non-opening failure", () => {
+  it("reopens a half-open circuit after a non-opening failure", () => {
     const opened = recordProviderFailure(
       createProviderCircuit({
         providerId: "ruoli",
@@ -123,12 +123,17 @@ describe("provider circuit", () => {
     );
     const probing = reserveProviderProbe(opened, nowMs + cooldownMs + 1, "health_probe");
 
-    const next = recordProviderFailure(probing, classifyProviderError({ kind: "network" }), nowMs + cooldownMs + 2);
+    const failureAtMs = nowMs + cooldownMs + 2;
+    const next = recordProviderFailure(probing, classifyProviderError({ kind: "network" }), failureAtMs);
 
-    expect(next.state).toBe("half_open");
-    expect(next.halfOpenProbeInFlight).toBe(false);
-    expect(next.openUntilMs).toBeNull();
-    expect(next.lastFailureReason).toBe("Network failure prevented the provider request from completing.");
+    expect(next).toMatchObject({
+      state: "open",
+      openedAtMs: failureAtMs,
+      openUntilMs: failureAtMs + cooldownMs,
+      halfOpenProbeInFlight: false,
+      consecutiveCostRiskFailures: 1,
+      lastFailureReason: "Network failure prevented the provider request from completing.",
+    });
   });
 
   it("reopens a half-open circuit after a cost-risk failure", () => {

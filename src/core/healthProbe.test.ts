@@ -66,6 +66,24 @@ describe("healthProbe", () => {
     expect(() => createHealthProbeAttempt([key()], attempt.provider, afterCooldown)).toThrow(ProviderCircuitOpenError);
   });
 
+  it("blocks an immediate second probe after a half-open probe failure reopens the circuit", () => {
+    const opened = recordProviderFailure(provider(), classifyProviderError({ status: 524 }), nowMs);
+    const afterCooldown = nowMs + cooldownMs + 1;
+    const attempt = createHealthProbeAttempt([key()], opened, afterCooldown);
+    const reopened = recordProviderFailure(
+      attempt.provider,
+      classifyProviderError({ kind: "network" }),
+      afterCooldown + 1,
+    );
+
+    expect(reopened).toMatchObject({
+      state: "open",
+      openUntilMs: afterCooldown + 1 + cooldownMs,
+      halfOpenProbeInFlight: false,
+    });
+    expect(() => createHealthProbeAttempt([key()], reopened, afterCooldown + 2)).toThrow(ProviderCircuitOpenError);
+  });
+
   it("selects the least-used available key instead of probing all keys", () => {
     const attempt = createHealthProbeAttempt(
       [
