@@ -27,7 +27,8 @@ export type CreateProviderCircuitInput = {
 export type ProviderAvailability = {
   allowed: boolean;
   state: ProviderCircuitState;
-  reason?: string;
+  reason: string | null;
+  openUntilMs: number | null;
 };
 
 export class ProviderCircuitOpenError extends Error {
@@ -82,14 +83,15 @@ export function canUseProvider(
   const effectiveCircuit = getEffectiveProviderCircuit(circuit, nowMs);
 
   if (effectiveCircuit.state === "closed") {
-    return { allowed: true, state: "closed" };
+    return { allowed: true, state: "closed", reason: null, openUntilMs: null };
   }
 
   if (effectiveCircuit.state === "open") {
     return {
       allowed: actor === "admin_probe",
       state: "open",
-      reason: actor === "admin_probe" ? undefined : "provider circuit is open",
+      reason: actor === "admin_probe" ? null : "provider circuit is open",
+      openUntilMs: effectiveCircuit.openUntilMs,
     };
   }
 
@@ -97,10 +99,16 @@ export function canUseProvider(
   return {
     allowed,
     state: "half_open",
-    reason: allowed ? undefined : "provider circuit is half-open",
+    reason: allowed ? null : "provider circuit is half-open",
+    openUntilMs: null,
   };
 }
 
+export function reserveProviderProbe(
+  circuit: ProviderCircuit,
+  nowMs: number,
+  actor: Extract<ProviderCircuitActor, "health_probe" | "admin_probe">,
+): ProviderCircuit;
 export function reserveProviderProbe(
   circuit: ProviderCircuit,
   nowMs: number,

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { classifyProviderError } from "./providerErrors";
 import {
+  type ProviderCircuit,
+  type ProviderCircuitActor,
   ProviderCircuitOpenError,
   canUseProvider,
   createProviderCircuit,
@@ -13,6 +15,11 @@ import {
 
 const nowMs = Date.UTC(2026, 4, 2, 12, 0, 0);
 const cooldownMs = 5 * 60 * 1000;
+const unsafeReserveProviderProbe = reserveProviderProbe as (
+  circuit: ProviderCircuit,
+  nowMs: number,
+  actor: ProviderCircuitActor,
+) => ProviderCircuit;
 
 describe("provider circuit", () => {
   it("opens immediately for one cost-risk failure", () => {
@@ -29,7 +36,12 @@ describe("provider circuit", () => {
     expect(opened.state).toBe("open");
     expect(opened.openUntilMs).toBe(nowMs + cooldownMs);
     expect(opened.consecutiveCostRiskFailures).toBe(1);
-    expect(canUseProvider(opened, nowMs, "user")).toMatchObject({ allowed: false, state: "open" });
+    expect(canUseProvider(opened, nowMs, "user")).toMatchObject({
+      allowed: false,
+      state: "open",
+      reason: "provider circuit is open",
+      openUntilMs: nowMs + cooldownMs,
+    });
   });
 
   it("allows admin probe during open circuit without allowing normal users", () => {
@@ -44,8 +56,18 @@ describe("provider circuit", () => {
       nowMs,
     );
 
-    expect(canUseProvider(opened, nowMs, "user").allowed).toBe(false);
-    expect(canUseProvider(opened, nowMs, "admin_probe").allowed).toBe(true);
+    expect(canUseProvider(opened, nowMs, "user")).toMatchObject({
+      allowed: false,
+      state: "open",
+      reason: "provider circuit is open",
+      openUntilMs: nowMs + cooldownMs,
+    });
+    expect(canUseProvider(opened, nowMs, "admin_probe")).toMatchObject({
+      allowed: true,
+      state: "open",
+      reason: null,
+      openUntilMs: nowMs + cooldownMs,
+    });
   });
 
   it("lets an admin reserve a probe while the circuit is still open without changing state", () => {
@@ -123,7 +145,7 @@ describe("provider circuit", () => {
     const halfOpen = getEffectiveProviderCircuit(opened, nowMs + cooldownMs + 1);
 
     expect(halfOpen.state).toBe("half_open");
-    expect(() => reserveProviderProbe(halfOpen, nowMs + cooldownMs + 1, "user")).toThrow(
+    expect(() => unsafeReserveProviderProbe(halfOpen, nowMs + cooldownMs + 1, "user")).toThrow(
       ProviderCircuitOpenError,
     );
   });
@@ -163,6 +185,11 @@ describe("provider circuit", () => {
     const next = recordProviderFailure(circuit, classifyProviderError({ kind: "network" }), nowMs);
 
     expect(next.state).toBe("closed");
-    expect(canUseProvider(next, nowMs, "user").allowed).toBe(true);
+    expect(canUseProvider(next, nowMs, "user")).toMatchObject({
+      allowed: true,
+      state: "closed",
+      reason: null,
+      openUntilMs: null,
+    });
   });
 });
