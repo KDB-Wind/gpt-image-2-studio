@@ -2,6 +2,10 @@
   "name": "chat-to-image",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "engines": {
     "node": ">=20.19.0",
     "npm": ">=10.0.0"
@@ -12,6 +16,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
+    "platform:test": "vitest run packages apps",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build"
