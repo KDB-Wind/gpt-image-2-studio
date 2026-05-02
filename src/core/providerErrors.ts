@@ -115,12 +115,12 @@ export function isCostRiskProviderError(input: ProviderErrorInput): boolean {
     return true;
   }
 
-  if (hasStructuredErrorObject(input.payload)) {
+  const haystack = collectSearchText(input);
+  if (COST_RISK_MARKERS.some((marker) => haystack.includes(marker))) {
     return true;
   }
 
-  const haystack = collectSearchText(input);
-  return COST_RISK_MARKERS.some((marker) => haystack.includes(marker));
+  return hasStructuredErrorObject(input.payload) && input.status !== 400;
 }
 
 function collectSearchText(input: ProviderErrorInput): string {

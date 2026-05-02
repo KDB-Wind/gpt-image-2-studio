@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   classifyProviderError,
+  isCostRiskProviderError,
   type ProviderErrorInput,
 } from "./providerErrors";
 
@@ -113,6 +114,21 @@ describe("classifyProviderError", () => {
       shouldOpenProviderCircuit: false,
       userChargeable: false,
     });
+    expect(
+      classifyProviderError({
+        status: 400,
+        payload: {
+          error: {
+            message: "Prompt is required.",
+          },
+        },
+      }),
+    ).toMatchObject({
+      category: "validation",
+      shouldOpenProviderCircuit: false,
+      shouldCooldownApiKey: false,
+      userChargeable: false,
+    });
   });
 
   it("still treats HTTP 400 with explicit no-image markers as cost-risk", () => {
@@ -128,5 +144,33 @@ describe("classifyProviderError", () => {
       shouldDisableApiKey: false,
       userChargeable: false,
     });
+  });
+});
+
+describe("isCostRiskProviderError", () => {
+  it("does not treat generic 400 validation payloads as cost-risk", () => {
+    expect(
+      isCostRiskProviderError({
+        status: 400,
+        payload: {
+          error: {
+            message: "Prompt is required.",
+          },
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("still treats structured 200 provider errors as cost-risk", () => {
+    expect(
+      isCostRiskProviderError({
+        status: 200,
+        payload: {
+          error: {
+            message: "openai_error",
+          },
+        },
+      }),
+    ).toBe(true);
   });
 });
