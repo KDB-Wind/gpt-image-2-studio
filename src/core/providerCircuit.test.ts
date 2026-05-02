@@ -5,6 +5,7 @@ import {
   ProviderCircuitOpenError,
   canUseProvider,
   createProviderCircuit,
+  getEffectiveProviderCircuit,
   recordProviderFailure,
   recordProviderSuccess,
   reserveProviderProbe,
@@ -65,6 +66,46 @@ describe("provider circuit", () => {
     expect(firstProbe.state).toBe("half_open");
     expect(firstProbe.halfOpenProbeInFlight).toBe(true);
     expect(() => reserveProviderProbe(firstProbe, afterCooldown, "health_probe")).toThrow(ProviderCircuitOpenError);
+  });
+
+  it("keeps a half-open circuit half-open after a non-opening failure", () => {
+    const opened = recordProviderFailure(
+      createProviderCircuit({
+        providerId: "ruoli",
+        baseUrl: "https://ruoli.dev/v1",
+        imageModel: "gpt-image-2",
+        nowMs,
+      }),
+      classifyProviderError({ status: 524 }),
+      nowMs,
+    );
+    const probing = reserveProviderProbe(opened, nowMs + cooldownMs + 1, "health_probe");
+
+    const next = recordProviderFailure(probing, classifyProviderError({ kind: "network" }), nowMs + cooldownMs + 2);
+
+    expect(next.state).toBe("half_open");
+    expect(next.halfOpenProbeInFlight).toBe(false);
+    expect(next.openUntilMs).toBeNull();
+    expect(next.lastFailureReason).toBe("Network failure prevented the provider request from completing.");
+  });
+
+  it("rejects user actors at runtime when reserving a probe", () => {
+    const opened = recordProviderFailure(
+      createProviderCircuit({
+        providerId: "ruoli",
+        baseUrl: "https://ruoli.dev/v1",
+        imageModel: "gpt-image-2",
+        nowMs,
+      }),
+      classifyProviderError({ status: 524 }),
+      nowMs,
+    );
+    const halfOpen = getEffectiveProviderCircuit(opened, nowMs + cooldownMs + 1);
+
+    expect(halfOpen.state).toBe("half_open");
+    expect(() => reserveProviderProbe(halfOpen, nowMs + cooldownMs + 1, "user")).toThrow(
+      ProviderCircuitOpenError,
+    );
   });
 
   it("closes after a successful half-open probe", () => {

@@ -104,9 +104,13 @@ export function canUseProvider(
 export function reserveProviderProbe(
   circuit: ProviderCircuit,
   nowMs: number,
-  actor: Exclude<ProviderCircuitActor, "user">,
+  actor: ProviderCircuitActor,
 ): ProviderCircuit {
   const effectiveCircuit = getEffectiveProviderCircuit(circuit, nowMs);
+
+  if (actor === "user") {
+    throw new ProviderCircuitOpenError("User actors cannot reserve provider probes.");
+  }
 
   if (effectiveCircuit.state === "open") {
     if (actor !== "admin_probe") {
@@ -151,17 +155,6 @@ export function recordProviderFailure(
   const baseCircuit = getEffectiveProviderCircuit(circuit, nowMs);
 
   if (!classification.shouldOpenProviderCircuit) {
-    if (baseCircuit.state === "half_open") {
-      return {
-        ...baseCircuit,
-        state: "open",
-        openedAtMs: nowMs,
-        openUntilMs: nowMs + baseCircuit.cooldownMs,
-        halfOpenProbeInFlight: false,
-        lastFailureReason: classification.reason,
-      };
-    }
-
     return {
       ...baseCircuit,
       halfOpenProbeInFlight: false,
