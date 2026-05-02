@@ -11,6 +11,8 @@ export type HealthProbeAttempt = {
   provider: ProviderCircuit;
 };
 
+// Closed providers are intentionally eligible for scheduled baseline checks configured by the platform.
+// Providers that are still open before their cooldown expires remain ineligible.
 export function shouldRunScheduledHealthProbe(provider: ProviderCircuit, nowMs: number): boolean {
   return canUseProvider(provider, nowMs, "health_probe").allowed;
 }

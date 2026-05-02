@@ -42,6 +42,10 @@ function provider() {
 }
 
 describe("healthProbe", () => {
+  it("allows scheduled baseline probes while the supplier circuit is closed", () => {
+    expect(shouldRunScheduledHealthProbe(provider(), nowMs)).toBe(true);
+  });
+
   it("skips scheduled probes while the supplier circuit is still open", () => {
     const opened = recordProviderFailure(provider(), classifyProviderError({ status: 524 }), nowMs);
 
@@ -93,7 +97,7 @@ describe("healthProbe", () => {
   });
 
   it("throws ProviderCircuitOpenError when no key is available", () => {
-    expect(() =>
+    const attempt = () =>
       createHealthProbeAttempt(
         [
           key({ enabled: false }),
@@ -102,19 +106,17 @@ describe("healthProbe", () => {
         ],
         provider(),
         nowMs,
-      ),
-    ).toThrowError(ProviderCircuitOpenError);
-    expect(() =>
-      createHealthProbeAttempt(
-        [
-          key({ enabled: false }),
-          key({ state: "cooldown", cooldownUntilMs: nowMs + 10_000 }),
-          key({ inFlight: 2, maxInFlight: 2 }),
-        ],
-        provider(),
-        nowMs,
-      ),
-    ).toThrow("No hosted API key is currently available for health probes.");
+      );
+
+    let capturedError: unknown;
+    try {
+      attempt();
+    } catch (error) {
+      capturedError = error;
+    }
+
+    expect(capturedError).toBeInstanceOf(ProviderCircuitOpenError);
+    expect(capturedError).toHaveProperty("message", "No hosted API key is currently available for health probes.");
   });
 
   it("prefers never-used keys when usage is tied", () => {
