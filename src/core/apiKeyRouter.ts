@@ -154,7 +154,7 @@ export function recordApiKeyResult(
         ewmaLatencyMs: updateLatency(baseKey.ewmaLatencyMs, result.latencyMs),
         lastUsedAtMs: nowMs,
       },
-      provider: recordProviderSuccess(provider, nowMs),
+      provider: provider.state === "half_open" ? recordProviderSuccess(provider, nowMs) : provider,
     };
   }
 
@@ -164,6 +164,7 @@ export function recordApiKeyResult(
     fail15m: baseKey.fail15m + 1,
     fail1h: baseKey.fail1h + 1,
     consecutiveFailures: baseKey.consecutiveFailures + 1,
+    lastUsedAtMs: nowMs,
   };
 
   if (classification.shouldDisableApiKey) {
@@ -172,6 +173,7 @@ export function recordApiKeyResult(
         ...failedKey,
         enabled: false,
         state: "disabled",
+        cooldownUntilMs: null,
       },
       provider,
     };

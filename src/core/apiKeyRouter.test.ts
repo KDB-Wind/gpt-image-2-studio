@@ -162,10 +162,12 @@ describe("apiKeyRouter", () => {
     expect(result.key).toMatchObject({
       enabled: false,
       state: "disabled",
+      cooldownUntilMs: null,
       inFlight: 0,
       fail15m: 2,
       fail1h: 3,
       consecutiveFailures: 1,
+      lastUsedAtMs: nowMs,
     });
     expect(canUseProvider(result.provider, nowMs, "user")).toMatchObject({
       allowed: true,
@@ -242,6 +244,7 @@ describe("apiKeyRouter", () => {
       cooldownUntilMs: nowMs + 60_000,
       inFlight: 0,
       consecutiveFailures: 3,
+      lastUsedAtMs: nowMs,
     });
     expect(result.provider).toEqual(originalProvider);
     expect(canUseProvider(result.provider, nowMs, "user")).toMatchObject({
@@ -288,6 +291,40 @@ describe("apiKeyRouter", () => {
       allowed: true,
       state: "closed",
       reason: null,
+    });
+  });
+
+  it("recordApiKeyResult keeps an open provider circuit open after another key succeeds", () => {
+    const openedProvider = recordApiKeyResult(
+      key({ inFlight: 1 }),
+      provider(),
+      {
+        kind: "failure",
+        classification: classifyProviderError({ status: 524 }),
+      },
+      nowMs,
+    ).provider;
+
+    const result = recordApiKeyResult(
+      key({
+        id: "other-key",
+        inFlight: 1,
+        consecutiveFailures: 2,
+        consecutiveCostRiskFailures: 1,
+      }),
+      openedProvider,
+      {
+        kind: "success",
+        latencyMs: 250,
+      },
+      nowMs + 1_000,
+    );
+
+    expect(result.provider).toMatchObject({
+      state: "open",
+      openUntilMs: openedProvider.openUntilMs,
+      lastFailureReason: openedProvider.lastFailureReason,
+      consecutiveCostRiskFailures: openedProvider.consecutiveCostRiskFailures,
     });
   });
 });
