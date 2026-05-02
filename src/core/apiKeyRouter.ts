@@ -144,7 +144,7 @@ export function recordApiKeyResult(
     return {
       key: {
         ...baseKey,
-        enabled: true,
+        enabled: baseKey.enabled,
         state: "healthy",
         cooldownUntilMs: null,
         success15m: baseKey.success15m + 1,
@@ -175,7 +175,7 @@ export function recordApiKeyResult(
         state: "disabled",
         cooldownUntilMs: null,
       },
-      provider,
+      provider: recordProviderFailure(provider, classification, nowMs),
     };
   }
 
@@ -187,7 +187,7 @@ export function recordApiKeyResult(
         cooldownUntilMs: nowMs + RATE_LIMIT_COOLDOWN_MS,
         rateLimit15m: failedKey.rateLimit15m + 1,
       },
-      provider,
+      provider: recordProviderFailure(provider, classification, nowMs),
     };
   }
 
@@ -211,13 +211,13 @@ export function recordApiKeyResult(
         state: "cooldown",
         cooldownUntilMs: nowMs + ORDINARY_FAILURE_COOLDOWN_MS,
       },
-      provider,
+      provider: recordProviderFailure(provider, classification, nowMs),
     };
   }
 
   return {
     key: failedKey,
-    provider,
+    provider: recordProviderFailure(provider, classification, nowMs),
   };
 }
 

@@ -5,6 +5,8 @@ import {
   ProviderCircuitOpenError,
   canUseProvider,
   createProviderCircuit,
+  recordProviderFailure,
+  reserveProviderProbe,
 } from "./providerCircuit";
 import {
   NoAvailableApiKeyError,
@@ -197,6 +199,28 @@ describe("apiKeyRouter", () => {
     expect(canUseProvider(result.provider, nowMs, "user").allowed).toBe(true);
   });
 
+  it("recordApiKeyResult routes half-open ordinary failures through provider circuit state", () => {
+    const opened = recordProviderFailure(provider(), classifyProviderError({ status: 524 }), nowMs);
+    const probing = reserveProviderProbe(opened, nowMs + 5 * 60 * 1000 + 1, "health_probe");
+
+    const result = recordApiKeyResult(
+      key({ inFlight: 1 }),
+      probing,
+      {
+        kind: "failure",
+        classification: classifyProviderError({ kind: "network" }),
+      },
+      nowMs + 5 * 60 * 1000 + 2,
+    );
+
+    expect(result.provider).toMatchObject({
+      state: "half_open",
+      halfOpenProbeInFlight: false,
+      lastFailureReason: "Network failure prevented the provider request from completing.",
+      openUntilMs: null,
+    });
+  });
+
   it("recordApiKeyResult opens supplier circuit when one key receives cost-risk failure", () => {
     const result = recordApiKeyResult(
       key({ inFlight: 1 }),
@@ -225,13 +249,12 @@ describe("apiKeyRouter", () => {
   });
 
   it("recordApiKeyResult cools the key after three ordinary failures without opening provider circuit", () => {
-    const originalProvider = provider();
     const result = recordApiKeyResult(
       key({
         inFlight: 1,
         consecutiveFailures: 2,
       }),
-      originalProvider,
+      provider(),
       {
         kind: "failure",
         classification: classifyProviderError({ message: "ordinary failure" }),
@@ -246,7 +269,11 @@ describe("apiKeyRouter", () => {
       consecutiveFailures: 3,
       lastUsedAtMs: nowMs,
     });
-    expect(result.provider).toEqual(originalProvider);
+    expect(result.provider).toMatchObject({
+      state: "closed",
+      halfOpenProbeInFlight: false,
+      lastFailureReason: "Provider failure did not match a known classification rule.",
+    });
     expect(canUseProvider(result.provider, nowMs, "user")).toMatchObject({
       allowed: true,
       state: "closed",
@@ -291,6 +318,32 @@ describe("apiKeyRouter", () => {
       allowed: true,
       state: "closed",
       reason: null,
+    });
+  });
+
+  it("recordApiKeyResult preserves a disabled key on success instead of re-enabling it", () => {
+    const result = recordApiKeyResult(
+      key({
+        enabled: false,
+        state: "disabled",
+        inFlight: 1,
+        success15m: 2,
+        success1h: 5,
+      }),
+      provider(),
+      {
+        kind: "success",
+        latencyMs: 300,
+      },
+      nowMs,
+    );
+
+    expect(result.key).toMatchObject({
+      enabled: false,
+      state: "healthy",
+      inFlight: 0,
+      success15m: 3,
+      success1h: 6,
     });
   });
 
