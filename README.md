@@ -1,131 +1,98 @@
 # Chat To Image
 
-本地可运行的轻量生图工具，支持：
+本项目当前包含两个方向：
 
-- Web 模式：浏览器打开即用
-- Desktop 模式：Tauri 本地桌面壳
-- 本地保存每个用户自己的配置
-- 可选提示词优化
-- 本地保存生成图片和历史记录
+- 本地桌面版：面向个人本机使用，配置和图片优先保存在当前用户本机。
+- Web 平台版：正在分阶段开发，目标是让普通用户通过网页注册、体验和付费使用平台托管的生图能力。
 
-这个项目没有自建后端服务，但它仍然需要联网访问你在设置里填写的 OpenAI 兼容接口。
+## 本地桌面版
+
+桌面版已经具备基础可用能力：
+
+- 输入提示词生成图片。
+- 支持上传图片加文字进行图生图。
+- 支持多图上传和拖拽上传。
+- 可配置 `API key`、`Base URL`、文字模型、图片模型、超时时间和输出目录。
+- 生成图片按日期保存到本地目录。
+- 支持 Windows 安装包分发。
+
+普通用户优先使用 Windows 安装包，不建议把 `npm run dev` 作为主要使用方式。
 
 ## 默认配置
 
-- Base URL：`https://ruoli.dev/v1`
-- Text model：`gpt-5.4-mini`
-- Image model：`gpt-image-2`
-- API key：默认留空
-- Timeout：`180` 秒
-- Output directory：`outputs`
+- `Base URL`: `https://ruoli.dev/v1`
+- `Text model`: `gpt-5.4-mini`
+- `Image model`: `gpt-image-2`
+- `API key`: 默认留空，由用户自行填写
+- `Timeout`: 建议不少于 `240` 秒
+- `Output directory`: 默认本地输出目录
 
-## 环境要求
+## 开发环境
 
 - Node.js `>= 20.19.0`
 - npm `>= 10`
-- Desktop 模式还需要 Rust 工具链
+- Desktop / Tauri 开发还需要 Rust 工具链
 
-安装依赖：
+安装依赖前，如果有新增下载或缓存，请固定到 D 盘：
 
 ```powershell
+$env:npm_config_cache = "D:\npm-cache"
 npm install
 ```
 
-## 启动方式
+## 常用命令
 
-Web 模式：
+本地前端开发：
 
 ```powershell
 npm run dev
 ```
 
-打开 [http://localhost:5173](http://localhost:5173)
-
-Desktop 模式：
+桌面版开发：
 
 ```powershell
 npm run desktop:dev
 ```
 
-桌面打包：
+桌面版打包：
 
 ```powershell
 npm run desktop:build
 ```
 
-## 首次使用
+Web 平台 API 开发：
 
-打开应用后进入 `Settings`，填写并保存：
-
-- API key
-- Base URL
-- Text model
-- Image model
-- Timeout
-- Output directory
-
-说明：
-
-- `Test text` 和 `Test image` 都是可选操作
-- 测试失败不会阻止保存配置
-- Base URL 支持填写带 `/v1` 或不带 `/v1` 的形式，应用会自动规范化
-- Prompt 优化是手动触发，不会自动改写你的提示词
-
-## 本地配置保存
-
-### Web 模式
-
-- 配置和历史记录保存在浏览器本地存储中
-- API key 不会写进项目源码文件
-- 关闭或更换浏览器环境后，配置是否保留取决于该浏览器本地存储
-
-### Desktop 模式
-
-- 配置和历史记录保存在当前用户自己的本地应用目录
-- API key 优先尝试保存到系统 keyring
-- 如果当前系统 keyring 不可用，会回退到本地配置文件，但仍只保存在当前用户机器上
-
-这也是为什么仓库里不需要预置真实 API key，只保留空值即可，其他用户下载项目后各自本地配置即可。
-
-## 图片保存规则
-
-默认目录结构：
-
-```text
-outputs/
-  2026-04-30/
-    21-15-08_sunset-city.png
+```powershell
+npm run api:dev
 ```
 
-规则：
+Web 平台 Worker 开发：
 
-- 默认按日期分目录：`输出目录/YYYY-MM-DD/`
-- 如果填写了 `Custom image name`，优先使用该名称
-- 如果没填写，则使用 `HH-mm-ss_提示词摘要`
-- 文件名会自动清洗非法字符
-- 如果重名，会自动追加 `-2`、`-3` 等后缀
+```powershell
+npm run worker:dev
+```
 
-Desktop 模式会直接写入配置的输出目录。  
-Web 模式会优先尝试使用浏览器目录授权；如果当前浏览器不支持，则回退为下载文件。
+## Web 平台开发状态
 
-## 当前功能
+Web 平台正在分阶段实现：
 
-- 输入提示词并生成图片
-- 手动调用文字模型优化提示词
-- 预览最新生成结果
-- 保存并按日期查看历史记录
-- 复用历史提示词
-- 自定义输出目录
-- 分别测试文字模型和图片模型连通性
+- Phase 1：供应商熔断、API key 动态分配、健康探测和额度策略核心。
+- Phase 2：API 与 Worker 最小运行骨架、托管生图任务入队、成功后扣额度、成本风险失败不扣用户额度。
+- 后续阶段：邮箱注册、提示词模板、手动支付、管理员后台、部署脚本和监控面板。
+
+当前 Phase 2 仍是运行时骨架，不是完整生产平台。它已经包含供应商熔断保护：如果同一供应商的图片模型出现 `524`、`openai_error`、空图片响应等高成本风险失败，会暂停平台托管调用，避免 10 个同供应商 API key 被重复消耗。
+
+更多运行说明见 [docs/web-platform-phase-2.md](docs/web-platform-phase-2.md)。
 
 ## 验证命令
 
 ```powershell
+npm run platform:test
 npm run test:run
 npm run build
 ```
 
-Rust 侧验证：
+Tauri / Rust 侧验证：
 
 ```powershell
 cargo test --manifest-path src-tauri/Cargo.toml
@@ -134,6 +101,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 ## 安全说明
 
-- 仓库默认不包含真实 API key
-- 每个用户都应在自己的本地环境中填写和保存 API key
-- 不要把包含真实密钥的配置文件提交到 Git
+- 仓库默认不包含真实 `API key`。
+- 每个用户都应该在自己的本地环境中填写并保存 `API key`。
+- 不要把包含真实密钥的配置文件提交到 Git。
+- Web 平台托管 Key 模式必须由后端保管平台 Key，不能下发到浏览器。
