@@ -54,7 +54,7 @@ describe("getGenerationCreditDecision", () => {
   });
 
   it("returns a decision for every outcome kind", () => {
-    const kinds = [
+    const allOutcomeKinds = [
       "success",
       "validation_error",
       "provider_cost_risk_failure",
@@ -66,10 +66,23 @@ describe("getGenerationCreditDecision", () => {
       "unknown_failure",
     ] as const satisfies readonly GenerationOutcomeKind[];
 
-    const decisions = kinds.map((kind) => getGenerationCreditDecision({ kind }));
+    type MissingOutcomeKind = Exclude<GenerationOutcomeKind, (typeof allOutcomeKinds)[number]>;
+    type ExtraOutcomeKind = Exclude<(typeof allOutcomeKinds)[number], GenerationOutcomeKind>;
 
-    expect(decisions).toHaveLength(kinds.length);
-    for (const decision of decisions) {
+    const allKindsCovered: MissingOutcomeKind extends never ? true : never = true;
+    const noExtraKinds: ExtraOutcomeKind extends never ? true : never = true;
+
+    void allKindsCovered;
+    void noExtraKinds;
+
+    const decisions = allOutcomeKinds.map((kind) => ({
+      kind,
+      decision: getGenerationCreditDecision({ kind }),
+    }));
+
+    expect(decisions).toHaveLength(allOutcomeKinds.length);
+    for (const { kind, decision } of decisions) {
+      expect(kind).toBeTypeOf("string");
       expect(decision.debitCredits).toBeGreaterThanOrEqual(0);
       expect(typeof decision.userMessage).toBe("string");
     }
