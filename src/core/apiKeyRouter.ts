@@ -25,7 +25,7 @@ export type ApiKeyRuntimeState = {
   fail1h: number;
   consecutiveFailures: number;
   consecutiveCostRiskFailures: number;
-  ewmaLatencyMs: number;
+  ewmaLatencyMs: number | null;
   lastUsedAtMs: number | null;
 };
 
@@ -77,7 +77,7 @@ export function scoreApiKey(key: ApiKeyRuntimeState, nowMs: number): number {
   const failurePenalty = key.fail15m * 4 + key.fail1h;
   const rateLimitPenalty = key.rateLimit15m * 25;
   const costRiskPenalty = key.costRiskFail15m * 40 + key.consecutiveCostRiskFailures * 50;
-  const latencyPenalty = Math.round(Math.max(0, key.ewmaLatencyMs) / 100);
+  const latencyPenalty = key.ewmaLatencyMs === null ? 0 : Math.round(Math.max(0, key.ewmaLatencyMs) / 100);
   const recencyPenalty =
     key.lastUsedAtMs === null ? 0 : Math.max(0, 60 - Math.floor((nowMs - key.lastUsedAtMs) / 1000));
 
@@ -219,8 +219,8 @@ export function recordApiKeyResult(
   };
 }
 
-function updateLatency(previousLatencyMs: number, nextLatencyMs: number): number {
-  if (previousLatencyMs <= 0) {
+function updateLatency(previousLatencyMs: number | null, nextLatencyMs: number): number {
+  if (previousLatencyMs === null || previousLatencyMs <= 0) {
     return nextLatencyMs;
   }
 

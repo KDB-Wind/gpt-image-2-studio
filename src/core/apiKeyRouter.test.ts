@@ -65,6 +65,23 @@ describe("apiKeyRouter", () => {
     expect(penalizedScore).toBeGreaterThan(0);
   });
 
+  it("scoreApiKey favors lower inFlight, fewer cost-risk failures, and less recent use", () => {
+    const lowerInFlightScore = scoreApiKey(key({ inFlight: 0 }), nowMs);
+    const higherInFlightScore = scoreApiKey(key({ inFlight: 1 }), nowMs);
+    const fewerCostRiskScore = scoreApiKey(key({ costRiskFail15m: 0, consecutiveCostRiskFailures: 0 }), nowMs);
+    const moreCostRiskScore = scoreApiKey(key({ costRiskFail15m: 2, consecutiveCostRiskFailures: 1 }), nowMs);
+    const lessRecentUseScore = scoreApiKey(key({ lastUsedAtMs: nowMs - 5 * 60_000 }), nowMs);
+    const moreRecentUseScore = scoreApiKey(key({ lastUsedAtMs: nowMs - 1_000 }), nowMs);
+    const nullLatencyScore = scoreApiKey(key({ ewmaLatencyMs: null }), nowMs);
+    const normalLatencyScore = scoreApiKey(key({ ewmaLatencyMs: 1000 }), nowMs);
+
+    expect(lowerInFlightScore).toBeGreaterThan(higherInFlightScore);
+    expect(fewerCostRiskScore).toBeGreaterThan(moreCostRiskScore);
+    expect(lessRecentUseScore).toBeGreaterThan(moreRecentUseScore);
+    expect(nullLatencyScore).toBeGreaterThan(0);
+    expect(nullLatencyScore).toBeGreaterThanOrEqual(normalLatencyScore);
+  });
+
   it("pickApiKey does not inspect keys when provider circuit is open", () => {
     const openedProvider = recordApiKeyResult(
       key(),
@@ -104,6 +121,17 @@ describe("apiKeyRouter", () => {
     expect(chosen.id).toBe("available-high");
     expect(chosen.inFlight).toBe(1);
     expect(isApiKeyAvailable(chosen, nowMs)).toBe(true);
+  });
+
+  it("pickApiKey uses weighted random thresholds instead of always picking first or last", () => {
+    const lowWeight = key({ id: "low-weight", success15m: 1, success1h: 1, ewmaLatencyMs: 2000 });
+    const highWeight = key({ id: "high-weight", success15m: 20, success1h: 60, ewmaLatencyMs: 100 });
+
+    const firstBucket = pickApiKey([lowWeight, highWeight], provider(), { nowMs, random: () => 0 });
+    const lastBucket = pickApiKey([lowWeight, highWeight], provider(), { nowMs, random: () => 0.999 });
+
+    expect(firstBucket.id).toBe("low-weight");
+    expect(lastBucket.id).toBe("high-weight");
   });
 
   it("pickApiKey throws NoAvailableApiKeyError when no key is available", () => {
@@ -194,6 +222,35 @@ describe("apiKeyRouter", () => {
     });
   });
 
+  it("recordApiKeyResult cools the key after three ordinary failures without opening provider circuit", () => {
+    const originalProvider = provider();
+    const result = recordApiKeyResult(
+      key({
+        inFlight: 1,
+        consecutiveFailures: 2,
+      }),
+      originalProvider,
+      {
+        kind: "failure",
+        classification: classifyProviderError({ message: "ordinary failure" }),
+      },
+      nowMs,
+    );
+
+    expect(result.key).toMatchObject({
+      state: "cooldown",
+      cooldownUntilMs: nowMs + 60_000,
+      inFlight: 0,
+      consecutiveFailures: 3,
+    });
+    expect(result.provider).toEqual(originalProvider);
+    expect(canUseProvider(result.provider, nowMs, "user")).toMatchObject({
+      allowed: true,
+      state: "closed",
+      reason: null,
+    });
+  });
+
   it("recordApiKeyResult records success and clears consecutive failure counters", () => {
     const result = recordApiKeyResult(
       key({
@@ -206,7 +263,7 @@ describe("apiKeyRouter", () => {
         fail1h: 7,
         success15m: 0,
         success1h: 3,
-        ewmaLatencyMs: 1000,
+        ewmaLatencyMs: null,
       }),
       provider(),
       {
@@ -226,7 +283,7 @@ describe("apiKeyRouter", () => {
       consecutiveCostRiskFailures: 0,
       lastUsedAtMs: nowMs,
     });
-    expect(result.key.ewmaLatencyMs).toBeLessThan(1000);
+    expect(result.key.ewmaLatencyMs).toBe(200);
     expect(canUseProvider(result.provider, nowMs, "user")).toMatchObject({
       allowed: true,
       state: "closed",
