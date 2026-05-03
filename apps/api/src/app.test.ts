@@ -26,9 +26,55 @@ describe("api app", () => {
     expect(response.json()).toMatchObject({ providerState: "closed" });
   });
 
+  it("returns persisted provider circuit status when available", async () => {
+    const repo = createInMemoryPlatformRepository();
+    await repo.upsertProviderModel({
+      providerId: "ruoli",
+      baseUrl: "https://ruoli.dev/v1",
+      imageModel: "gpt-image-2",
+      state: "open",
+      cooldownMs: 300000,
+      openedAt: new Date(nowMs),
+      openUntil: new Date(nowMs + 300000),
+      lastFailureReason: "Provider returned a paid empty image response.",
+    });
+    const app = buildApiApp({
+      repo,
+      provider: createProviderCircuit({
+        providerId: "ruoli",
+        baseUrl: "https://ruoli.dev/v1",
+        imageModel: "gpt-image-2",
+        nowMs,
+      }),
+      now: () => nowMs,
+      enqueue: async (jobId) => ({ queueId: `queue-${jobId}` }),
+    });
+
+    const response = await app.inject({ method: "GET", url: "/api/status" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      providerState: "open",
+      openUntilMs: nowMs + 300000,
+    });
+  });
+
   it("creates a hosted generation job", async () => {
     const repo = createInMemoryPlatformRepository();
     const user = await repo.createUser({ email: "demo@example.com" });
+    const model = await repo.upsertProviderModel({
+      providerId: "ruoli",
+      baseUrl: "https://ruoli.dev/v1",
+      imageModel: "gpt-image-2",
+      state: "closed",
+      cooldownMs: 300000,
+    });
+    await repo.createProviderApiKey({
+      providerModelId: model.id,
+      label: "Key 1",
+      keyCiphertext: "env:test-key",
+      maxInFlight: 1,
+    });
     await repo.addCreditLedgerEvent({
       userId: user.id,
       eventType: "daily_free_grant",

@@ -10,7 +10,17 @@ import {
   type ProviderCircuit,
 } from "@chat-to-image/platform-core";
 
-export type ProviderCallResult = ApiKeyResult;
+export type ProviderGeneratedImage = {
+  storagePath: string;
+  mimeType: string;
+  bytes: number;
+  width?: number | null;
+  height?: number | null;
+};
+
+export type ProviderCallResult =
+  | (Extract<ApiKeyResult, { kind: "success" }> & { images?: ProviderGeneratedImage[] })
+  | Extract<ApiKeyResult, { kind: "failure" }>;
 
 export type RunGenerationJobInput = {
   repo: PlatformRepository;
@@ -43,8 +53,20 @@ export async function runGenerationJob(input: RunGenerationJobInput) {
   });
 
   const keyUpdate = recordApiKeyResult(selectedKey, input.provider, providerResult, input.nowMs);
+  await persistProviderRuntimeState(input.repo, input.provider, keyUpdate);
 
   if (providerResult.kind === "success") {
+    for (const image of providerResult.images ?? []) {
+      await input.repo.createGenerationResult({
+        jobId: job.id,
+        storagePath: image.storagePath,
+        mimeType: image.mimeType,
+        bytes: image.bytes,
+        width: image.width ?? null,
+        height: image.height ?? null,
+      });
+    }
+
     const decision = getGenerationCreditDecision({ kind: "success" });
     await input.repo.addCreditLedgerEvent({
       userId: job.userId,
@@ -73,6 +95,35 @@ export async function runGenerationJob(input: RunGenerationJobInput) {
     errorCategory: providerResult.classification.category,
   });
   return { job: updatedJob, provider: keyUpdate.provider, key: keyUpdate.key };
+}
+
+async function persistProviderRuntimeState(
+  repo: PlatformRepository,
+  provider: ProviderCircuit,
+  update: ReturnType<typeof recordApiKeyResult>,
+) {
+  const model = await repo.getProviderModelByKey(provider.baseUrl, provider.imageModel);
+  if (!model) {
+    return;
+  }
+
+  await repo.updateProviderModel(model.id, {
+    state: update.provider.state,
+    openedAt: update.provider.openedAtMs === null ? null : new Date(update.provider.openedAtMs),
+    openUntil: update.provider.openUntilMs === null ? null : new Date(update.provider.openUntilMs),
+    lastFailureReason: update.provider.lastFailureReason,
+  });
+
+  const keys = await repo.listProviderApiKeys(model.id);
+  if (!keys.some((key) => key.id === update.key.id)) {
+    return;
+  }
+
+  await repo.updateProviderApiKey(update.key.id, {
+    enabled: update.key.enabled,
+    state: update.key.state,
+    cooldownUntil: update.key.cooldownUntilMs === null ? null : new Date(update.key.cooldownUntilMs),
+  });
 }
 
 function mapFailureOutcome(category: ProviderErrorCategory): GenerationOutcomeKind {
