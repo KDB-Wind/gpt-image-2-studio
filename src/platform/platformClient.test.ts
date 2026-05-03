@@ -85,4 +85,78 @@ describe("platformClient", () => {
 
     await expect(client.getStatus()).rejects.toThrow("Hosted image service is temporarily paused.");
   });
+
+  it("loads payment packages, creates payment requests, and approves payments with an admin token", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const client = createPlatformClient({
+      baseUrl: "",
+      fetch: async (url, init) => {
+        calls.push({ url: String(url), init });
+        if (String(url) === "/api/payment-packages") {
+          return jsonResponse({ packages: [{ amountCny: 5, credits: 50 }] });
+        }
+        if (String(url) === "/api/payments") {
+          return jsonResponse({ id: "payment-1", status: "pending" });
+        }
+        if (String(url) === "/api/admin/payments/payment-1/approve") {
+          return jsonResponse({ id: "payment-1", status: "approved" });
+        }
+        throw new Error(`Unexpected URL ${String(url)}`);
+      },
+    });
+
+    await expect(client.listPaymentPackages()).resolves.toEqual([{ amountCny: 5, credits: 50 }]);
+    await expect(
+      client.createPaymentRequest({ userId: "user-1", amountCny: 5, note: "wechat demo" }),
+    ).resolves.toMatchObject({ id: "payment-1" });
+    await expect(
+      client.approvePayment({ paymentId: "payment-1", adminUserId: "admin-1", adminToken: "admin-secret" }),
+    ).resolves.toMatchObject({ status: "approved" });
+
+    expect(calls[2]).toEqual({
+      url: "/api/admin/payments/payment-1/approve",
+      init: {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-token": "admin-secret" },
+        body: JSON.stringify({ adminUserId: "admin-1" }),
+      },
+    });
+  });
+
+  it("reads and updates the admin health probe schedule", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const schedule = {
+      dayStartHourUtc: 0,
+      nightStartHourUtc: 14,
+      dayIntervalMinutes: 30,
+      nightIntervalMinutes: 60,
+    };
+    const client = createPlatformClient({
+      baseUrl: "",
+      fetch: async (url, init) => {
+        calls.push({ url: String(url), init });
+        return jsonResponse(schedule);
+      },
+    });
+
+    await expect(client.getHealthProbeSchedule("admin-secret")).resolves.toEqual(schedule);
+    await expect(client.updateHealthProbeSchedule({ adminToken: "admin-secret", schedule })).resolves.toEqual(
+      schedule,
+    );
+
+    expect(calls).toEqual([
+      {
+        url: "/api/admin/health/probe-schedule",
+        init: { headers: { "x-admin-token": "admin-secret" } },
+      },
+      {
+        url: "/api/admin/health/probe-schedule",
+        init: {
+          method: "PUT",
+          headers: { "content-type": "application/json", "x-admin-token": "admin-secret" },
+          body: JSON.stringify(schedule),
+        },
+      },
+    ]);
+  });
 });

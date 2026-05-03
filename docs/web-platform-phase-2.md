@@ -4,6 +4,8 @@ Phase 2 / Task 1-8 已完成 Web 平台后端 MVP 骨架：API 服务负责注�
 
 当前仓库也已经包含 Web 前端 MVP：平台版 / 基础工具版切换、邮箱验证码登录、服务状态、额度展示、提示词模板库、托管任务提交和任务历史。
 
+当前生产运营 MVP 还包含：SMTP 验证码发送、验证码请求限流、二维码人工充值申请、管理员支付审核、健康探测频率配置、`npm run health:probe` 单次探测入口和 Linux 部署样例。
+
 ## 当前已完成
 
 - PostgreSQL / Drizzle schema、SQL migration 草案、Repository 接口和内存实现。
@@ -15,15 +17,17 @@ Phase 2 / Task 1-8 已完成 Web 平台后端 MVP 骨架：API 服务负责注�
 - 供应商熔断：`524`、`openai_error`、`bad_response_status_code`、空图片响应、探测图片小于 500KB 等成本风险会打开供应商级熔断。
 - 提示词模板共享包和 API 同步接口。
 - Web 平台前端 MVP：`src/platform/PlatformApp.tsx`、`src/platform/platformClient.ts`、`src/platform/promptTools.ts`。
+- 人工支付 MVP：用户提交固定套餐充值申请，管理员审核通过后发放额度。
+- 健康探测运行链路：管理员配置探测频率，systemd timer / cron 可定时触发 `npm run health:probe`。
+- 生产环境检查：`npm run platform:check-env` 校验关键环境变量。
 - 4C4G Linux 部署文档和容量估算。
 
 ## 仍未完成
 
-- 真实 SMTP 发信服务和发送频率限制。
-- 支付二维码提交、管理员审核、额度发放后台。
-- 定时健康探测的 systemd timer / cron 运行链路。
-- 数据库 migration 执行命令和生产部署脚本。
-- 管理后台 UI。当前只有 token 保护的管理 API。
+- Session 鉴权：当前 MVP 多数接口仍信任前端传入 userId，生产公开前应改成从 session token 解析。
+- 自动支付回调：当前只支持二维码人工审核。
+- 管理后台扩展：用户、管理员加额度、供应商 key、模板管理仍不完整。
+- 生产部署脚本增强：数据库 migration、备份、日志轮转和发布回滚仍需要补齐。
 
 ## 本地依赖
 

@@ -57,18 +57,30 @@ PROVIDER_CIRCUIT_COOLDOWN_MS=300000
 HEALTH_DAY_INTERVAL_MINUTES=30
 HEALTH_NIGHT_INTERVAL_MINUTES=60
 
-EMAIL_SMTP_HOST=smtp.example.com
-EMAIL_SMTP_PORT=465
-EMAIL_SMTP_USER=notice@example.com
-EMAIL_SMTP_PASSWORD=***
+SMTP_HOST=smtp.example.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=notice@example.com
+SMTP_PASS=***
+SMTP_FROM=Chat To Image <notice@example.com>
 
-SESSION_SECRET=***
-API_KEY_ENCRYPTION_SECRET=***
+AUTH_CODE_RATE_LIMIT_WINDOW_MS=3600000
+AUTH_CODE_MAX_PER_EMAIL=5
+AUTH_CODE_MAX_PER_IP=20
+
 PLATFORM_ADMIN_TOKEN=***
 ADMIN_BOOTSTRAP_EMAIL=admin@example.com
 ```
 
-生产环境不要把真实 API Key 写进 Git 仓库。10 个托管 API Key 应加密后写入数据库，运行时通过 `API_KEY_ENCRYPTION_SECRET` 解密使用。
+生产环境不要把真实 API Key 写进 Git 仓库。本 MVP 支持 `PLATFORM_API_KEY`、`PLATFORM_API_KEYS` 或 `PLATFORM_API_KEY_1..N`，可兼容 1、3、5、10 个 key。当前实现把 env key 指纹写入数据库，明文只保留在服务器环境变量中。
+
+上线前可运行：
+
+```bash
+npm run platform:check-env
+```
+
+示例文件见 `docs/deployment/production.env.example`。
 
 ## 5. Nginx 配置草案
 
@@ -152,12 +164,13 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 ```
 
-当前仓库仍处在 MVP 后端基础阶段，`apps/api/src/server.ts` 默认使用内存仓库。正式部署前必须把 API 和 Worker 切换到 PostgreSQL/Drizzle 仓库实现，否则进程重启会丢失用户、积分、任务与健康状态。
+示例 unit 文件见 `docs/deployment/systemd/`。当前项目还没有单独的后端打包产物，示例 unit 暂时使用 `npm run api:dev` / `npm run worker:dev` 通过 `tsx` 启动 TypeScript。后续做 CI/CD 时可把 API 和 Worker 打包成 JS，再把 `ExecStart` 改成 `node <dist-entry>`。
 
 ## 7. 健康检查与熔断
 
 - 每个供应商模型只用一个可用 API Key 做探测，不对同一个供应商下的 10 个 Key 逐个测试。
 - 白天默认每 30 分钟探测一次，夜间默认每 60 分钟探测一次，管理员可调整。
+- systemd timer 可每 5 分钟触发一次 `npm run health:probe`，应用会按数据库中的白天/夜间间隔决定是否真正探测。
 - 探测图片小于 500KB 或无图片数据时，判定为供应商异常。
 - 对 524、`openai_error`、`bad_response_status_code`、空图片响应等可能产生费用但无结果的错误，进入供应商级熔断。
 - 熔断期内普通用户不能继续调用托管模式；管理员探测可以绕过，用于手动恢复验证。

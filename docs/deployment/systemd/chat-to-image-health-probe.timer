@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Chat To Image provider health probe every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=chat-to-image-health-probe.service
+
+[Install]
+WantedBy=timers.target

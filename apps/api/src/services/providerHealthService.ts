@@ -53,12 +53,27 @@ export type HealthProbeSchedule = {
   nightIntervalMinutes: number;
 };
 
-const DEFAULT_HEALTH_PROBE_SCHEDULE: HealthProbeSchedule = {
+export const DEFAULT_HEALTH_PROBE_SCHEDULE: HealthProbeSchedule = {
   dayStartHourUtc: 8,
   nightStartHourUtc: 22,
   dayIntervalMinutes: 30,
   nightIntervalMinutes: 60,
 };
+
+export async function getHealthProbeSchedule(input: {
+  repo: Pick<PlatformRepository, "getAppSetting">;
+}): Promise<HealthProbeSchedule> {
+  return parseSchedule(await input.repo.getAppSetting("health.probeSchedule"));
+}
+
+export async function setHealthProbeSchedule(input: {
+  repo: Pick<PlatformRepository, "setAppSetting">;
+  schedule: HealthProbeSchedule;
+}): Promise<HealthProbeSchedule> {
+  const schedule = parseSchedule(input.schedule);
+  await input.repo.setAppSetting("health.probeSchedule", schedule);
+  return schedule;
+}
 
 export async function runDueProviderHealthProbes(input: {
   repo: PlatformRepository;

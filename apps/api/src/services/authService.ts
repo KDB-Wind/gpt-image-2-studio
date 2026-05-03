@@ -12,6 +12,7 @@ export type AuthServiceOptions = {
   hashCode?: HashCode;
   hashToken?: HashToken;
   sendCode?: SendVerificationCode;
+  checkRequestRateLimit?: (input: { email: string; ipAddress?: string | null }) => Promise<void> | void;
   codeTtlMs?: number;
   sessionTtlMs?: number;
   resendCooldownMs?: number;
@@ -54,6 +55,8 @@ export async function issueEmailVerificationCode(input: IssueEmailVerificationCo
   if (!email) {
     throw new Error("Email is required.");
   }
+
+  await input.checkRequestRateLimit?.({ email, ipAddress: input.ipAddress ?? null });
 
   const latest = await input.repo.getLatestEmailVerificationCode(email);
   const resendCooldownMs = input.resendCooldownMs ?? DEFAULT_RESEND_COOLDOWN_MS;

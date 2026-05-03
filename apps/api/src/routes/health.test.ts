@@ -98,4 +98,48 @@ describe("health routes", () => {
       healthy: true,
     });
   });
+
+  it("lets admins read and update the scheduled health probe cadence", async () => {
+    const repo = createInMemoryPlatformRepository();
+    const app = buildApiApp({
+      repo,
+      provider: createProviderCircuit({
+        providerId: "ruoli",
+        baseUrl: "https://ruoli.dev/v1",
+        imageModel: "gpt-image-2",
+        nowMs,
+      }),
+      now: () => nowMs,
+      enqueue: async (jobId) => ({ queueId: `queue-${jobId}` }),
+      admin: {
+        token: "admin-secret",
+      },
+    });
+
+    const update = await app.inject({
+      method: "PUT",
+      url: "/api/admin/health/probe-schedule",
+      headers: { "x-admin-token": "admin-secret" },
+      payload: {
+        dayStartHourUtc: 0,
+        nightStartHourUtc: 14,
+        dayIntervalMinutes: 30,
+        nightIntervalMinutes: 60,
+      },
+    });
+    const read = await app.inject({
+      method: "GET",
+      url: "/api/admin/health/probe-schedule",
+      headers: { "x-admin-token": "admin-secret" },
+    });
+
+    expect(update.statusCode).toBe(200);
+    expect(read.statusCode).toBe(200);
+    expect(read.json()).toMatchObject({
+      dayStartHourUtc: 0,
+      nightStartHourUtc: 14,
+      dayIntervalMinutes: 30,
+      nightIntervalMinutes: 60,
+    });
+  });
 });

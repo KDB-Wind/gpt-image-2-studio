@@ -776,7 +776,8 @@ img {
 }
 
 .platform-panel input,
-.platform-panel textarea {
+.platform-panel textarea,
+.platform-panel select {
   width: 100%;
   border: 1px solid rgba(31, 72, 87, 0.18);
   border-radius: 8px;
@@ -791,7 +792,8 @@ img {
 }
 
 .platform-panel input:focus,
-.platform-panel textarea:focus {
+.platform-panel textarea:focus,
+.platform-panel select:focus {
   outline: 2px solid rgba(42, 126, 147, 0.24);
   border-color: rgba(42, 126, 147, 0.48);
 }
@@ -989,6 +991,60 @@ img {
   overflow-wrap: anywhere;
 }
 
+.payment-panel,
+.admin-panel {
+  grid-column: span 2;
+}
+
+.payment-qr-card {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid rgba(31, 72, 87, 0.12);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fffaf0, #f8fcfa);
+}
+
+.payment-qr-card img {
+  width: min(100%, 220px);
+  border-radius: 10px;
+}
+
+.payment-qr-card span {
+  color: #8a5b15;
+  font-weight: 800;
+}
+
+.payment-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.payment-list article {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(31, 72, 87, 0.12);
+  border-radius: 10px;
+  padding: 12px;
+  background: #f9fcfb;
+}
+
+.payment-list span,
+.payment-list small {
+  color: #657983;
+  overflow-wrap: anywhere;
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+
 @media (max-width: 1240px) {
   .platform-layout {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1014,8 +1070,14 @@ img {
 
   .platform-status-strip,
   .platform-layout,
-  .template-vars {
+  .template-vars,
+  .admin-grid {
     grid-template-columns: 1fr;
+  }
+
+  .payment-panel,
+  .admin-panel {
+    grid-column: auto;
   }
 
   .platform-actions,

@@ -1,0 +1,12 @@
+[Unit]
+Description=Chat To Image Provider Health Probe
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/chat-to-image/app
+EnvironmentFile=/opt/chat-to-image/shared/env/production.env
+ExecStart=/usr/bin/npm run health:probe
+User=deploy
+Group=deploy
+NoNewPrivileges=true

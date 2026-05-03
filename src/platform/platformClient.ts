@@ -65,6 +65,29 @@ export type PlatformGenerationResult = {
   createdAt: string;
 };
 
+export type PlatformPaymentPackage = {
+  amountCny: number;
+  credits: number;
+};
+
+export type PlatformPayment = {
+  id: string;
+  userId: string;
+  amountCny: number;
+  credits: number;
+  status: "pending" | "approved" | "rejected";
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PlatformHealthProbeSchedule = {
+  dayStartHourUtc: number;
+  nightStartHourUtc: number;
+  dayIntervalMinutes: number;
+  nightIntervalMinutes: number;
+};
+
 export type CreatePlatformClientOptions = {
   baseUrl?: string;
   fetch?: typeof fetch;
@@ -136,6 +159,62 @@ export function createPlatformClient(options: CreatePlatformClientOptions = {}) 
         body: JSON.stringify(input),
       });
     },
+
+    listPaymentPackages() {
+      return request<{ packages: PlatformPaymentPackage[] }>("/api/payment-packages").then(
+        (response) => response.packages,
+      );
+    },
+
+    createPaymentRequest(input: { userId: string; amountCny: number; note: string | null }) {
+      return request<PlatformPayment>("/api/payments", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+      });
+    },
+
+    listUserPayments(userId: string) {
+      return request<{ payments: PlatformPayment[] }>(`/api/users/${encodeURIComponent(userId)}/payments`).then(
+        (response) => response.payments,
+      );
+    },
+
+    listAdminPayments(adminToken: string) {
+      return request<{ payments: PlatformPayment[] }>("/api/admin/payments", {
+        headers: getAdminHeaders(adminToken),
+      }).then((response) => response.payments);
+    },
+
+    approvePayment(input: { paymentId: string; adminUserId: string; adminToken: string }) {
+      return request<PlatformPayment>(`/api/admin/payments/${encodeURIComponent(input.paymentId)}/approve`, {
+        method: "POST",
+        headers: getJsonAdminHeaders(input.adminToken),
+        body: JSON.stringify({ adminUserId: input.adminUserId }),
+      });
+    },
+
+    rejectPayment(input: { paymentId: string; adminUserId: string; adminToken: string; reason: string }) {
+      return request<PlatformPayment>(`/api/admin/payments/${encodeURIComponent(input.paymentId)}/reject`, {
+        method: "POST",
+        headers: getJsonAdminHeaders(input.adminToken),
+        body: JSON.stringify({ adminUserId: input.adminUserId, reason: input.reason }),
+      });
+    },
+
+    getHealthProbeSchedule(adminToken: string) {
+      return request<PlatformHealthProbeSchedule>("/api/admin/health/probe-schedule", {
+        headers: getAdminHeaders(adminToken),
+      });
+    },
+
+    updateHealthProbeSchedule(input: { adminToken: string; schedule: PlatformHealthProbeSchedule }) {
+      return request<PlatformHealthProbeSchedule>("/api/admin/health/probe-schedule", {
+        method: "PUT",
+        headers: getJsonAdminHeaders(input.adminToken),
+        body: JSON.stringify(input.schedule),
+      });
+    },
   };
 }
 
@@ -165,4 +244,12 @@ function getApiErrorMessage(payload: unknown, status: number): string {
 
 function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, "");
+}
+
+function getAdminHeaders(adminToken: string) {
+  return { "x-admin-token": adminToken };
+}
+
+function getJsonAdminHeaders(adminToken: string) {
+  return { "content-type": "application/json", "x-admin-token": adminToken };
 }

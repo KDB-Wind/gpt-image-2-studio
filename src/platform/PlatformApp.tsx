@@ -5,11 +5,15 @@ import {
   type PlatformCreditOverview,
   type PlatformGenerationJob,
   type PlatformGenerationResult,
+  type PlatformHealthProbeSchedule,
+  type PlatformPayment,
+  type PlatformPaymentPackage,
   type PlatformPromptTemplate,
   type PlatformSession,
   type PlatformStatus,
 } from "./platformClient";
 import { getCategoryLabel, getTemplateCategories, renderTemplatePrompt } from "./promptTools";
+import paymentQrCode from "../assets/payment-wechat-qr.png";
 
 type PlatformAppProps = {
   onOpenBasicTool: () => void;
@@ -31,6 +35,18 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<PlatformStatus | null>(null);
   const [credits, setCredits] = useState<PlatformCreditOverview | null>(null);
+  const [paymentPackages, setPaymentPackages] = useState<PlatformPaymentPackage[]>([]);
+  const [payments, setPayments] = useState<PlatformPayment[]>([]);
+  const [selectedPaymentAmount, setSelectedPaymentAmount] = useState(5);
+  const [paymentNote, setPaymentNote] = useState("");
+  const [adminToken, setAdminToken] = useState("");
+  const [adminPayments, setAdminPayments] = useState<PlatformPayment[]>([]);
+  const [healthSchedule, setHealthSchedule] = useState<PlatformHealthProbeSchedule>({
+    dayStartHourUtc: 0,
+    nightStartHourUtc: 14,
+    dayIntervalMinutes: 30,
+    nightIntervalMinutes: 60,
+  });
   const [templates, setTemplates] = useState<PlatformPromptTemplate[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
@@ -47,6 +63,8 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
   const [isVerifying, setIsVerifying] = useState(false);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
   const [isSubmittingJob, setIsSubmittingJob] = useState(false);
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+  const [isLoadingAdmin, setIsLoadingAdmin] = useState(false);
 
   const client = useMemo(() => createPlatformClient({ baseUrl: apiBaseUrl }), [apiBaseUrl]);
   const categories = useMemo(() => getTemplateCategories(templates), [templates]);
@@ -81,6 +99,7 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
     window.localStorage.removeItem(SESSION_STORAGE_KEY);
     setCredits(null);
     setJobs([]);
+    setPayments([]);
     setSelectedJobId(null);
     setSelectedResults([]);
   }, [client, session]);
@@ -94,12 +113,17 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
   async function loadPublicDashboard() {
     setIsLoadingDashboard(true);
     try {
-      const [nextStatus, nextTemplates] = await Promise.all([
+      const [nextStatus, nextTemplates, nextPackages] = await Promise.all([
         client.getStatus(),
         client.listPromptTemplates(),
+        client.listPaymentPackages(),
       ]);
       setStatus(nextStatus);
       setTemplates(nextTemplates);
+      setPaymentPackages(nextPackages);
+      setSelectedPaymentAmount((current) =>
+        nextPackages.some((item) => item.amountCny === current) ? current : nextPackages[0]?.amountCny ?? current,
+      );
     } catch (error) {
       setMessage({ tone: "error", text: getErrorMessage(error) });
     } finally {
@@ -114,12 +138,14 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
 
     setIsLoadingDashboard(true);
     try {
-      const [nextCredits, nextJobs] = await Promise.all([
+      const [nextCredits, nextJobs, nextPayments] = await Promise.all([
         client.getCredits(userId),
         client.listUserJobs(userId),
+        client.listUserPayments(userId),
       ]);
       setCredits(nextCredits);
       setJobs(nextJobs);
+      setPayments(nextPayments);
       setSelectedJobId((current) => current ?? nextJobs[0]?.id ?? null);
     } catch (error) {
       setMessage({ tone: "error", text: getErrorMessage(error) });
@@ -205,6 +231,92 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
       setMessage({ tone: "error", text: getErrorMessage(error) });
     } finally {
       setIsSubmittingJob(false);
+    }
+  }
+
+  async function submitPaymentRequest() {
+    if (!session) {
+      setMessage({ tone: "error", text: "请先登录后再提交充值申请。" });
+      return;
+    }
+
+    setIsSubmittingPayment(true);
+    try {
+      const payment = await client.createPaymentRequest({
+        userId: session.user.id,
+        amountCny: selectedPaymentAmount,
+        note: paymentNote,
+      });
+      setPayments((current) => [payment, ...current.filter((item) => item.id !== payment.id)]);
+      setPaymentNote("");
+      setMessage({ tone: "success", text: "充值申请已提交，付款后等待管理员审核发放额度。" });
+    } catch (error) {
+      setMessage({ tone: "error", text: getErrorMessage(error) });
+    } finally {
+      setIsSubmittingPayment(false);
+    }
+  }
+
+  async function loadAdminPanel() {
+    if (!adminToken.trim()) {
+      setMessage({ tone: "error", text: "请输入管理员 token。" });
+      return;
+    }
+
+    setIsLoadingAdmin(true);
+    try {
+      const [nextPayments, nextSchedule] = await Promise.all([
+        client.listAdminPayments(adminToken.trim()),
+        client.getHealthProbeSchedule(adminToken.trim()),
+      ]);
+      setAdminPayments(nextPayments);
+      setHealthSchedule(nextSchedule);
+      setMessage({ tone: "success", text: "管理员数据已刷新。" });
+    } catch (error) {
+      setMessage({ tone: "error", text: getErrorMessage(error) });
+    } finally {
+      setIsLoadingAdmin(false);
+    }
+  }
+
+  async function approvePaymentRequest(paymentId: string) {
+    try {
+      await client.approvePayment({ paymentId, adminUserId: "admin", adminToken: adminToken.trim() });
+      await loadAdminPanel();
+      if (session) {
+        await loadUserDashboard(session.user.id);
+      }
+      setMessage({ tone: "success", text: "已审核通过并发放额度。" });
+    } catch (error) {
+      setMessage({ tone: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  async function rejectPaymentRequest(paymentId: string) {
+    try {
+      await client.rejectPayment({
+        paymentId,
+        adminUserId: "admin",
+        adminToken: adminToken.trim(),
+        reason: "管理员未确认到账",
+      });
+      await loadAdminPanel();
+      setMessage({ tone: "success", text: "已拒绝该充值申请。" });
+    } catch (error) {
+      setMessage({ tone: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  async function saveHealthSchedule() {
+    try {
+      const next = await client.updateHealthProbeSchedule({
+        adminToken: adminToken.trim(),
+        schedule: healthSchedule,
+      });
+      setHealthSchedule(next);
+      setMessage({ tone: "success", text: "健康探测频率已保存。" });
+    } catch (error) {
+      setMessage({ tone: "error", text: getErrorMessage(error) });
     }
   }
 
@@ -403,6 +515,62 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
           </div>
         </section>
 
+        <section className="platform-panel payment-panel">
+          <header>
+            <h2>充值与付款</h2>
+            <p>扫码付款后提交备注，管理员确认到账后发放额度。当前 MVP 暂不接自动微信支付。</p>
+          </header>
+
+          <div className="payment-qr-card">
+            <img src={paymentQrCode} alt="微信收款码" />
+            <span>推荐使用微信支付</span>
+          </div>
+
+          <label>
+            <span>充值套餐</span>
+            <select
+              value={selectedPaymentAmount}
+              onChange={(event) => setSelectedPaymentAmount(Number(event.target.value))}
+            >
+              {paymentPackages.map((item) => (
+                <option key={item.amountCny} value={item.amountCny}>
+                  {item.amountCny} 元 / {item.credits} 额度
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>付款备注</span>
+            <input
+              value={paymentNote}
+              onChange={(event) => setPaymentNote(event.target.value)}
+              placeholder="填写微信昵称、付款时间或转账备注，方便核对"
+            />
+          </label>
+          <button
+            type="button"
+            className="platform-primary"
+            onClick={() => void submitPaymentRequest()}
+            disabled={isSubmittingPayment}
+          >
+            {isSubmittingPayment ? "提交中" : "提交充值申请"}
+          </button>
+
+          <div className="payment-list">
+            {payments.length === 0 ? (
+              <p className="platform-empty">暂无充值申请。</p>
+            ) : (
+              payments.map((payment) => (
+                <article key={payment.id}>
+                  <strong>{payment.amountCny} 元 / {payment.credits} 额度</strong>
+                  <span>{formatPaymentStatus(payment.status)}</span>
+                  {payment.note ? <small>{payment.note}</small> : null}
+                </article>
+              ))
+            )}
+          </div>
+        </section>
+
         <section className="platform-panel jobs-panel">
           <header>
             <h2>任务历史</h2>
@@ -467,6 +635,74 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
               )}
             </div>
           ) : null}
+        </section>
+
+        <section className="platform-panel admin-panel">
+          <header>
+            <h2>管理员</h2>
+            <p>输入 PLATFORM_ADMIN_TOKEN 后可审核充值申请，并调整供应商健康探测频率。</p>
+          </header>
+
+          <label>
+            <span>Admin Token</span>
+            <input
+              type="password"
+              value={adminToken}
+              onChange={(event) => setAdminToken(event.target.value)}
+              placeholder="服务器环境变量 PLATFORM_ADMIN_TOKEN"
+            />
+          </label>
+          <div className="platform-actions">
+            <button type="button" className="platform-secondary" onClick={() => void loadAdminPanel()} disabled={isLoadingAdmin}>
+              {isLoadingAdmin ? "刷新中" : "刷新管理员数据"}
+            </button>
+          </div>
+
+          <div className="admin-grid">
+            <label>
+              <span>白天开始 UTC 小时</span>
+              <input type="number" min="0" max="23" value={healthSchedule.dayStartHourUtc} onChange={(event) => setHealthSchedule((current) => ({ ...current, dayStartHourUtc: Number(event.target.value) }))} />
+            </label>
+            <label>
+              <span>夜间开始 UTC 小时</span>
+              <input type="number" min="0" max="23" value={healthSchedule.nightStartHourUtc} onChange={(event) => setHealthSchedule((current) => ({ ...current, nightStartHourUtc: Number(event.target.value) }))} />
+            </label>
+            <label>
+              <span>白天间隔分钟</span>
+              <input type="number" min="1" value={healthSchedule.dayIntervalMinutes} onChange={(event) => setHealthSchedule((current) => ({ ...current, dayIntervalMinutes: Number(event.target.value) }))} />
+            </label>
+            <label>
+              <span>夜间间隔分钟</span>
+              <input type="number" min="1" value={healthSchedule.nightIntervalMinutes} onChange={(event) => setHealthSchedule((current) => ({ ...current, nightIntervalMinutes: Number(event.target.value) }))} />
+            </label>
+          </div>
+          <button type="button" className="platform-secondary" onClick={() => void saveHealthSchedule()}>
+            保存探测频率
+          </button>
+
+          <div className="payment-list admin-payments">
+            {adminPayments.length === 0 ? (
+              <p className="platform-empty">暂无管理员支付数据。</p>
+            ) : (
+              adminPayments.map((payment) => (
+                <article key={payment.id}>
+                  <strong>{payment.amountCny} 元 / {payment.credits} 额度</strong>
+                  <span>{formatPaymentStatus(payment.status)} · {payment.userId}</span>
+                  {payment.note ? <small>{payment.note}</small> : null}
+                  {payment.status === "pending" ? (
+                    <div className="platform-actions">
+                      <button type="button" className="platform-primary" onClick={() => void approvePaymentRequest(payment.id)}>
+                        通过
+                      </button>
+                      <button type="button" className="platform-secondary" onClick={() => void rejectPaymentRequest(payment.id)}>
+                        拒绝
+                      </button>
+                    </div>
+                  ) : null}
+                </article>
+              ))
+            )}
+          </div>
         </section>
       </section>
     </main>
@@ -536,4 +772,14 @@ function formatBytes(value: number): string {
   }
 
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatPaymentStatus(status: PlatformPayment["status"]): string {
+  const labels: Record<PlatformPayment["status"], string> = {
+    pending: "待审核",
+    approved: "已通过",
+    rejected: "已拒绝",
+  };
+
+  return labels[status];
 }

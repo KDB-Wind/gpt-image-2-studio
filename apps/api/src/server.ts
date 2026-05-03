@@ -5,6 +5,8 @@ import {
   providerModelToCircuit,
   syncHostedProviderFromEnv,
 } from "./runtime";
+import { createVerificationCodeSender } from "./services/emailSender";
+import { createVerificationRequestRateLimiter } from "./services/authRateLimit";
 import { createBullMqGenerationQueue, createRedisConnectionFromEnv } from "./services/generationQueue";
 
 const nowMs = Date.now();
@@ -26,6 +28,14 @@ const app = buildApiApp({
   enqueue: generationQueue.enqueue,
   admin: {
     token: process.env.PLATFORM_ADMIN_TOKEN,
+  },
+  auth: {
+    sendCode: createVerificationCodeSender(process.env),
+    checkRequestRateLimit: createVerificationRequestRateLimiter({
+      windowMs: Number(process.env.AUTH_CODE_RATE_LIMIT_WINDOW_MS ?? 3600000),
+      maxPerEmail: Number(process.env.AUTH_CODE_MAX_PER_EMAIL ?? 5),
+      maxPerIp: Number(process.env.AUTH_CODE_MAX_PER_IP ?? 20),
+    }),
   },
   health: {
     probe: createOpenAIProviderHealthProbe(process.env),
