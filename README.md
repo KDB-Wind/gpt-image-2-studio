@@ -1,13 +1,13 @@
 # Chat To Image
 
-本项目当前包含两个方向：
+本项目当前保留两个方向：
 
-- 本地桌面版：面向个人本机使用，配置和图片优先保存在当前用户本机。
-- Web 平台版：正在分阶段开发，目标是让普通用户通过网页注册、体验和付费使用平台托管的生图能力。
+- 基础工具版：面向个人本机使用，配置和图片优先保存在当前用户本机，后续可作为轻量开源版本发布。
+- Web 平台版：面向普通网页用户，支持注册、额度、队列、供应商熔断、健康探测和平台托管 Key 模式。
 
-## 本地桌面版
+## 基础工具版
 
-桌面版已经具备基础可用能力：
+基础工具版已经具备可用能力：
 
 - 输入提示词生成图片。
 - 支持上传图片加文字进行图生图。
@@ -16,7 +16,7 @@
 - 生成图片按日期保存到本地目录。
 - 支持 Windows 安装包分发。
 
-普通用户优先使用 Windows 安装包，不建议把 `npm run dev` 作为主要使用方式。
+基础工具版不包含用户管理、积分、支付、平台托管 Key、队列和平台图片存储。普通用户优先使用 Windows 安装包，不建议把 `npm run dev` 作为主要使用方式。
 
 ## 默认配置
 
@@ -74,15 +74,20 @@ npm run worker:dev
 
 ## Web 平台开发状态
 
-Web 平台正在分阶段实现：
+Web 平台后端 Task 1-8 已完成并合并到 `master`：
 
 - Phase 1：供应商熔断、API key 动态分配、健康探测和额度策略核心。
-- Phase 2：API 与 Worker 最小运行骨架、托管生图任务入队、成功后扣额度、成本风险失败不扣用户额度。
-- 后续阶段：邮箱注册、提示词模板、手动支付、管理员后台、部署脚本和监控面板。
+- Task 1-8：PostgreSQL/Drizzle 持久化、Redis/BullMQ 队列、Provider Adapter、邮箱验证码注册骨架、积分系统、健康监控、提示词模板库、4C4G Linux 部署文档。
 
-当前 Phase 2 仍是运行时骨架，不是完整生产平台。它已经包含供应商熔断保护：如果同一供应商的图片模型出现 `524`、`openai_error`、空图片响应等高成本风险失败，会暂停平台托管调用，避免 10 个同供应商 API key 被重复消耗。
+当前代码已经包含供应商熔断保护：如果同一供应商的图片模型出现 `524`、`openai_error`、空图片响应等高成本风险失败，会暂停平台托管调用，避免多个同供应商 API key 被重复消耗。托管任务只会在供应商成功返回图片后扣用户额度。
 
-更多运行说明见 [docs/web-platform-phase-2.md](docs/web-platform-phase-2.md)。
+Web 平台仍不是完整生产产品。下一阶段重点是 Web 前端 MVP、真实 SMTP、支付审核后台、定时健康探测运行链路、部署脚本和管理后台 UI。
+
+更多说明见：
+
+- [docs/web-platform-phase-2.md](docs/web-platform-phase-2.md)
+- [docs/product-editions.md](docs/product-editions.md)
+- [docs/deployment/4c4g-linux-platform.md](docs/deployment/4c4g-linux-platform.md)
 
 ## 验证命令
 

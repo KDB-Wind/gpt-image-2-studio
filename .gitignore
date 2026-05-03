@@ -6,6 +6,7 @@ dist-ssr/
 src-tauri/target/
 src-tauri/gen/
 outputs/
+*Payment QR Code*/
 .env
 .env.*
 !.env.example
