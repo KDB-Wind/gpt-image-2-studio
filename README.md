@@ -1,109 +1,109 @@
 # GPT-Image-2 Studio
 
-`GPT-Image-2 Studio` is a lightweight local tool for OpenAI-compatible image generation.
+[简体中文](./README.md) | [English](./README.en.md)
 
-It is focused on personal use and small-scale sharing:
+轻量、本地优先的 `gpt-image-2` 调用工具，支持文生图、图生图、多图参考、历史记录和桌面打包。
 
-- text-to-image generation
-- image-to-image generation
-- multi-image upload and drag-and-drop
-- local config saved per user
-- local image history saved by date
-- optional Windows desktop packaging with Tauri
+## 作者推荐中转站
 
-This public repository contains the basic standalone tool only. Platform code, hosted queue logic, payments, user accounts, and server-side provider management are intentionally excluded.
+[https://ruoli.dev/register?aff=mR35](https://ruoli.dev/register?aff=mR35)
 
-## Features
+## 项目定位
 
-- default Chinese UI with `简体中文 / English` switching
-- configurable `API key`, `Base URL`, text model, image model, timeout, and output directory
-- image-to-image with up to 8 reference images
-- built-in text model, text-to-image, and image-to-image connectivity tests
-- brighter desktop-first interface
-- local history preview and reusable prompts
-- fixed local save directory with timestamp-based naming
+这个公开仓库只包含基础独立工具版，适合个人本地使用或轻量分享。
 
-## Default Settings
+不包含以下内容：
+
+- 平台 API
+- 队列 Worker
+- 支付流程
+- 用户注册与登录
+- 托管 key 路由
+- 平台级供应商熔断与后台管理
+
+这些内容属于单独维护的私有平台代码，不在本仓库公开。
+
+## 功能特性
+
+- 默认中文界面，支持 `简体中文 / English` 切换
+- 支持 `API key`、`Base URL`、文字模型、图片模型、超时时间、输出目录配置
+- 支持文生图
+- 支持图生图
+- 支持最多 8 张参考图上传
+- 支持多图拖拽上传
+- 支持文字模型、文生图、图生图最小连通测试
+- 支持本地历史记录与提示词复用
+- 支持按日期保存图片到本地目录
+- 支持 Tauri 桌面打包
+
+## 默认配置
 
 - `Base URL`: `https://ruoli.dev/v1`
 - `Text model`: `gpt-5.4-mini`
 - `Image model`: `gpt-image-2`
-- `API key`: blank by default
-- `Timeout`: `180` seconds minimum
+- `API key`: 默认留空
+- `Timeout`: 最低建议 `180` 秒
 - `Output directory`: `outputs`
 
-## Security
+## 安全说明
 
-- `API key` is not stored in the repository.
-- Local settings are saved on the current user's device.
-- Real `.env` files are ignored.
-- Before publishing, this snapshot was separated from the private multi-product repository to avoid pushing unrelated platform history.
+- `API key` 不会保存在仓库里。
+- 本地配置保存到当前用户自己的设备。
+- 真实 `.env` 文件已被忽略，不会被跟踪。
+- 公开仓库使用的是从私有多产品仓库中导出的干净快照，避免带出不应公开的平台历史。
 
-If you previously exposed a real API key anywhere else, rotate it before public distribution.
+如果你曾在其他地方暴露过真实 `API key`，建议先轮换。
 
-## Requirements
+## 环境要求
 
 - Node.js `>= 20.19.0`
 - npm `>= 10`
-- Rust toolchain is required only for Tauri desktop builds
+- 如果需要构建 Tauri 桌面版，还需要 Rust toolchain
 
-If you want npm cache and downloads on `D:`:
-
-```powershell
-$env:npm_config_cache = "D:\npm-cache"
-npm install
-```
-
-## Development
-
-Install dependencies:
+如果你希望 npm 缓存和下载落在 `D:`：
 
 ```powershell
 $env:npm_config_cache = "D:\npm-cache"
 npm install
 ```
 
-Start the web version:
+## 开发与运行
+
+安装依赖：
+
+```powershell
+$env:npm_config_cache = "D:\npm-cache"
+npm install
+```
+
+启动 Web 版本：
 
 ```powershell
 npm run dev
 ```
 
-Build the web app:
+构建前端：
 
 ```powershell
 npm run build
 ```
 
-Run tests:
+运行测试：
 
 ```powershell
 npm run test:run
 ```
 
-## Desktop Build
+## 桌面版
 
-Run the desktop app in development:
+桌面调试：
 
 ```powershell
 npm run desktop:dev
 ```
 
-Build the Windows desktop package:
+构建桌面安装包：
 
 ```powershell
 npm run desktop:build
 ```
-
-## Project Scope
-
-This repository does not include:
-
-- hosted platform APIs
-- worker queues
-- payment flows
-- user registration and login
-- provider circuit breaker management UI
-- server-side key routing
-
-Those pieces belong to a separate private platform codebase.
