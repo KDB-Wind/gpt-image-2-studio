@@ -1,0 +1,25 @@
+[package]
+name = "gpt-image-2-studio"
+version = "0.1.0"
+description = "GPT-Image-2 Studio desktop shell"
+authors = ["KDB-Wind"]
+edition = "2021"
+
+[lib]
+name = "gpt_image_2_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = "2"
+
+[dependencies]
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+directories = "5"
+keyring = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+thiserror = "2"

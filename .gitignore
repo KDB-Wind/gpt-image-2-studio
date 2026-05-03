@@ -1,0 +1,13 @@
+.superpowers/
+.worktrees/
+node_modules/
+dist/
+dist-ssr/
+src-tauri/target/
+src-tauri/gen/
+outputs/
+*Payment QR Code*/
+.env
+.env.*
+!.env.example
+!.env.local.platform.example
