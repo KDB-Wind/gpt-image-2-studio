@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
 import { createInMemoryPlatformRepository } from "@chat-to-image/platform-db/in-memory";
@@ -39,6 +41,7 @@ describe("credit routes", () => {
   it("returns user credit overview and supports admin credit adjustment", async () => {
     const repo = createInMemoryPlatformRepository();
     const user = await repo.createUser({ email: "demo@example.com" });
+    const headers = await createSessionHeaders(repo, user.id);
     const app = buildApiApp({
       repo,
       provider: createProviderCircuit({
@@ -63,6 +66,7 @@ describe("credit routes", () => {
     const overview = await app.inject({
       method: "GET",
       url: `/api/credits/${user.id}`,
+      headers,
     });
 
     expect(add.statusCode).toBe(200);
@@ -74,3 +78,13 @@ describe("credit routes", () => {
     });
   });
 });
+
+async function createSessionHeaders(repo: ReturnType<typeof createInMemoryPlatformRepository>, userId: string) {
+  const token = `session-${userId}`;
+  await repo.createSession({
+    userId,
+    tokenHash: createHash("sha256").update(token).digest("hex"),
+    expiresAt: new Date(nowMs + 60_000),
+  });
+  return { authorization: `Bearer ${token}` };
+}

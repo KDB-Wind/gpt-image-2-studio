@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
 import { createInMemoryPlatformRepository } from "@chat-to-image/platform-db/in-memory";
@@ -62,6 +64,7 @@ describe("api app", () => {
   it("creates a hosted generation job", async () => {
     const repo = createInMemoryPlatformRepository();
     const user = await repo.createUser({ email: "demo@example.com" });
+    const headers = await createSessionHeaders(repo, user.id);
     const model = await repo.upsertProviderModel({
       providerId: "ruoli",
       baseUrl: "https://ruoli.dev/v1",
@@ -96,6 +99,7 @@ describe("api app", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/generation-jobs",
+      headers,
       payload: {
         userId: user.id,
         prompt: "A bright product poster",
@@ -107,3 +111,13 @@ describe("api app", () => {
     expect(response.json()).toMatchObject({ status: "queued" });
   });
 });
+
+async function createSessionHeaders(repo: ReturnType<typeof createInMemoryPlatformRepository>, userId: string) {
+  const token = `session-${userId}`;
+  await repo.createSession({
+    userId,
+    tokenHash: createHash("sha256").update(token).digest("hex"),
+    expiresAt: new Date(nowMs + 60_000),
+  });
+  return { authorization: `Bearer ${token}` };
+}

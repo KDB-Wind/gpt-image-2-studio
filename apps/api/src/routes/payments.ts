@@ -9,8 +9,9 @@ import {
   rejectPayment,
 } from "../services/paymentService";
 import { requireAdminToken, type AdminRouteOptions } from "./adminAuth";
+import { requireMatchingUserSession, requireUserSession, type SessionAuthRouteDependencies } from "./sessionAuth";
 
-export type PaymentRouteDependencies = AdminRouteOptions & {
+export type PaymentRouteDependencies = AdminRouteOptions & SessionAuthRouteDependencies & {
   repo: PlatformRepository;
 };
 
@@ -34,6 +35,14 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
       return reply.status(400).send({ error: "Invalid payment request.", details: parsed.error.flatten() });
     }
 
+    const user = await requireUserSession(request, reply, deps);
+    if (!user) {
+      return reply;
+    }
+    if (user.id !== parsed.data.userId) {
+      return reply.status(403).send({ error: "Session user does not match requested user." });
+    }
+
     try {
       return await createPaymentRequest({ repo: deps.repo, ...parsed.data });
     } catch (error) {
@@ -45,6 +54,11 @@ export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDe
     const params = z.object({ userId: z.string().min(1) }).safeParse(request.params);
     if (!params.success) {
       return reply.status(400).send({ error: "Invalid payment history request." });
+    }
+
+    const user = await requireMatchingUserSession(request, reply, deps, params.data.userId);
+    if (!user) {
+      return reply;
     }
 
     return { payments: await deps.repo.listPayments(params.data.userId) };

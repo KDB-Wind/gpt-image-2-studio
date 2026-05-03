@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
 import { createInMemoryPlatformRepository } from "@chat-to-image/platform-db/in-memory";
@@ -10,6 +12,7 @@ describe("payment routes", () => {
   it("lets a user create and list payment requests", async () => {
     const repo = createInMemoryPlatformRepository();
     const user = await repo.createUser({ email: "demo@example.com" });
+    const headers = await createSessionHeaders(repo, user.id);
     const app = buildApiApp({
       repo,
       provider: createProviderCircuit({
@@ -25,6 +28,7 @@ describe("payment routes", () => {
     const create = await app.inject({
       method: "POST",
       url: "/api/payments",
+      headers,
       payload: {
         userId: user.id,
         amountCny: 5,
@@ -34,6 +38,7 @@ describe("payment routes", () => {
     const list = await app.inject({
       method: "GET",
       url: `/api/users/${user.id}/payments`,
+      headers,
     });
 
     expect(create.statusCode).toBe(200);
@@ -77,3 +82,13 @@ describe("payment routes", () => {
     await expect(repo.getCreditBalance(user.id)).resolves.toBe(100);
   });
 });
+
+async function createSessionHeaders(repo: ReturnType<typeof createInMemoryPlatformRepository>, userId: string) {
+  const token = `session-${userId}`;
+  await repo.createSession({
+    userId,
+    tokenHash: createHash("sha256").update(token).digest("hex"),
+    expiresAt: new Date(nowMs + 60_000),
+  });
+  return { authorization: `Bearer ${token}` };
+}

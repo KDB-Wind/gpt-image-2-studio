@@ -72,6 +72,16 @@ export function createInMemoryPlatformRepository(): PlatformRepository {
       return [...users.values()].find((user) => user.email === normalized) ?? null;
     },
 
+    async listUsers(limit = 50) {
+      return [...users.values()]
+        .sort(
+          (left, right) =>
+            right.createdAt.getTime() - left.createdAt.getTime() ||
+            right.id.localeCompare(left.id),
+        )
+        .slice(0, limit);
+    },
+
     async setUserDisabled(userId: string, disabled: boolean) {
       const user = requireExisting(users, userId, "User");
       const next = { ...user, disabled };

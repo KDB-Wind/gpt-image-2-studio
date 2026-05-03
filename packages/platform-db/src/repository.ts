@@ -272,6 +272,7 @@ export type PlatformRepository = {
   createUser(input: CreateUserInput): Promise<User>;
   getUser(userId: string): Promise<User | null>;
   getUserByEmail(email: string): Promise<User | null>;
+  listUsers(limit?: number): Promise<User[]>;
   setUserDisabled(userId: string, disabled: boolean): Promise<User>;
 
   createEmailVerificationCode(input: CreateEmailVerificationCodeInput): Promise<EmailVerificationCode>;

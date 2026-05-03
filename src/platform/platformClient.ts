@@ -88,6 +88,49 @@ export type PlatformHealthProbeSchedule = {
   nightIntervalMinutes: number;
 };
 
+export type PlatformAdminUser = PlatformUser & {
+  balance: number;
+};
+
+export type PlatformAdminProviderApiKey = {
+  id: string;
+  providerModelId: string;
+  label: string;
+  enabled: boolean;
+  state: "healthy" | "cooldown" | "disabled";
+  cooldownUntil: string | null;
+  maxInFlight: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PlatformAdminProviderHealthEvent = {
+  id: string;
+  providerModelId: string;
+  apiKeyId: string | null;
+  status: "success" | "failure" | "skipped";
+  latencyMs: number | null;
+  imageBytes: number | null;
+  message: string;
+  createdAt: string;
+};
+
+export type PlatformAdminProviderModel = {
+  id: string;
+  providerId: string;
+  baseUrl: string;
+  imageModel: string;
+  state: "closed" | "open" | "half_open" | "maintenance";
+  cooldownMs: number;
+  openedAt: string | null;
+  openUntil: string | null;
+  lastFailureReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  apiKeys: PlatformAdminProviderApiKey[];
+  healthEvents: PlatformAdminProviderHealthEvent[];
+};
+
 export type CreatePlatformClientOptions = {
   baseUrl?: string;
   fetch?: typeof fetch;
@@ -136,27 +179,32 @@ export function createPlatformClient(options: CreatePlatformClientOptions = {}) 
       );
     },
 
-    getCredits(userId: string) {
-      return request<PlatformCreditOverview>(`/api/credits/${encodeURIComponent(userId)}`);
+    getCredits(userId: string, sessionToken: string) {
+      return request<PlatformCreditOverview>(`/api/credits/${encodeURIComponent(userId)}`, {
+        headers: getSessionHeaders(sessionToken),
+      });
     },
 
-    listUserJobs(userId: string) {
+    listUserJobs(userId: string, sessionToken: string) {
       return request<{ jobs: PlatformGenerationJob[] }>(
         `/api/users/${encodeURIComponent(userId)}/generation-jobs`,
+        { headers: getSessionHeaders(sessionToken) },
       ).then((response) => response.jobs);
     },
 
-    getGenerationJob(jobId: string) {
+    getGenerationJob(jobId: string, sessionToken: string) {
       return request<{ job: PlatformGenerationJob; results: PlatformGenerationResult[] }>(
         `/api/generation-jobs/${encodeURIComponent(jobId)}`,
+        { headers: getSessionHeaders(sessionToken) },
       );
     },
 
-    createGenerationJob(input: { userId: string; prompt: string; imageModel: string }) {
+    createGenerationJob(input: { userId: string; sessionToken: string; prompt: string; imageModel: string }) {
+      const { sessionToken, ...body } = input;
       return request<PlatformGenerationJob>("/api/generation-jobs", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(input),
+        headers: getJsonSessionHeaders(sessionToken),
+        body: JSON.stringify(body),
       });
     },
 
@@ -166,18 +214,19 @@ export function createPlatformClient(options: CreatePlatformClientOptions = {}) 
       );
     },
 
-    createPaymentRequest(input: { userId: string; amountCny: number; note: string | null }) {
+    createPaymentRequest(input: { userId: string; sessionToken: string; amountCny: number; note: string | null }) {
+      const { sessionToken, ...body } = input;
       return request<PlatformPayment>("/api/payments", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(input),
+        headers: getJsonSessionHeaders(sessionToken),
+        body: JSON.stringify(body),
       });
     },
 
-    listUserPayments(userId: string) {
-      return request<{ payments: PlatformPayment[] }>(`/api/users/${encodeURIComponent(userId)}/payments`).then(
-        (response) => response.payments,
-      );
+    listUserPayments(userId: string, sessionToken: string) {
+      return request<{ payments: PlatformPayment[] }>(`/api/users/${encodeURIComponent(userId)}/payments`, {
+        headers: getSessionHeaders(sessionToken),
+      }).then((response) => response.payments);
     },
 
     listAdminPayments(adminToken: string) {
@@ -213,6 +262,65 @@ export function createPlatformClient(options: CreatePlatformClientOptions = {}) 
         method: "PUT",
         headers: getJsonAdminHeaders(input.adminToken),
         body: JSON.stringify(input.schedule),
+      });
+    },
+
+    listAdminUsers(adminToken: string) {
+      return request<{ users: PlatformAdminUser[] }>("/api/admin/users", {
+        headers: getAdminHeaders(adminToken),
+      }).then((response) => response.users);
+    },
+
+    updateAdminUser(input: {
+      userId: string;
+      adminUserId: string;
+      adminToken: string;
+      disabled: boolean;
+    }) {
+      return request<PlatformUser>(`/api/admin/users/${encodeURIComponent(input.userId)}`, {
+        method: "PATCH",
+        headers: getJsonAdminHeaders(input.adminToken),
+        body: JSON.stringify({ adminUserId: input.adminUserId, disabled: input.disabled }),
+      });
+    },
+
+    addAdminCredits(input: {
+      userId: string;
+      adminUserId: string;
+      adminToken: string;
+      amount: number;
+      reason: string;
+    }) {
+      return request<PlatformCreditOverview>(`/api/admin/users/${encodeURIComponent(input.userId)}/credits`, {
+        method: "POST",
+        headers: getJsonAdminHeaders(input.adminToken),
+        body: JSON.stringify({
+          adminUserId: input.adminUserId,
+          amount: input.amount,
+          reason: input.reason,
+        }),
+      });
+    },
+
+    listAdminProviderModels(adminToken: string) {
+      return request<{ models: PlatformAdminProviderModel[] }>("/api/admin/provider-models", {
+        headers: getAdminHeaders(adminToken),
+      }).then((response) => response.models);
+    },
+
+    updateAdminProviderApiKey(input: {
+      apiKeyId: string;
+      adminUserId: string;
+      adminToken: string;
+      enabled?: boolean;
+      state?: PlatformAdminProviderApiKey["state"];
+      maxInFlight?: number;
+    }) {
+      const { apiKeyId, adminToken, ...body } = input;
+      return request<PlatformAdminProviderApiKey>(`/api/admin/provider-api-keys/${encodeURIComponent(apiKeyId)}`, {
+        method: "PATCH",
+        headers: getJsonAdminHeaders(adminToken),
+        body: JSON.stringify(body),
       });
     },
   };
@@ -252,4 +360,12 @@ function getAdminHeaders(adminToken: string) {
 
 function getJsonAdminHeaders(adminToken: string) {
   return { "content-type": "application/json", "x-admin-token": adminToken };
+}
+
+function getSessionHeaders(sessionToken: string) {
+  return { authorization: `Bearer ${sessionToken}` };
+}
+
+function getJsonSessionHeaders(sessionToken: string) {
+  return { "content-type": "application/json", authorization: `Bearer ${sessionToken}` };
 }

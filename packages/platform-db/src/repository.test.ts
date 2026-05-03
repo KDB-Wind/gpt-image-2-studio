@@ -17,6 +17,15 @@ describe("platform repository", () => {
     await expect(repo.getCreditBalance(user.id)).resolves.toBe(1);
   });
 
+  it("lists users for admin management in newest-first order", async () => {
+    const repo = createInMemoryPlatformRepository();
+    const older = await repo.createUser({ email: "older@example.com" });
+    const newer = await repo.createUser({ email: "newer@example.com" });
+
+    await expect(repo.listUsers()).resolves.toEqual([newer, older]);
+    await expect(repo.listUsers(1)).resolves.toEqual([newer]);
+  });
+
   it("creates a queued hosted generation job without debiting credits first", async () => {
     const repo = createInMemoryPlatformRepository();
     const user = await repo.createUser({ email: "demo@example.com" });

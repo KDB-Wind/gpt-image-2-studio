@@ -59,6 +59,10 @@ export function createDrizzlePlatformRepository(options: DrizzleRepositoryOption
       return user ?? null;
     },
 
+    async listUsers(limit = 50) {
+      return await db.select().from(schema.users).orderBy(desc(schema.users.createdAt), desc(schema.users.id)).limit(limit);
+    },
+
     async setUserDisabled(userId: string, disabled: boolean) {
       const [user] = await db
         .update(schema.users)

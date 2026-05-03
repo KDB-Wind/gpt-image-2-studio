@@ -12,6 +12,7 @@ import type { ProviderHealthProbe } from "./services/providerHealthService";
 import { registerPromptTemplateRoutes } from "./routes/promptTemplates";
 import type { AdminRouteOptions } from "./routes/adminAuth";
 import { registerPaymentRoutes } from "./routes/payments";
+import { registerAdminManagementRoutes } from "./routes/adminManagement";
 
 export type ApiAppDependencies = {
   repo: PlatformRepository;
@@ -43,6 +44,7 @@ export function buildApiApp(deps: ApiAppDependencies) {
   registerPaymentRoutes(app, deps);
   registerHealthRoutes(app, deps);
   registerPromptTemplateRoutes(app, deps);
+  registerAdminManagementRoutes(app, deps);
 
   return app;
 }

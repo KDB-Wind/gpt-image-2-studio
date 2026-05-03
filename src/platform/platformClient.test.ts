@@ -22,6 +22,7 @@ describe("platformClient", () => {
 
     const job = await client.createGenerationJob({
       userId: "user-1",
+      sessionToken: "session-token",
       prompt: "product poster",
       imageModel: "gpt-image-2",
     });
@@ -32,7 +33,7 @@ describe("platformClient", () => {
         url: "https://example.com/api/generation-jobs",
         init: {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", authorization: "Bearer session-token" },
           body: JSON.stringify({
             userId: "user-1",
             prompt: "product poster",
@@ -47,8 +48,11 @@ describe("platformClient", () => {
     const urls: string[] = [];
     const client = createPlatformClient({
       baseUrl: "",
-      fetch: async (url) => {
+      fetch: async (url, init) => {
         urls.push(String(url));
+        if (String(url).includes("user-1")) {
+          expect(init?.headers).toEqual({ authorization: "Bearer session-token" });
+        }
         if (String(url) === "/api/status") {
           return jsonResponse({ providerState: "closed", imageModel: "gpt-image-2" });
         }
@@ -67,8 +71,8 @@ describe("platformClient", () => {
 
     await expect(client.getStatus()).resolves.toMatchObject({ providerState: "closed" });
     await expect(client.listPromptTemplates()).resolves.toHaveLength(1);
-    await expect(client.getCredits("user-1")).resolves.toMatchObject({ balance: 1 });
-    await expect(client.listUserJobs("user-1")).resolves.toHaveLength(1);
+    await expect(client.getCredits("user-1", "session-token")).resolves.toMatchObject({ balance: 1 });
+    await expect(client.listUserJobs("user-1", "session-token")).resolves.toHaveLength(1);
     expect(urls).toEqual([
       "/api/status",
       "/api/prompt-templates",
@@ -107,7 +111,12 @@ describe("platformClient", () => {
 
     await expect(client.listPaymentPackages()).resolves.toEqual([{ amountCny: 5, credits: 50 }]);
     await expect(
-      client.createPaymentRequest({ userId: "user-1", amountCny: 5, note: "wechat demo" }),
+      client.createPaymentRequest({
+        userId: "user-1",
+        sessionToken: "session-token",
+        amountCny: 5,
+        note: "wechat demo",
+      }),
     ).resolves.toMatchObject({ id: "payment-1" });
     await expect(
       client.approvePayment({ paymentId: "payment-1", adminUserId: "admin-1", adminToken: "admin-secret" }),
@@ -119,6 +128,14 @@ describe("platformClient", () => {
         method: "POST",
         headers: { "content-type": "application/json", "x-admin-token": "admin-secret" },
         body: JSON.stringify({ adminUserId: "admin-1" }),
+      },
+    });
+    expect(calls[1]).toEqual({
+      url: "/api/payments",
+      init: {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer session-token" },
+        body: JSON.stringify({ userId: "user-1", amountCny: 5, note: "wechat demo" }),
       },
     });
   });
@@ -155,6 +172,110 @@ describe("platformClient", () => {
           method: "PUT",
           headers: { "content-type": "application/json", "x-admin-token": "admin-secret" },
           body: JSON.stringify(schedule),
+        },
+      },
+    ]);
+  });
+
+  it("loads admin users and provider key summaries without plaintext keys", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const client = createPlatformClient({
+      baseUrl: "",
+      fetch: async (url, init) => {
+        calls.push({ url: String(url), init });
+        if (String(url) === "/api/admin/users") {
+          return jsonResponse({ users: [{ id: "user-1", email: "demo@example.com", balance: 3 }] });
+        }
+        if (String(url) === "/api/admin/users/user-1") {
+          return jsonResponse({ id: "user-1", email: "demo@example.com", disabled: true });
+        }
+        if (String(url) === "/api/admin/users/user-1/credits") {
+          return jsonResponse({ balance: 8, ledger: [] });
+        }
+        if (String(url) === "/api/admin/provider-models") {
+          return jsonResponse({
+            models: [
+              {
+                id: "model-1",
+                providerId: "ruoli",
+                baseUrl: "https://ruoli.dev/v1",
+                imageModel: "gpt-image-2",
+                state: "closed",
+                apiKeys: [{ id: "key-1", label: "Key 1", enabled: true, state: "healthy", maxInFlight: 1 }],
+                healthEvents: [],
+              },
+            ],
+          });
+        }
+        if (String(url) === "/api/admin/provider-api-keys/key-1") {
+          return jsonResponse({ id: "key-1", label: "Key 1", enabled: false, state: "disabled", maxInFlight: 1 });
+        }
+        throw new Error(`Unexpected URL ${String(url)}`);
+      },
+    });
+
+    await expect(client.listAdminUsers("admin-secret")).resolves.toEqual([
+      { id: "user-1", email: "demo@example.com", balance: 3 },
+    ]);
+    await expect(
+      client.updateAdminUser({ userId: "user-1", adminUserId: "admin", adminToken: "admin-secret", disabled: true }),
+    ).resolves.toMatchObject({ disabled: true });
+    await expect(
+      client.addAdminCredits({
+        userId: "user-1",
+        adminUserId: "admin",
+        adminToken: "admin-secret",
+        amount: 5,
+        reason: "manual grant",
+      }),
+    ).resolves.toMatchObject({ balance: 8 });
+    await expect(client.listAdminProviderModels("admin-secret")).resolves.toMatchObject([
+      {
+        id: "model-1",
+        apiKeys: [{ id: "key-1", label: "Key 1" }],
+      },
+    ]);
+    await expect(
+      client.updateAdminProviderApiKey({
+        apiKeyId: "key-1",
+        adminUserId: "admin",
+        adminToken: "admin-secret",
+        enabled: false,
+        state: "disabled",
+      }),
+    ).resolves.toMatchObject({ id: "key-1", enabled: false });
+
+    expect(calls).toEqual([
+      {
+        url: "/api/admin/users",
+        init: { headers: { "x-admin-token": "admin-secret" } },
+      },
+      {
+        url: "/api/admin/users/user-1",
+        init: {
+          method: "PATCH",
+          headers: { "content-type": "application/json", "x-admin-token": "admin-secret" },
+          body: JSON.stringify({ adminUserId: "admin", disabled: true }),
+        },
+      },
+      {
+        url: "/api/admin/users/user-1/credits",
+        init: {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-admin-token": "admin-secret" },
+          body: JSON.stringify({ adminUserId: "admin", amount: 5, reason: "manual grant" }),
+        },
+      },
+      {
+        url: "/api/admin/provider-models",
+        init: { headers: { "x-admin-token": "admin-secret" } },
+      },
+      {
+        url: "/api/admin/provider-api-keys/key-1",
+        init: {
+          method: "PATCH",
+          headers: { "content-type": "application/json", "x-admin-token": "admin-secret" },
+          body: JSON.stringify({ adminUserId: "admin", enabled: false, state: "disabled" }),
         },
       },
     ]);

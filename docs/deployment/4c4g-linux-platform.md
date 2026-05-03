@@ -203,22 +203,33 @@ WantedBy=multi-user.target
 - 环境变量和密钥：不进入普通备份包，单独用密码管理器或加密介质保存。
 - 恢复演练：每月至少一次在临时目录恢复数据库和少量图片，验证备份可用。
 
+仓库提供了生产脚本草案：
+
+```bash
+bash docs/deployment/scripts/apply-migration.sh
+bash docs/deployment/scripts/backup-platform.sh
+bash docs/deployment/scripts/rollback-release.sh <release-directory-name>
+```
+
+这些脚本默认读取 `/opt/chat-to-image/shared/env/production.env`，可通过 `ENV_FILE`、`APP_DIR`、`APP_ROOT`、`BACKUP_DIR` 覆盖。它们是生产部署样例，首次上线前应先在临时服务器用假数据演练一遍。
+
 ## 11. 日志与告警
 
 - API 日志记录请求 ID、用户 ID、路由、状态码、耗时，不记录明文 API Key。
 - Worker 日志记录 jobId、providerModelId、apiKeyId、耗时、失败分类和熔断状态。
 - 健康检查日志记录探测状态、图片大小、延迟和失败原因。
 - 告警优先级：供应商熔断、Redis 不可用、PostgreSQL 不可用、磁盘使用率超过 80%、Worker 连续失败。
+- logrotate 示例见 `docs/deployment/logrotate/chat-to-image`，用于保留最近 14 天日志并压缩旧日志。
 
 ## 12. 发布流程
 
 1. 在本地或 CI 跑 `npm run platform:test`、`npm run test:run`、`npm run build`。
 2. 打包前端和 Node 服务产物，上传到 `/opt/chat-to-image/releases/<version>`。
 3. 更新 `app` 软链接指向新版本。
-4. 执行数据库迁移。
+4. 执行数据库迁移：`bash docs/deployment/scripts/apply-migration.sh`。
 5. 重启 API 和 Worker。
 6. 调用健康检查接口确认供应商状态。
-7. 如失败，回滚 `app` 软链接并重启服务。
+7. 如失败，执行 `bash docs/deployment/scripts/rollback-release.sh <previous-release>` 回滚 `app` 软链接并重启服务。
 
 ## 13. 基础开源版保留策略
 

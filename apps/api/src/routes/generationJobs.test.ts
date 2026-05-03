@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
 import { createInMemoryPlatformRepository } from "@chat-to-image/platform-db/in-memory";
@@ -10,6 +12,7 @@ describe("generation job routes", () => {
   it("returns a user job history ordered by newest first", async () => {
     const repo = createInMemoryPlatformRepository();
     const user = await repo.createUser({ email: "demo@example.com" });
+    const headers = await createSessionHeaders(repo, user.id);
     const older = await repo.createGenerationJob({
       userId: user.id,
       mode: "hosted",
@@ -41,6 +44,7 @@ describe("generation job routes", () => {
     const response = await app.inject({
       method: "GET",
       url: `/api/users/${user.id}/generation-jobs`,
+      headers,
     });
 
     expect(response.statusCode).toBe(200);
@@ -50,6 +54,7 @@ describe("generation job routes", () => {
   it("returns a generation job with its stored results", async () => {
     const repo = createInMemoryPlatformRepository();
     const user = await repo.createUser({ email: "demo@example.com" });
+    const headers = await createSessionHeaders(repo, user.id);
     const job = await repo.createGenerationJob({
       userId: user.id,
       mode: "hosted",
@@ -80,6 +85,7 @@ describe("generation job routes", () => {
     const response = await app.inject({
       method: "GET",
       url: `/api/generation-jobs/${job.id}`,
+      headers,
     });
 
     expect(response.statusCode).toBe(200);
@@ -92,6 +98,7 @@ describe("generation job routes", () => {
   it("returns a readable service unavailable error when the hosted provider is paused", async () => {
     const repo = createInMemoryPlatformRepository();
     const user = await repo.createUser({ email: "demo@example.com" });
+    const headers = await createSessionHeaders(repo, user.id);
     await repo.addCreditLedgerEvent({
       userId: user.id,
       eventType: "daily_free_grant",
@@ -125,6 +132,7 @@ describe("generation job routes", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/generation-jobs",
+      headers,
       payload: {
         userId: user.id,
         prompt: "a cinematic portrait",
@@ -138,3 +146,13 @@ describe("generation job routes", () => {
     });
   });
 });
+
+async function createSessionHeaders(repo: ReturnType<typeof createInMemoryPlatformRepository>, userId: string) {
+  const token = `session-${userId}`;
+  await repo.createSession({
+    userId,
+    tokenHash: createHash("sha256").update(token).digest("hex"),
+    expiresAt: new Date(nowMs + 60_000),
+  });
+  return { authorization: `Bearer ${token}` };
+}

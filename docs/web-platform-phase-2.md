@@ -21,13 +21,13 @@ Phase 2 / Task 1-8 已完成 Web 平台后端 MVP 骨架：API 服务负责注�
 - 健康探测运行链路：管理员配置探测频率，systemd timer / cron 可定时触发 `npm run health:probe`。
 - 生产环境检查：`npm run platform:check-env` 校验关键环境变量。
 - 4C4G Linux 部署文档和容量估算。
+- 用户侧 session 鉴权：额度、托管任务、任务详情、充值申请和支付历史接口都必须携带登录后返回的 session token，服务端不再只信任前端传入的 userId。
 
 ## 仍未完成
 
-- Session 鉴权：当前 MVP 多数接口仍信任前端传入 userId，生产公开前应改成从 session token 解析。
 - 自动支付回调：当前只支持二维码人工审核。
-- 管理后台扩展：用户、管理员加额度、供应商 key、模板管理仍不完整。
-- 生产部署脚本增强：数据库 migration、备份、日志轮转和发布回滚仍需要补齐。
+- 管理后台扩展：模板管理仍不完整；用户禁用、管理员加额度、供应商 key 状态管理已有最小闭环。
+- 生产部署脚本增强：数据库 migration、备份、日志轮转和发布回滚已有样例脚本，仍需要在真实服务器做演练和 CI/CD 集成。
 
 ## 本地依赖
 
@@ -70,6 +70,23 @@ $env:PLATFORM_API_KEYS = "sk-key-1,sk-key-2,sk-key-3"
 ```
 
 管理接口 `/api/admin/*` 必须携带 `x-admin-token` 或 `Authorization: Bearer <token>`，且服务端必须配置 `PLATFORM_ADMIN_TOKEN`。未配置时管理接口返回 `503`，token 错误时返回 `401`。
+
+用户接口必须携带登录接口返回的 `sessionToken`：
+
+```http
+Authorization: Bearer <sessionToken>
+```
+
+当前需要用户 session 的接口包括：
+
+- `GET /api/credits/:userId`
+- `GET /api/users/:userId/generation-jobs`
+- `GET /api/generation-jobs/:jobId`
+- `POST /api/generation-jobs`
+- `POST /api/payments`
+- `GET /api/users/:userId/payments`
+
+如果 session 缺失、过期、已撤销、用户被禁用，接口返回 `401`；如果 session 用户与 URL 或 body 中的 `userId` 不一致，接口返回 `403`。
 
 ## 启动命令
 

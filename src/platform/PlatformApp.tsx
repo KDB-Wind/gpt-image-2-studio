@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   createPlatformClient,
+  type PlatformAdminProviderModel,
+  type PlatformAdminUser,
   type PlatformCreditOverview,
   type PlatformGenerationJob,
   type PlatformGenerationResult,
@@ -41,6 +43,11 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
   const [paymentNote, setPaymentNote] = useState("");
   const [adminToken, setAdminToken] = useState("");
   const [adminPayments, setAdminPayments] = useState<PlatformPayment[]>([]);
+  const [adminUsers, setAdminUsers] = useState<PlatformAdminUser[]>([]);
+  const [adminProviderModels, setAdminProviderModels] = useState<PlatformAdminProviderModel[]>([]);
+  const [adminCreditUserId, setAdminCreditUserId] = useState("");
+  const [adminCreditAmount, setAdminCreditAmount] = useState(5);
+  const [adminCreditReason, setAdminCreditReason] = useState("人工加额度");
   const [healthSchedule, setHealthSchedule] = useState<PlatformHealthProbeSchedule>({
     dayStartHourUtc: 0,
     nightStartHourUtc: 14,
@@ -92,7 +99,7 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
   useEffect(() => {
     if (session) {
       window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-      void loadUserDashboard(session.user.id);
+      void loadUserDashboard(session);
       return;
     }
 
@@ -131,17 +138,19 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
     }
   }
 
-  async function loadUserDashboard(userId = session?.user.id) {
-    if (!userId) {
+  async function loadUserDashboard(nextSession = session) {
+    if (!nextSession) {
       return;
     }
 
     setIsLoadingDashboard(true);
     try {
+      const userId = nextSession.user.id;
+      const sessionToken = nextSession.sessionToken;
       const [nextCredits, nextJobs, nextPayments] = await Promise.all([
-        client.getCredits(userId),
-        client.listUserJobs(userId),
-        client.listUserPayments(userId),
+        client.getCredits(userId, sessionToken),
+        client.listUserJobs(userId, sessionToken),
+        client.listUserPayments(userId, sessionToken),
       ]);
       setCredits(nextCredits);
       setJobs(nextJobs);
@@ -219,13 +228,14 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
     try {
       const job = await client.createGenerationJob({
         userId: session.user.id,
+        sessionToken: session.sessionToken,
         prompt: finalPrompt,
         imageModel: status?.imageModel || DEFAULT_IMAGE_MODEL,
       });
       setJobs((current) => [job, ...current.filter((item) => item.id !== job.id)]);
       setSelectedJobId(job.id);
       setSelectedResults([]);
-      await loadUserDashboard(session.user.id);
+      await loadUserDashboard(session);
       setMessage({ tone: "success", text: "任务已提交到平台队列。" });
     } catch (error) {
       setMessage({ tone: "error", text: getErrorMessage(error) });
@@ -244,6 +254,7 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
     try {
       const payment = await client.createPaymentRequest({
         userId: session.user.id,
+        sessionToken: session.sessionToken,
         amountCny: selectedPaymentAmount,
         note: paymentNote,
       });
@@ -265,12 +276,16 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
 
     setIsLoadingAdmin(true);
     try {
-      const [nextPayments, nextSchedule] = await Promise.all([
+      const [nextPayments, nextSchedule, nextUsers, nextProviderModels] = await Promise.all([
         client.listAdminPayments(adminToken.trim()),
         client.getHealthProbeSchedule(adminToken.trim()),
+        client.listAdminUsers(adminToken.trim()),
+        client.listAdminProviderModels(adminToken.trim()),
       ]);
       setAdminPayments(nextPayments);
       setHealthSchedule(nextSchedule);
+      setAdminUsers(nextUsers);
+      setAdminProviderModels(nextProviderModels);
       setMessage({ tone: "success", text: "管理员数据已刷新。" });
     } catch (error) {
       setMessage({ tone: "error", text: getErrorMessage(error) });
@@ -284,7 +299,7 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
       await client.approvePayment({ paymentId, adminUserId: "admin", adminToken: adminToken.trim() });
       await loadAdminPanel();
       if (session) {
-        await loadUserDashboard(session.user.id);
+        await loadUserDashboard(session);
       }
       setMessage({ tone: "success", text: "已审核通过并发放额度。" });
     } catch (error) {
@@ -320,10 +335,72 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
     }
   }
 
+  async function grantAdminCredits() {
+    const userId = adminCreditUserId.trim();
+    const reason = adminCreditReason.trim();
+    if (!adminToken.trim() || !userId || !reason) {
+      setMessage({ tone: "error", text: "请填写管理员 token、用户 ID 和加额度原因。" });
+      return;
+    }
+
+    try {
+      await client.addAdminCredits({
+        userId,
+        adminUserId: "admin",
+        adminToken: adminToken.trim(),
+        amount: adminCreditAmount,
+        reason,
+      });
+      await loadAdminPanel();
+      if (session?.user.id === userId) {
+        await loadUserDashboard(session);
+      }
+      setMessage({ tone: "success", text: "额度已发放。" });
+    } catch (error) {
+      setMessage({ tone: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  async function toggleAdminUser(user: PlatformAdminUser) {
+    try {
+      await client.updateAdminUser({
+        userId: user.id,
+        adminUserId: "admin",
+        adminToken: adminToken.trim(),
+        disabled: !user.disabled,
+      });
+      await loadAdminPanel();
+      setMessage({ tone: "success", text: user.disabled ? "用户已启用。" : "用户已禁用。" });
+    } catch (error) {
+      setMessage({ tone: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  async function toggleProviderApiKey(apiKeyId: string, enabled: boolean) {
+    try {
+      await client.updateAdminProviderApiKey({
+        apiKeyId,
+        adminUserId: "admin",
+        adminToken: adminToken.trim(),
+        enabled,
+        state: enabled ? "healthy" : "disabled",
+      });
+      await loadAdminPanel();
+      setMessage({ tone: "success", text: enabled ? "托管 key 已启用。" : "托管 key 已停用。" });
+    } catch (error) {
+      setMessage({ tone: "error", text: getErrorMessage(error) });
+    }
+  }
+
   async function inspectJob(jobId: string) {
+    if (!session) {
+      setMessage({ tone: "error", text: "请先登录后再查看任务详情。" });
+      return;
+    }
+
     setSelectedJobId(jobId);
     try {
-      const detail = await client.getGenerationJob(jobId);
+      const detail = await client.getGenerationJob(jobId, session.sessionToken);
       setSelectedResults(detail.results);
     } catch (error) {
       setMessage({ tone: "error", text: getErrorMessage(error) });
@@ -680,6 +757,128 @@ export function PlatformApp({ onOpenBasicTool }: PlatformAppProps) {
             保存探测频率
           </button>
 
+          <section className="admin-section">
+            <div className="admin-section-header">
+              <h3>用户与额度</h3>
+              <p>用于小规模运营时人工禁用用户、发放固定额度。管理员 token 不会保存到浏览器。</p>
+            </div>
+            <div className="admin-grid">
+              <label>
+                <span>用户 ID</span>
+                <input
+                  value={adminCreditUserId}
+                  onChange={(event) => setAdminCreditUserId(event.target.value)}
+                  placeholder="user-..."
+                />
+              </label>
+              <label>
+                <span>发放额度</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={adminCreditAmount}
+                  onChange={(event) => setAdminCreditAmount(Number(event.target.value))}
+                />
+              </label>
+              <label className="admin-wide-field">
+                <span>发放原因</span>
+                <input
+                  value={adminCreditReason}
+                  onChange={(event) => setAdminCreditReason(event.target.value)}
+                  placeholder="例如：线下付款 10 元"
+                />
+              </label>
+            </div>
+            <button type="button" className="platform-secondary" onClick={() => void grantAdminCredits()}>
+              人工发放额度
+            </button>
+
+            <div className="admin-list">
+              {adminUsers.length === 0 ? (
+                <p className="platform-empty">暂无用户数据，刷新管理员数据后显示。</p>
+              ) : (
+                adminUsers.map((user) => (
+                  <article key={user.id}>
+                    <strong>{user.email}</strong>
+                    <span>{user.id}</span>
+                    <small>
+                      额度 {user.balance} · {user.disabled ? "已禁用" : "正常"}
+                    </small>
+                    <div className="platform-actions">
+                      <button
+                        type="button"
+                        className="platform-secondary"
+                        onClick={() => setAdminCreditUserId(user.id)}
+                      >
+                        填入用户 ID
+                      </button>
+                      <button
+                        type="button"
+                        className="platform-secondary"
+                        onClick={() => void toggleAdminUser(user)}
+                      >
+                        {user.disabled ? "启用用户" : "禁用用户"}
+                      </button>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="admin-section">
+            <div className="admin-section-header">
+              <h3>供应商与托管 Key</h3>
+              <p>这里只显示 key 标签和状态，不显示明文 API key。某个 key 异常时可先停用；供应商级异常仍由熔断保护统一拦截。</p>
+            </div>
+            <div className="admin-list">
+              {adminProviderModels.length === 0 ? (
+                <p className="platform-empty">暂无供应商数据，刷新管理员数据后显示。</p>
+              ) : (
+                adminProviderModels.map((model) => (
+                  <article key={model.id}>
+                    <strong>
+                      {model.providerId} · {model.imageModel}
+                    </strong>
+                    <span>{model.baseUrl}</span>
+                    <small>
+                      {formatProviderModelState(model.state)}
+                      {model.openUntil ? ` · 熔断到 ${formatDateTime(model.openUntil)}` : ""}
+                      {model.lastFailureReason ? ` · ${model.lastFailureReason}` : ""}
+                    </small>
+                    <div className="provider-key-list">
+                      {model.apiKeys.length === 0 ? (
+                        <p className="platform-empty">该模型暂无托管 key。</p>
+                      ) : (
+                        model.apiKeys.map((key) => (
+                          <div key={key.id} className="provider-key-row">
+                            <span>
+                              {key.label} · {formatProviderKeyState(key.state)} · 并发 {key.maxInFlight}
+                            </span>
+                            <button
+                              type="button"
+                              className="platform-secondary"
+                              onClick={() => void toggleProviderApiKey(key.id, !key.enabled)}
+                            >
+                              {key.enabled ? "停用 key" : "启用 key"}
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    {model.healthEvents[0] ? (
+                      <small>
+                        最近探测：{formatHealthStatus(model.healthEvents[0].status)} ·{" "}
+                        {model.healthEvents[0].imageBytes ? formatBytes(model.healthEvents[0].imageBytes) : "无图片"} ·{" "}
+                        {model.healthEvents[0].message}
+                      </small>
+                    ) : null}
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
+
           <div className="payment-list admin-payments">
             {adminPayments.length === 0 ? (
               <p className="platform-empty">暂无管理员支付数据。</p>
@@ -779,6 +978,37 @@ function formatPaymentStatus(status: PlatformPayment["status"]): string {
     pending: "待审核",
     approved: "已通过",
     rejected: "已拒绝",
+  };
+
+  return labels[status];
+}
+
+function formatProviderModelState(status: PlatformAdminProviderModel["state"]): string {
+  const labels: Record<PlatformAdminProviderModel["state"], string> = {
+    closed: "正常",
+    open: "已熔断",
+    half_open: "半开探测",
+    maintenance: "维护中",
+  };
+
+  return labels[status];
+}
+
+function formatProviderKeyState(status: PlatformAdminProviderModel["apiKeys"][number]["state"]): string {
+  const labels: Record<PlatformAdminProviderModel["apiKeys"][number]["state"], string> = {
+    healthy: "健康",
+    cooldown: "冷却中",
+    disabled: "已停用",
+  };
+
+  return labels[status];
+}
+
+function formatHealthStatus(status: PlatformAdminProviderModel["healthEvents"][number]["status"]): string {
+  const labels: Record<PlatformAdminProviderModel["healthEvents"][number]["status"], string> = {
+    success: "成功",
+    failure: "失败",
+    skipped: "跳过",
   };
 
   return labels[status];

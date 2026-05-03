@@ -4,8 +4,9 @@ import { z } from "zod";
 import { createHostedGenerationJob, type EnqueueGenerationJob } from "../services/createHostedGenerationJob";
 import type { PlatformRepository } from "@chat-to-image/platform-db";
 import type { ProviderCircuit } from "@chat-to-image/platform-core";
+import { requireMatchingUserSession, requireUserSession, type SessionAuthRouteDependencies } from "./sessionAuth";
 
-export type GenerationJobRouteDependencies = {
+export type GenerationJobRouteDependencies = SessionAuthRouteDependencies & {
   repo: PlatformRepository;
   provider: ProviderCircuit;
   now: () => number;
@@ -26,6 +27,11 @@ export function registerGenerationJobRoutes(app: FastifyInstance, deps: Generati
       return reply.status(400).send({ error: "Invalid generation job history request." });
     }
 
+    const user = await requireMatchingUserSession(request, reply, deps, params.data.userId);
+    if (!user) {
+      return reply;
+    }
+
     const jobs = await deps.repo.listUserGenerationJobs(params.data.userId, query.data.limit ?? 50);
     return { jobs };
   });
@@ -41,6 +47,11 @@ export function registerGenerationJobRoutes(app: FastifyInstance, deps: Generati
       return reply.status(404).send({ error: "Generation job not found." });
     }
 
+    const user = await requireMatchingUserSession(request, reply, deps, job.userId);
+    if (!user) {
+      return reply;
+    }
+
     const results = await deps.repo.getGenerationResults(job.id);
     return { job, results };
   });
@@ -52,6 +63,14 @@ export function registerGenerationJobRoutes(app: FastifyInstance, deps: Generati
         error: "Invalid generation request.",
         details: parsed.error.flatten(),
       });
+    }
+
+    const user = await requireUserSession(request, reply, deps);
+    if (!user) {
+      return reply;
+    }
+    if (user.id !== parsed.data.userId) {
+      return reply.status(403).send({ error: "Session user does not match requested user." });
     }
 
     try {
