@@ -39,6 +39,9 @@ pub fn default_config() -> AppConfig {
         default_count: 1,
         default_quality: "auto".to_string(),
         default_format: "png".to_string(),
+        default_compression: 90,
+        ui_language: "zh-CN".to_string(),
+        has_dismissed_welcome: false,
     }
 }
 
@@ -125,6 +128,22 @@ pub fn merge_config_value(value: serde_json::Value) -> AppConfig {
     }
     if let Some(default_format) = get_string_field(&value, "defaultFormat") {
         config.default_format = default_format;
+    }
+    if let Some(default_compression) = value
+        .get("defaultCompression")
+        .and_then(|item| item.as_u64())
+        .and_then(|compression| u8::try_from(compression).ok())
+    {
+        config.default_compression = default_compression;
+    }
+    if let Some(ui_language) = get_string_field(&value, "uiLanguage") {
+        config.ui_language = ui_language;
+    }
+    if let Some(has_dismissed_welcome) = value
+        .get("hasDismissedWelcome")
+        .and_then(|item| item.as_bool())
+    {
+        config.has_dismissed_welcome = has_dismissed_welcome;
     }
 
     config

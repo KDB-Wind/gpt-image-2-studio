@@ -1,3 +1,13 @@
+export type UiLanguage = "zh-CN" | "en-US";
+
+import {
+  isImageOutputFormat,
+  isImageQuality,
+  validateImageSize,
+  type ImageOutputFormat,
+  type ImageQuality,
+} from "./imageOptions";
+
 export type AppConfig = {
   baseUrl: string;
   apiKey: string;
@@ -7,8 +17,11 @@ export type AppConfig = {
   outputDirectory: string;
   defaultSize: string;
   defaultCount: number;
-  defaultQuality: string;
-  defaultFormat: "png" | "jpeg" | "webp";
+  defaultQuality: ImageQuality;
+  defaultFormat: ImageOutputFormat;
+  defaultCompression: number;
+  uiLanguage: UiLanguage;
+  hasDismissedWelcome: boolean;
 };
 
 export type ValidationResult = {
@@ -29,6 +42,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   defaultCount: 1,
   defaultQuality: "auto",
   defaultFormat: "png",
+  defaultCompression: 90,
+  uiLanguage: "zh-CN",
+  hasDismissedWelcome: false,
 };
 
 export function normalizeBaseUrl(value: string): string {
@@ -48,7 +64,9 @@ export function mergeConfig(value: Partial<AppConfig> | null | undefined): AppCo
     ) as Partial<AppConfig>),
   };
 
-  merged.baseUrl = normalizeBaseUrl(asString(merged.baseUrl));
+  merged.baseUrl = normalizeBaseUrl(asString(merged.baseUrl) || DEFAULT_CONFIG.baseUrl);
+  merged.uiLanguage = isUiLanguage(merged.uiLanguage) ? merged.uiLanguage : DEFAULT_CONFIG.uiLanguage;
+  merged.hasDismissedWelcome = asBoolean(merged.hasDismissedWelcome, DEFAULT_CONFIG.hasDismissedWelcome);
 
   return merged;
 }
@@ -64,6 +82,10 @@ export function validateConfig(config: AppConfig): ValidationResult {
   const outputDirectory = asString(maybeConfig.outputDirectory);
   const timeoutSeconds = asNumber(maybeConfig.timeoutSeconds);
   const defaultCount = asNumber(maybeConfig.defaultCount);
+  const defaultQuality = asString(maybeConfig.defaultQuality);
+  const defaultFormat = asString(maybeConfig.defaultFormat);
+  const defaultCompression = asNumber(maybeConfig.defaultCompression);
+  const imageSizeValidation = validateImageSize(asString(maybeConfig.defaultSize));
 
   try {
     new URL(normalizeBaseUrl(baseUrl));
@@ -91,8 +113,28 @@ export function validateConfig(config: AppConfig): ValidationResult {
     errors.push("Image count must be between 1 and 4.");
   }
 
+  if (imageSizeValidation.error) {
+    errors.push(imageSizeValidation.error);
+  }
+
+  if (!isImageQuality(defaultQuality)) {
+    errors.push("Image quality must be auto, low, medium, or high.");
+  }
+
+  if (!isImageOutputFormat(defaultFormat)) {
+    errors.push("Image format must be png, jpeg, or webp.");
+  }
+
+  if (!Number.isInteger(defaultCompression) || defaultCompression < 0 || defaultCompression > 100) {
+    errors.push("Output compression must be an integer between 0 and 100.");
+  }
+
   if (!outputDirectory.trim()) {
     warnings.push("Output directory is empty; the app will use outputs/.");
+  }
+
+  if (imageSizeValidation.warning) {
+    warnings.push(imageSizeValidation.warning);
   }
 
   return { errors, warnings };
@@ -104,4 +146,12 @@ function asString(value: unknown): string {
 
 function asNumber(value: unknown): number {
   return typeof value === "number" ? value : Number.NaN;
+}
+
+function asBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function isUiLanguage(value: unknown): value is UiLanguage {
+  return value === "zh-CN" || value === "en-US";
 }

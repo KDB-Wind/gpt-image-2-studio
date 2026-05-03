@@ -1,12 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import App from "./App";
 import { PlatformApp } from "./platform/PlatformApp";
 
 type Edition = "basic" | "platform";
+const EDITION_STORAGE_KEY = "chat-to-image.edition";
 
 export default function RootApp() {
-  const [edition, setEdition] = useState<Edition>("platform");
+  const [edition, setEdition] = useState<Edition>(() => getInitialEdition(window.localStorage));
+
+  useEffect(() => {
+    window.localStorage.setItem(EDITION_STORAGE_KEY, edition);
+  }, [edition]);
 
   if (edition === "basic") {
     return (
@@ -23,6 +28,11 @@ export default function RootApp() {
       <PlatformApp onOpenBasicTool={() => setEdition("basic")} />
     </>
   );
+}
+
+export function getInitialEdition(storage: Pick<Storage, "getItem">): Edition {
+  const stored = storage.getItem(EDITION_STORAGE_KEY);
+  return stored === "platform" ? "platform" : "basic";
 }
 
 function EditionSwitch({

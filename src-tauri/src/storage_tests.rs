@@ -29,13 +29,25 @@ fn resolves_relative_output_directories_under_app_data_base() {
 fn merges_partial_config_with_defaults() {
     let merged = crate::storage::merge_config_value(serde_json::json!({
         "baseUrl": "https://example.com",
-        "apiKey": "sk-local"
+        "apiKey": "sk-local",
+        "uiLanguage": "en-US",
+        "hasDismissedWelcome": true
     }));
 
     assert_eq!(merged.base_url, "https://example.com");
     assert_eq!(merged.api_key, "sk-local");
     assert_eq!(merged.image_model, "gpt-image-2");
     assert_eq!(merged.output_directory, "outputs");
+    assert_eq!(merged.ui_language, "en-US");
+    assert!(merged.has_dismissed_welcome);
+}
+
+#[test]
+fn default_config_uses_chinese_ui_and_shows_welcome_once() {
+    let defaults = crate::storage::default_config();
+
+    assert_eq!(defaults.ui_language, "zh-CN");
+    assert!(!defaults.has_dismissed_welcome);
 }
 
 #[test]

@@ -13,6 +13,9 @@ pub struct AppConfig {
     pub default_count: u8,
     pub default_quality: String,
     pub default_format: String,
+    pub default_compression: u8,
+    pub ui_language: String,
+    pub has_dismissed_welcome: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

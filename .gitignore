@@ -10,3 +10,4 @@ outputs/
 .env
 .env.*
 !.env.example
+!.env.local.platform.example
