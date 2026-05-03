@@ -2,6 +2,8 @@
 
 Phase 2 / Task 1-8 已完成 Web 平台后端 MVP 骨架：API 服务负责注册、额度、健康状态、提示词模板和托管生图任务入队；Worker 负责执行托管生图任务；共享包负责图片配置校验、Provider Adapter、供应商熔断、API key 路由、健康探测和扣费策略。
 
+当前仓库也已经包含 Web 前端 MVP：平台版 / 基础工具版切换、邮箱验证码登录、服务状态、额度展示、提示词模板库、托管任务提交和任务历史。
+
 ## 当前已完成
 
 - PostgreSQL / Drizzle schema、SQL migration 草案、Repository 接口和内存实现。
@@ -12,11 +14,11 @@ Phase 2 / Task 1-8 已完成 Web 平台后端 MVP 骨架：API 服务负责注�
 - 供应商健康探测：同一供应商模型每次只探测 1 个可用 key，不会把多个同供应商 key 全部测一遍。
 - 供应商熔断：`524`、`openai_error`、`bad_response_status_code`、空图片响应、探测图片小于 500KB 等成本风险会打开供应商级熔断。
 - 提示词模板共享包和 API 同步接口。
+- Web 平台前端 MVP：`src/platform/PlatformApp.tsx`、`src/platform/platformClient.ts`、`src/platform/promptTools.ts`。
 - 4C4G Linux 部署文档和容量估算。
 
 ## 仍未完成
 
-- Web 前端 MVP：注册、登录、生图工作台、模板库、额度展示、任务历史。
 - 真实 SMTP 发信服务和发送频率限制。
 - 支付二维码提交、管理员审核、额度发放后台。
 - 定时健康探测的 systemd timer / cron 运行链路。
@@ -78,6 +80,14 @@ Worker 服务：
 ```powershell
 npm run worker:dev
 ```
+
+Web 前端：
+
+```powershell
+npm run dev
+```
+
+本地开发时，Vite 已把 `/api` 代理到 `http://localhost:3000`，所以平台版界面的 API 地址可以留空。生产部署时也建议让前端和 API 走同源 `/api`。
 
 ## 默认保护参数
 

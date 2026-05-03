@@ -1,4 +1,4 @@
-import type { PlatformRepository, PromptTemplateCategory } from "@chat-to-image/platform-db";
+import type { PlatformRepository, PromptTemplate, PromptTemplateCategory } from "@chat-to-image/platform-db";
 import {
   CURATED_PROMPT_TEMPLATES,
   filterPromptTemplates,
@@ -27,7 +27,8 @@ export async function listEnabledPromptTemplates(input: {
   category?: PromptTemplateCategory;
 }) {
   const templates = await input.repo.listPromptTemplates();
-  return filterPromptTemplates(templates, {
+  const source = templates.length > 0 ? templates : getCuratedRepositoryTemplates();
+  return filterPromptTemplates(source, {
     category: input.category,
     enabledOnly: true,
   });
@@ -45,4 +46,13 @@ function toRepositoryTemplate(template: PromptTemplateDefinition) {
     license: template.license,
     enabled: template.enabled,
   };
+}
+
+function getCuratedRepositoryTemplates(): PromptTemplate[] {
+  const now = new Date(0);
+  return CURATED_PROMPT_TEMPLATES.map((template) => ({
+    ...toRepositoryTemplate(template),
+    createdAt: now,
+    updatedAt: now,
+  }));
 }

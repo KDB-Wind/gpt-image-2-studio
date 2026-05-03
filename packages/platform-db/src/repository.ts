@@ -307,6 +307,7 @@ export type PlatformRepository = {
   createGenerationJob(input: CreateGenerationJobInput): Promise<GenerationJob>;
   updateGenerationJob(jobId: string, patch: Partial<GenerationJob>): Promise<GenerationJob>;
   getGenerationJob(jobId: string): Promise<GenerationJob | null>;
+  listUserGenerationJobs(userId: string, limit?: number): Promise<GenerationJob[]>;
   listUserActiveGenerationJobs(userId: string): Promise<GenerationJob[]>;
 
   createGenerationResult(input: CreateGenerationResultInput): Promise<GenerationResult>;

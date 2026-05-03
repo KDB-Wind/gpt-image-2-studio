@@ -17,6 +17,16 @@ describe("promptTemplateService", () => {
     await expect(repo.listPromptTemplates()).resolves.toHaveLength(CURATED_PROMPT_TEMPLATES.length);
   });
 
+  it("falls back to curated templates before the repository has been synced", async () => {
+    const repo = createInMemoryPlatformRepository();
+
+    const templates = await listEnabledPromptTemplates({ repo, category: "portrait" });
+
+    expect(templates.length).toBeGreaterThan(0);
+    expect(templates.every((template) => template.enabled)).toBe(true);
+    expect(templates.every((template) => template.category === "portrait")).toBe(true);
+  });
+
   it("lists enabled templates by category", async () => {
     const repo = createInMemoryPlatformRepository();
     await syncCuratedPromptTemplates({ repo });

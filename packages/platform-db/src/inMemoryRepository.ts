@@ -315,6 +315,17 @@ export function createInMemoryPlatformRepository(): PlatformRepository {
       return jobs.get(jobId) ?? null;
     },
 
+    async listUserGenerationJobs(userId: string, limit = 50) {
+      return [...jobs.values()]
+        .filter((job) => job.userId === userId)
+        .sort(
+          (left, right) =>
+            right.updatedAt.getTime() - left.updatedAt.getTime() ||
+            right.id.localeCompare(left.id),
+        )
+        .slice(0, limit);
+    },
+
     async listUserActiveGenerationJobs(userId: string) {
       return [...jobs.values()].filter(
         (job) => job.userId === userId && (job.status === "queued" || job.status === "running"),

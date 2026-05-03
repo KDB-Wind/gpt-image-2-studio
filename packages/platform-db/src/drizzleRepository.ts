@@ -375,6 +375,15 @@ export function createDrizzlePlatformRepository(options: DrizzleRepositoryOption
       return (job ?? null) as never;
     },
 
+    async listUserGenerationJobs(userId: string, limit = 50) {
+      return (await db
+        .select()
+        .from(schema.generationJobs)
+        .where(eq(schema.generationJobs.userId, userId))
+        .orderBy(desc(schema.generationJobs.updatedAt), desc(schema.generationJobs.id))
+        .limit(limit)) as never;
+    },
+
     async listUserActiveGenerationJobs(userId: string) {
       const rows = await db.select().from(schema.generationJobs).where(eq(schema.generationJobs.userId, userId));
       return rows.filter((job) => job.status === "queued" || job.status === "running") as never;
