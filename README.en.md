@@ -107,3 +107,17 @@ Build the desktop package:
 ```powershell
 npm run desktop:build
 ```
+
+## Releasing Installers
+
+This repository includes a GitHub Actions release chain. When a `v*.*.*` tag is pushed, the workflow builds Tauri Windows installers and creates a draft GitHub Release.
+
+Normal users should download the `setup.exe` installer first.
+
+Local pre-release check:
+
+```powershell
+npm run release:check
+```
+
+See [docs/release.en.md](./docs/release.en.md) for the full process.

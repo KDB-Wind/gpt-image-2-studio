@@ -107,3 +107,17 @@ npm run desktop:dev
 ```powershell
 npm run desktop:build
 ```
+
+## 发布安装包
+
+本仓库已经配置 GitHub Actions Release 链路。推送 `v*.*.*` tag 后，会在 Windows runner 上构建 Tauri 安装包，并创建草稿 GitHub Release。
+
+普通用户优先下载 `setup.exe`。
+
+发布前本地检查：
+
+```powershell
+npm run release:check
+```
+
+完整说明见 [docs/release.md](./docs/release.md)。
