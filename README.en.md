@@ -121,3 +121,7 @@ npm run release:check
 ```
 
 See [docs/release.en.md](./docs/release.en.md) for the full process.
+
+## Roadmap
+
+The remaining work is tracked in [docs/roadmap.md](./docs/roadmap.md).
