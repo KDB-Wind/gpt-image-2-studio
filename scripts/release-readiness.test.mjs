@@ -32,6 +32,8 @@ jobs:
       - run: npm run desktop:build
       - uses: actions/upload-artifact@v4
       - uses: softprops/action-gh-release@v2
+        with:
+          body_path: docs/release-notes/v0.1.0.md
 `;
 
     expect(checkReleaseWorkflow(workflow)).toEqual([]);

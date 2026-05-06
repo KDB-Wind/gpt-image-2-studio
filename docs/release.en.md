@@ -16,6 +16,14 @@ Windows bundling is configured in `src-tauri/tauri.conf.json`:
 
 This produces the NSIS `setup.exe` output and includes WebView2 installation support in the installer flow, reducing setup failures for first-time Windows users.
 
+The first Release draft body comes from:
+
+- `docs/release-notes/v0.1.0.md`
+
+The first manual QA checklist comes from:
+
+- `docs/release-checklist.md`
+
 ## Local Pre-Release Checks
 
 ```powershell
@@ -50,7 +58,8 @@ git push origin v0.1.0
 
 6. Open GitHub Actions and wait for the `Release` workflow to finish.
 7. Open GitHub Releases and review the draft `.exe` asset.
-8. Publish the Release after the notes are ready.
+8. Download `setup.exe` and run the manual QA checklist in `docs/release-checklist.md`.
+9. Publish the draft Release after manual QA passes.
 
 ## Manual Dispatch
 

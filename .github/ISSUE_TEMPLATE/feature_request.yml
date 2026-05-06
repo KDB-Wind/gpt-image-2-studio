@@ -1,0 +1,55 @@
+name: Feature request
+description: Suggest an improvement for the public local tool.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository only covers the public local tool. Hosted accounts, payments, hosted API keys, queues, and admin panels are out of scope here.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem would this solve?
+      placeholder: When generating product images, I need...
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the smallest useful version of the feature.
+      placeholder: Add a local option that...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Prompt templates
+        - Image generation options
+        - Image-to-image workflow
+        - History and local files
+        - Settings
+        - Desktop packaging
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional. Mention workarounds or other designs.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: This request is for the local public tool, not the private platform.
+          required: true
+        - label: I am not requesting hosted payment, account, or server-side key management features in this repository.
+          required: true

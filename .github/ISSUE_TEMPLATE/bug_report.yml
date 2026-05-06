@@ -1,0 +1,75 @@
+name: Bug report
+description: Report a reproducible problem in the local tool.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Do not paste a real API key, full private logs, or payment information.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Problem summary
+      description: Describe what went wrong.
+      placeholder: The app shows an empty image response after...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: List exact steps so maintainers can reproduce it.
+      placeholder: |
+        1. Open Settings
+        2. Fill Base URL and image model
+        3. Click Test image model
+        4. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: The app should show...
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      placeholder: The app instead shows...
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime
+      options:
+        - Windows desktop installer
+        - Tauri desktop dev
+        - Web dev server
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      placeholder: v0.1.0
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant error message
+      description: Remove API keys and private data before pasting.
+      render: text
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I removed any real API key from this report.
+          required: true
+        - label: I checked the FAQ before opening this issue.
+          required: true

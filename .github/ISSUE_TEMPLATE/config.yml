@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: FAQ
+    url: https://github.com/KDB-Wind/gpt-image-2-studio/blob/main/docs/faq.md
+    about: Read common answers before opening an issue.

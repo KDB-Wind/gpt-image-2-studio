@@ -94,6 +94,7 @@ export function checkReleaseWorkflow(workflowText) {
     [/npm run desktop:build/, "Release workflow must build Tauri desktop bundles."],
     [/actions\/upload-artifact@v4/, "Release workflow must upload installer artifacts."],
     [/softprops\/action-gh-release@v2/, "Release workflow must create or update a GitHub Release."],
+    [/body_path:\s*docs\/release-notes\/v0\.1\.0\.md/, "Release workflow must use the v0.1.0 release notes body."],
   ];
 
   return checks
@@ -114,6 +115,27 @@ export function checkTauriWindowsBundleConfig(config) {
   }
 
   return errors;
+}
+
+function checkPublicProjectDocs(rootDir) {
+  const requiredFiles = [
+    "README.md",
+    "README.en.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    join("docs", "faq.md"),
+    join("docs", "release.md"),
+    join("docs", "release.en.md"),
+    join("docs", "release-checklist.md"),
+    join("docs", "release-notes", "v0.1.0.md"),
+    join("docs", "assets", "app-preview.svg"),
+    join(".github", "ISSUE_TEMPLATE", "bug_report.yml"),
+    join(".github", "ISSUE_TEMPLATE", "feature_request.yml"),
+  ];
+
+  return requiredFiles
+    .filter((file) => !existsSync(join(rootDir, file)))
+    .map((file) => `${file} is missing.`);
 }
 
 export function runReleaseReadiness(rootDir) {
@@ -138,6 +160,7 @@ export function runReleaseReadiness(rootDir) {
     errors.push(...checkTauriWindowsBundleConfig(readJson(tauriConfigPath)));
   }
 
+  errors.push(...checkPublicProjectDocs(rootDir));
   errors.push(...findSensitivePatterns(readCandidateFiles(rootDir)));
 
   return errors;

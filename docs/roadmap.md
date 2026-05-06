@@ -2,30 +2,18 @@
 
 本文档记录 `GPT-Image-2 Studio` 公开工具版的后续优化事项。平台版的注册、积分、支付、队列、供应商熔断等能力不放入本仓库路线图。
 
-## P0: 首个公开 Release 前
+## 已完成
 
-- 补充 README 顶部截图，展示中文主界面、设置页、图生图和多图上传。
-- 补充 GitHub Release 文案，明确普通用户下载 `setup.exe`，开发者再使用源码运行。
-- 手动下载草稿 Release 中的 `setup.exe`，在干净 Windows 环境做一次安装、启动、配置保存、文生图、图生图、多图上传验收。
-- 确认首次启动欢迎弹窗、语言切换、请作者喝杯可乐、收款码弹层在安装版中显示正常。
-- 发布 `v0.1.0` 正式 Release。
+- P0 自动发布链路：Windows `setup.exe` Release workflow、离线 WebView2 安装模式、首版 Release 文案、人工验收清单。
+- P0 README 门面：badges、界面预览、普通用户安装说明、推荐中转站链接。
+- P1 开源项目门面：`CONTRIBUTING.md`、`SECURITY.md`、FAQ、GitHub issue templates。
+- P2 工具版体验优化：错误解释、历史搜索过滤、批量删除、输出目录快捷打开、提示词模板、自定义模板。
 
-## P1: 开源项目门面
+## P0 剩余人工动作
 
-- 增加 README badges，例如 CI、Release、License。
-- 增加 `CONTRIBUTING.md`，说明如何本地启动、如何提交问题、如何避免提交真实 `API key`。
-- 增加 `SECURITY.md`，说明密钥泄漏处理建议和漏洞反馈方式。
-- 增加 GitHub issue templates，至少包含 bug report 和 feature request。
-- 增加 FAQ，覆盖常见问题：`API key` 保存在哪里、Base URL 是否需要 `/v1`、生成超时、空图片响应、524 错误、图片保存目录。
-
-## P2: 工具版体验优化
-
-- 增加更清晰的错误解释，把供应商异常、鉴权失败、超时、空图片响应分成不同提示。
-- 增加生成失败后的重试建议，但避免默认自动重试导致用户重复消耗费用。
-- 增加历史记录搜索、过滤和批量删除。
-- 增加输出目录快捷打开按钮。
-- 增加提示词模板的轻量本地版，先内置少量高质量模板，不接平台账号。
-- 增加用户自定义模板保存能力，配置仍保存在本机。
+- 推送 `v0.1.0` tag 后，等待 GitHub Actions 生成草稿 Release。
+- 从草稿 Release 下载 `setup.exe`，按 [release-checklist.md](./release-checklist.md) 做一次干净 Windows 环境验收。
+- 验收通过后，在 GitHub Releases 页面手动发布正式 Release。
 
 ## P3: 发布链路增强
 

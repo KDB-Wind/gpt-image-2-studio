@@ -16,6 +16,14 @@ Windows 打包配置位于 `src-tauri/tauri.conf.json`：
 
 这会产出 NSIS `setup.exe`，并把 WebView2 安装能力放进安装链路，减少普通 Windows 用户首次安装失败的概率。
 
+首版 Release 的草稿文案来自：
+
+- `docs/release-notes/v0.1.0.md`
+
+首版人工验收清单来自：
+
+- `docs/release-checklist.md`
+
 ## 本地发布前检查
 
 ```powershell
@@ -50,7 +58,8 @@ git push origin v0.1.0
 
 6. 打开 GitHub Actions，等待 `Release` workflow 完成。
 7. 打开 GitHub Releases，检查草稿 Release 中的 `.exe`。
-8. 将 Release 文案补齐后发布。
+8. 按 `docs/release-checklist.md` 下载 `setup.exe` 并做人工验收。
+9. 验收通过后发布草稿 Release。
 
 ## 手动触发
 

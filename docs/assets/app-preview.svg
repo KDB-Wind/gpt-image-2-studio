@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
+  <title id="title">GPT-Image-2 Studio interface preview</title>
+  <desc id="desc">Bright desktop workspace preview showing generation, image reference upload, history, and settings panels.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#fff9ed"/>
+      <stop offset="56%" stop-color="#f5f1df"/>
+      <stop offset="100%" stop-color="#e7f0df"/>
+    </linearGradient>
+    <linearGradient id="hero" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#f8d777"/>
+      <stop offset="100%" stop-color="#96b889"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#4f3e2a" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="640" rx="38" fill="url(#bg)"/>
+  <circle cx="1090" cy="80" r="150" fill="#dfeecf" opacity="0.55"/>
+  <circle cx="70" cy="560" r="180" fill="#fee8a7" opacity="0.45"/>
+  <g filter="url(#shadow)">
+    <rect x="62" y="54" width="1076" height="532" rx="30" fill="#fffdf6"/>
+    <rect x="62" y="54" width="1076" height="84" rx="30" fill="#fff7e5"/>
+    <rect x="62" y="108" width="1076" height="30" fill="#fff7e5"/>
+  </g>
+  <text x="96" y="106" fill="#342819" font-family="Georgia, 'Times New Roman', serif" font-size="30" font-weight="700">GPT-Image-2 Studio</text>
+  <text x="372" y="105" fill="#7a6d58" font-family="Arial, sans-serif" font-size="15">本地优先 · 文生图 · 图生图 · 多图参考</text>
+  <rect x="894" y="82" width="96" height="34" rx="17" fill="#263d2a"/>
+  <text x="914" y="104" fill="#fffdf6" font-family="Arial, sans-serif" font-size="14">简体中文</text>
+  <rect x="1000" y="82" width="92" height="34" rx="17" fill="#f1e5c9"/>
+  <text x="1022" y="104" fill="#66533b" font-family="Arial, sans-serif" font-size="14">English</text>
+
+  <rect x="92" y="168" width="174" height="382" rx="24" fill="#f8efd9"/>
+  <rect x="116" y="200" width="126" height="40" rx="20" fill="#263d2a"/>
+  <text x="145" y="226" fill="#fffdf6" font-family="Arial, sans-serif" font-size="15">生成</text>
+  <rect x="116" y="252" width="126" height="40" rx="20" fill="#fffaf0"/>
+  <text x="145" y="278" fill="#725f45" font-family="Arial, sans-serif" font-size="15">历史</text>
+  <rect x="116" y="304" width="126" height="40" rx="20" fill="#fffaf0"/>
+  <text x="145" y="330" fill="#725f45" font-family="Arial, sans-serif" font-size="15">设置</text>
+  <rect x="116" y="462" width="126" height="54" rx="18" fill="#ffe8a8"/>
+  <text x="132" y="486" fill="#594228" font-family="Arial, sans-serif" font-size="13">请作者</text>
+  <text x="132" y="506" fill="#594228" font-family="Arial, sans-serif" font-size="13">喝杯可乐</text>
+
+  <rect x="292" y="168" width="438" height="382" rx="26" fill="#fffaf0" stroke="#e7d8b4"/>
+  <text x="322" y="210" fill="#342819" font-family="Arial, sans-serif" font-size="22" font-weight="700">创建图片</text>
+  <rect x="322" y="234" width="180" height="36" rx="18" fill="#263d2a"/>
+  <text x="348" y="257" fill="#fffdf6" font-family="Arial, sans-serif" font-size="14">文生图</text>
+  <rect x="510" y="234" width="180" height="36" rx="18" fill="#f0e3c8"/>
+  <text x="532" y="257" fill="#66533b" font-family="Arial, sans-serif" font-size="14">图生图 / 多图</text>
+  <rect x="322" y="294" width="368" height="104" rx="18" fill="#fffdf9" stroke="#eadbbd"/>
+  <text x="342" y="326" fill="#756346" font-family="Arial, sans-serif" font-size="15">输入提示词，或从模板库选择</text>
+  <text x="342" y="354" fill="#a08d6a" font-family="Arial, sans-serif" font-size="13">人物肖像 · 商品宣传图 · 插画海报</text>
+  <rect x="322" y="418" width="112" height="72" rx="16" fill="#eef4e7" stroke="#cfdfc4"/>
+  <text x="350" y="459" fill="#5f7559" font-family="Arial, sans-serif" font-size="13">参考图 1</text>
+  <rect x="450" y="418" width="112" height="72" rx="16" fill="#eef4e7" stroke="#cfdfc4"/>
+  <text x="478" y="459" fill="#5f7559" font-family="Arial, sans-serif" font-size="13">参考图 2</text>
+  <rect x="578" y="418" width="112" height="72" rx="16" fill="#fff3cf" stroke="#ead185" stroke-dasharray="8 8"/>
+  <text x="600" y="459" fill="#8b6b22" font-family="Arial, sans-serif" font-size="13">拖拽上传</text>
+  <rect x="322" y="506" width="368" height="34" rx="17" fill="url(#hero)"/>
+  <text x="464" y="528" fill="#2e2518" font-family="Arial, sans-serif" font-size="15" font-weight="700">开始生成</text>
+
+  <rect x="758" y="168" width="348" height="382" rx="26" fill="#fffaf0" stroke="#e7d8b4"/>
+  <text x="790" y="210" fill="#342819" font-family="Arial, sans-serif" font-size="22" font-weight="700">预览与历史</text>
+  <rect x="790" y="234" width="284" height="190" rx="24" fill="#e7efe0"/>
+  <path d="M824 390 C862 338, 898 356, 928 318 C958 280, 1008 284, 1044 250 L1044 390 Z" fill="#96b889"/>
+  <circle cx="842" cy="270" r="32" fill="#f8d777"/>
+  <rect x="790" y="446" width="132" height="58" rx="16" fill="#fffdf9" stroke="#eadbbd"/>
+  <text x="808" y="480" fill="#66533b" font-family="Arial, sans-serif" font-size="13">历史搜索</text>
+  <rect x="942" y="446" width="132" height="58" rx="16" fill="#fffdf9" stroke="#eadbbd"/>
+  <text x="960" y="480" fill="#66533b" font-family="Arial, sans-serif" font-size="13">批量删除</text>
+  <rect x="790" y="518" width="284" height="18" rx="9" fill="#eadbbd"/>
+</svg>
