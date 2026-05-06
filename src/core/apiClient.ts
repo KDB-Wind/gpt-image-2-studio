@@ -199,28 +199,9 @@ export function parseImageGenerationResponse(payload: unknown): ParsedImage[] {
   }
 
   const data = Array.isArray(record.data) ? record.data : [];
-  const images = data
-    .map((entry) => {
-      const item = asRecord(entry);
-      const parsed: ParsedImage = {};
-      const base64 = firstNonEmptyString(item.b64_json, item.base64, item.image_base64);
-      const url = firstNonEmptyString(item.url, item.image_url);
-      const revisedPrompt = asString(item.revised_prompt);
-
-      if (base64) {
-        parsed.base64 = base64;
-      }
-
-      if (url) {
-        parsed.url = url;
-      }
-
-      if (revisedPrompt) {
-        parsed.revisedPrompt = revisedPrompt;
-      }
-
-      return parsed.base64 || parsed.url ? parsed : null;
-    })
+  const output = Array.isArray(record.output) ? record.output : [];
+  const images = [...data, ...output]
+    .map(parseImageItem)
     .filter((item): item is ParsedImage => item !== null);
 
   if (images.length > 0) {
@@ -228,6 +209,29 @@ export function parseImageGenerationResponse(payload: unknown): ParsedImage[] {
   }
 
   throw new Error("Image generation response did not contain any image data.");
+}
+
+function parseImageItem(entry: unknown): ParsedImage | null {
+  const item = asRecord(entry);
+  const parsed: ParsedImage = {};
+  const nestedImageUrl = asRecord(item.image_url).url;
+  const base64 = firstNonEmptyString(item.b64_json, item.base64, item.image_base64, item.result, item.image);
+  const url = firstNonEmptyString(item.url, item.image_url, nestedImageUrl);
+  const revisedPrompt = asString(item.revised_prompt);
+
+  if (base64) {
+    parsed.base64 = base64;
+  }
+
+  if (url) {
+    parsed.url = url;
+  }
+
+  if (revisedPrompt) {
+    parsed.revisedPrompt = revisedPrompt;
+  }
+
+  return parsed.base64 || parsed.url ? parsed : null;
 }
 
 export async function requestJsonWithTimeout(config: AppConfig, { path, body }: RequestJsonInput) {
@@ -444,7 +448,7 @@ function firstNonEmptyString(...values: unknown[]): string {
 
 function readProviderErrorMessage(record: JsonRecord): string {
   const error = asRecord(record.error);
-  return firstNonEmptyString(error.message, error.code, record.message);
+  return firstNonEmptyString(record.error, error.message, error.code, error.type, record.message, record.detail);
 }
 
 function readChatContentPart(part: ChatMessageContentPart): string {
