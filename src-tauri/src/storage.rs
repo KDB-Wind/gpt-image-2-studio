@@ -42,6 +42,7 @@ pub fn default_config() -> AppConfig {
         default_compression: 90,
         ui_language: "zh-CN".to_string(),
         has_dismissed_welcome: false,
+        custom_prompt_templates: Vec::new(),
     }
 }
 
@@ -144,6 +145,12 @@ pub fn merge_config_value(value: serde_json::Value) -> AppConfig {
         .and_then(|item| item.as_bool())
     {
         config.has_dismissed_welcome = has_dismissed_welcome;
+    }
+    if let Some(custom_prompt_templates) = value
+        .get("customPromptTemplates")
+        .and_then(|item| serde_json::from_value(item.clone()).ok())
+    {
+        config.custom_prompt_templates = custom_prompt_templates;
     }
 
     config
@@ -447,6 +454,15 @@ pub fn load_history_for_save(path: &Path) -> Result<Vec<ImageRecord>, String> {
     }
 }
 
+pub fn delete_history_records_from_path(path: &Path, ids: &[String]) -> Result<Vec<ImageRecord>, String> {
+    let ids: HashSet<&str> = ids.iter().map(String::as_str).collect();
+    let mut history = load_history_for_save(path)?;
+    history.retain(|record| !ids.contains(record.id.as_str()));
+    sort_history(&mut history);
+    write_json(path, &history)?;
+    Ok(history)
+}
+
 #[tauri::command]
 pub fn load_config() -> Result<AppConfig, String> {
     let path = config_path()?;
@@ -473,6 +489,19 @@ pub fn load_history() -> Result<Vec<ImageRecord>, String> {
     let mut history = load_history_for_display(&path)?;
     sort_history(&mut history);
     Ok(history)
+}
+
+#[tauri::command]
+pub fn delete_history_records(ids: Vec<String>) -> Result<Vec<ImageRecord>, String> {
+    delete_history_records_from_path(&history_path()?, &ids)
+}
+
+#[tauri::command]
+pub fn open_output_directory(config: AppConfig) -> Result<(), String> {
+    let output_root = resolve_output_root(&config.output_directory, &output_base_dir()?);
+    fs::create_dir_all(&output_root).map_err(|error| error.to_string())?;
+    tauri_plugin_opener::open_path(output_root.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

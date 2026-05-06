@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  filterHistoryRecords,
   groupHistoryByDate,
+  removeHistoryRecords,
   sortHistoryNewestFirst,
   type ImageRecord,
 } from "./history";
@@ -79,5 +81,71 @@ describe("groupHistoryByDate", () => {
         records: [outputPathWins],
       },
     ]);
+  });
+});
+
+describe("filterHistoryRecords", () => {
+  const records = [
+    createRecord({
+      id: "portrait",
+      status: "success",
+      prompt: "Graduation portrait with soft daylight",
+      optimizedPrompt: "Cinematic graduation portrait",
+      model: "gpt-image-2",
+      outputPath: "outputs/2026-05-01/portrait.png",
+    }),
+    createRecord({
+      id: "product",
+      status: "failed",
+      prompt: "Luxury watch product ad",
+      optimizedPrompt: "",
+      errorMessage: "provider timeout",
+      outputPath: "outputs/2026-05-01/product.png",
+    }),
+    createRecord({
+      id: "cancelled",
+      status: "cancelled",
+      prompt: "Interior design mood board",
+      optimizedPrompt: "",
+      outputPath: "outputs/2026-05-01/interior.png",
+    }),
+  ];
+
+  it("searches prompt, optimized prompt, model, output path, and error text case-insensitively", () => {
+    expect(filterHistoryRecords(records, { query: "CINEMATIC", status: "all" }).map((record) => record.id)).toEqual([
+      "portrait",
+    ]);
+    expect(filterHistoryRecords(records, { query: "watch", status: "all" }).map((record) => record.id)).toEqual([
+      "product",
+    ]);
+    expect(filterHistoryRecords(records, { query: "timeout", status: "all" }).map((record) => record.id)).toEqual([
+      "product",
+    ]);
+  });
+
+  it("filters by status and keeps all records when status is all", () => {
+    expect(filterHistoryRecords(records, { query: "", status: "failed" }).map((record) => record.id)).toEqual([
+      "product",
+    ]);
+    expect(filterHistoryRecords(records, { query: "", status: "all" }).map((record) => record.id)).toEqual([
+      "portrait",
+      "product",
+      "cancelled",
+    ]);
+  });
+});
+
+describe("removeHistoryRecords", () => {
+  it("removes selected records without mutating the original array", () => {
+    const records = [
+      createRecord({ id: "keep" }),
+      createRecord({ id: "remove-one" }),
+      createRecord({ id: "remove-two" }),
+    ];
+
+    const result = removeHistoryRecords(records, new Set(["remove-one", "remove-two"]));
+
+    expect(result.map((record) => record.id)).toEqual(["keep"]);
+    expect(records.map((record) => record.id)).toEqual(["keep", "remove-one", "remove-two"]);
   });
 });

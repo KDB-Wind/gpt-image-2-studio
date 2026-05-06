@@ -10,7 +10,12 @@ import {
   testTextModel,
 } from "./core/apiClient";
 import { DEFAULT_CONFIG, mergeConfig, type AppConfig, validateConfig } from "./core/config";
-import { groupHistoryByDate, type ImageRecord } from "./core/history";
+import {
+  filterHistoryRecords,
+  groupHistoryByDate,
+  type HistoryStatusFilter,
+  type ImageRecord,
+} from "./core/history";
 import {
   MAX_REFERENCE_IMAGES,
   addReferenceImages,
@@ -18,12 +23,22 @@ import {
   type ReferenceImageItem,
 } from "./core/referenceImages";
 import {
+  BUILT_IN_PROMPT_TEMPLATES,
+  createCustomPromptTemplate,
+  filterPromptTemplates,
+  getPromptTemplateCategories,
+  mergePromptTemplates,
+  removeCustomPromptTemplate,
+  type PromptTemplate,
+  type PromptTemplateCategory,
+} from "./core/promptTemplates";
+import {
   getImageSizePresetValue,
   isCompressionFormat,
   parseImageSize,
   validateImageSize,
 } from "./core/imageOptions";
-import { getTranslations, resolveLanguage, type UiLanguage } from "./i18n/translations";
+import { formatClassifiedError, getTranslations, resolveLanguage, type UiLanguage } from "./i18n/translations";
 import { getRuntimeAdapter } from "./runtime";
 import type { RuntimeAdapter } from "./runtime/types";
 
@@ -75,6 +90,10 @@ type DialogProps = {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong.";
+}
+
+function getApiErrorMessage(error: unknown, language: UiLanguage): string {
+  return formatClassifiedError(error, language);
 }
 
 function formatDuration(durationMs: number): string {
@@ -190,8 +209,15 @@ export default function App() {
   const [optimizedPrompt, setOptimizedPrompt] = useState("");
   const [customName, setCustomName] = useState("");
   const [referenceImages, setReferenceImages] = useState<ReferenceImageItem[]>([]);
+  const [templateQuery, setTemplateQuery] = useState("");
+  const [templateCategory, setTemplateCategory] = useState<PromptTemplateCategory | "all">("all");
+  const [customTemplateTitle, setCustomTemplateTitle] = useState("");
+  const [customTemplateCategory, setCustomTemplateCategory] = useState<PromptTemplateCategory>("custom");
   const [previewState, setPreviewState] = useState<PreviewState>({ status: "idle" });
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
+  const [selectedHistoryIds, setSelectedHistoryIds] = useState<Set<string>>(() => new Set());
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<HistoryStatusFilter>("all");
   const [elapsedMs, setElapsedMs] = useState(0);
   const [appMessage, setAppMessage] = useState("");
   const [settingsMessage, setSettingsMessage] = useState<SettingsMessage>({ tone: "neutral", text: "" });
@@ -202,6 +228,7 @@ export default function App() {
   const [isTestingText, setIsTestingText] = useState(false);
   const [isTestingImage, setIsTestingImage] = useState(false);
   const [isTestingImageEdit, setIsTestingImageEdit] = useState(false);
+  const [isDeletingHistory, setIsDeletingHistory] = useState(false);
   const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [isQrZoomed, setIsQrZoomed] = useState(false);
   const [isUpdateOpen, setIsUpdateOpen] = useState(false);
@@ -229,9 +256,23 @@ export default function App() {
     () => translateValidationMessages(validation.warnings, language),
     [language, validation.warnings],
   );
-  const historyGroups = useMemo(() => groupHistoryByDate(history), [history]);
+  const filteredHistory = useMemo(
+    () => filterHistoryRecords(history, { query: historyQuery, status: historyStatusFilter }),
+    [history, historyQuery, historyStatusFilter],
+  );
+  const historyGroups = useMemo(() => groupHistoryByDate(filteredHistory), [filteredHistory]);
+  const promptTemplates = useMemo(
+    () => mergePromptTemplates(config.customPromptTemplates, BUILT_IN_PROMPT_TEMPLATES),
+    [config.customPromptTemplates],
+  );
+  const promptTemplateCategories = useMemo(() => getPromptTemplateCategories(promptTemplates), [promptTemplates]);
+  const filteredPromptTemplates = useMemo(
+    () => filterPromptTemplates(promptTemplates, { category: templateCategory, query: templateQuery }),
+    [promptTemplates, templateCategory, templateQuery],
+  );
   const effectivePrompt = optimizedPrompt.trim() || prompt.trim();
   const canOpenOutput = runtime?.mode === "desktop";
+  const selectedHistoryCount = selectedHistoryIds.size;
   const selectedRecord = useMemo(
     () => history.find((record) => record.id === selectedHistoryId) ?? null,
     [history, selectedHistoryId],
@@ -249,6 +290,20 @@ export default function App() {
     png: copy.options.formatPng,
     jpeg: copy.options.formatJpeg,
     webp: copy.options.formatWebp,
+  };
+  const historyStatusLabels: Record<HistoryStatusFilter, string> = {
+    all: copy.options.statusAll,
+    success: copy.options.statusSuccess,
+    failed: copy.options.statusFailed,
+    cancelled: copy.options.statusCancelled,
+  };
+  const promptTemplateCategoryLabels: Record<PromptTemplateCategory | "all", string> = {
+    all: copy.options.categoryAll,
+    portrait: copy.options.categoryPortrait,
+    product: copy.options.categoryProduct,
+    social: copy.options.categorySocial,
+    style: copy.options.categoryStyle,
+    custom: copy.options.categoryCustom,
   };
   const imageSizeOptions = useMemo(
     () => [
@@ -347,6 +402,19 @@ export default function App() {
     };
   }, [previewState]);
 
+  useEffect(() => {
+    const availableIds = new Set(history.map((record) => record.id));
+
+    setSelectedHistoryIds((current) => {
+      const next = new Set(Array.from(current).filter((id) => availableIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+
+    if (selectedHistoryId && !availableIds.has(selectedHistoryId)) {
+      setSelectedHistoryId(history[0]?.id ?? null);
+    }
+  }, [history, selectedHistoryId]);
+
   async function reloadHistory(adapter: RuntimeAdapter) {
     const loadedHistory = await adapter.loadHistory();
     setHistory(loadedHistory);
@@ -431,6 +499,23 @@ export default function App() {
     }
   }
 
+  async function persistConfig(nextConfig: AppConfig, failureMessage: (detail: string) => string): Promise<boolean> {
+    if (!runtime) {
+      setAppMessage(copy.messages.runtimeUnavailable);
+      return false;
+    }
+
+    try {
+      await runtime.saveConfig(nextConfig);
+      setConfig(nextConfig);
+      setPersistedConfig(nextConfig);
+      return true;
+    } catch (error) {
+      setAppMessage(failureMessage(getErrorMessage(error)));
+      return false;
+    }
+  }
+
   function requireValidConfig(actionLabel: string): boolean {
     const nextValidation = validateConfig(config);
     const translatedErrors = translateValidationMessages(nextValidation.errors, language);
@@ -455,6 +540,65 @@ export default function App() {
     if (optimizedPrompt) {
       setOptimizedPrompt("");
       setAppMessage(copy.messages.promptChangedCleared);
+    }
+  }
+
+  function getPromptTemplateTitle(template: PromptTemplate): string {
+    return template.source === "built-in" ? (copy.promptTemplates[template.id] ?? template.title) : template.title;
+  }
+
+  async function handleApplyPromptTemplate(template: PromptTemplate) {
+    handlePromptChange(template.prompt);
+    setAppMessage(copy.messages.promptTemplateApplied(getPromptTemplateTitle(template)));
+  }
+
+  async function handleSaveCurrentPromptAsTemplate() {
+    const templatePrompt = effectivePrompt.trim();
+
+    if (!templatePrompt) {
+      setAppMessage(copy.messages.promptTemplatePromptRequired);
+      return;
+    }
+
+    let template: PromptTemplate;
+    try {
+      template = createCustomPromptTemplate({
+        title: customTemplateTitle,
+        prompt: templatePrompt,
+        category: customTemplateCategory,
+        fallbackTitle: copy.messages.promptTemplateUntitled,
+      });
+    } catch (error) {
+      setAppMessage(getErrorMessage(error));
+      return;
+    }
+
+    const nextConfig = mergeConfig({
+      ...config,
+      customPromptTemplates: [template, ...config.customPromptTemplates],
+    });
+    const saved = await persistConfig(nextConfig, copy.messages.promptTemplateSaveFailed);
+
+    if (saved) {
+      setCustomTemplateTitle("");
+      setTemplateCategory(template.category);
+      setAppMessage(copy.messages.promptTemplateSaved(template.title));
+    }
+  }
+
+  async function handleDeleteCustomPromptTemplate(template: PromptTemplate) {
+    if (template.source !== "custom") {
+      return;
+    }
+
+    const nextConfig = mergeConfig({
+      ...config,
+      customPromptTemplates: removeCustomPromptTemplate(config.customPromptTemplates, template.id),
+    });
+    const saved = await persistConfig(nextConfig, copy.messages.promptTemplateDeleteFailed);
+
+    if (saved) {
+      setAppMessage(copy.messages.promptTemplateRemoved(template.title));
     }
   }
 
@@ -657,7 +801,7 @@ export default function App() {
         return;
       }
 
-      setAppMessage(copy.messages.optimizationFailed(getErrorMessage(error)));
+      setAppMessage(copy.messages.optimizationFailed(getApiErrorMessage(error, language)));
     } finally {
       if (optimizeRequestIdRef.current === requestId) {
         setIsOptimizing(false);
@@ -709,7 +853,7 @@ export default function App() {
       const firstImage = generatedImages[0];
 
       if (!firstImage) {
-        throw new Error(copy.messages.generationNoImages);
+        throw new Error("Image generation response did not contain any image data.");
       }
 
       const generatedAt = new Date();
@@ -739,7 +883,7 @@ export default function App() {
       setPreviewState({
         status: "failed",
         prompt: finalPrompt,
-        message: getErrorMessage(error),
+        message: getApiErrorMessage(error, language),
         durationMs: Date.now() - startedAt,
       });
     } finally {
@@ -821,7 +965,7 @@ export default function App() {
     } catch (error) {
       setSettingsMessage({
         tone: "error",
-        text: copy.messages.textTestFailed(getErrorMessage(error)),
+        text: copy.messages.textTestFailed(getApiErrorMessage(error, language)),
       });
     } finally {
       setIsTestingText(false);
@@ -844,7 +988,7 @@ export default function App() {
     } catch (error) {
       setSettingsMessage({
         tone: "error",
-        text: copy.messages.imageTestFailed(getErrorMessage(error)),
+        text: copy.messages.imageTestFailed(getApiErrorMessage(error, language)),
       });
     } finally {
       setIsTestingImage(false);
@@ -867,7 +1011,7 @@ export default function App() {
     } catch (error) {
       setSettingsMessage({
         tone: "error",
-        text: copy.messages.imageEditTestFailed(getErrorMessage(error)),
+        text: copy.messages.imageEditTestFailed(getApiErrorMessage(error, language)),
       });
     } finally {
       setIsTestingImageEdit(false);
@@ -894,6 +1038,95 @@ export default function App() {
       await runtime.openOutputPath(record.outputPath);
     } catch (error) {
       setAppMessage(copy.messages.openOutputFailed(getErrorMessage(error)));
+    }
+  }
+
+  async function handleOpenOutputDirectory() {
+    if (!runtime) {
+      setSettingsMessage({ tone: "error", text: copy.messages.runtimeUnavailable });
+      return;
+    }
+
+    if (runtime.mode !== "desktop") {
+      setSettingsMessage({ tone: "neutral", text: copy.messages.openOutputDirectoryUnavailableWeb });
+      return;
+    }
+
+    try {
+      await runtime.openOutputDirectory(config);
+      setSettingsMessage({ tone: "success", text: copy.messages.openOutputDirectoryOpened });
+    } catch (error) {
+      setSettingsMessage({ tone: "error", text: copy.messages.openOutputFailed(getErrorMessage(error)) });
+    }
+  }
+
+  function handleToggleHistorySelection(id: string, checked: boolean) {
+    setSelectedHistoryIds((current) => {
+      const next = new Set(current);
+
+      if (checked) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+
+      return next;
+    });
+  }
+
+  function handleSelectVisibleHistory() {
+    if (filteredHistory.length === 0) {
+      return;
+    }
+
+    setSelectedHistoryIds(new Set(filteredHistory.map((record) => record.id)));
+    setAppMessage(copy.messages.historySelected(filteredHistory.length));
+  }
+
+  function handleClearHistorySelection() {
+    setSelectedHistoryIds(new Set());
+    setAppMessage(copy.messages.historySelectionCleared);
+  }
+
+  async function handleDeleteSelectedHistory() {
+    if (!runtime) {
+      setAppMessage(copy.messages.runtimeUnavailable);
+      return;
+    }
+
+    const ids = Array.from(selectedHistoryIds);
+    if (ids.length === 0) {
+      return;
+    }
+
+    setIsDeletingHistory(true);
+
+    try {
+      const remainingHistory = await runtime.deleteHistoryRecords(ids);
+      const removedIds = new Set(ids);
+
+      setHistory(remainingHistory);
+      setSelectedHistoryIds(new Set());
+
+      if (selectedHistoryId && removedIds.has(selectedHistoryId)) {
+        setSelectedHistoryId(remainingHistory[0]?.id ?? null);
+      }
+
+      setPreviewState((current) => {
+        if (
+          (current.status === "success" || current.status === "history-unavailable") &&
+          removedIds.has(current.record.id)
+        ) {
+          return { status: "idle" };
+        }
+
+        return current;
+      });
+      setAppMessage(copy.messages.historyDeleted(ids.length));
+    } catch (error) {
+      setAppMessage(copy.messages.historyDeleteFailed(getErrorMessage(error)));
+    } finally {
+      setIsDeletingHistory(false);
     }
   }
 
@@ -969,8 +1202,8 @@ export default function App() {
               <span>{copy.app.languageLabel}</span>
               <div className="language-switch" role="tablist" aria-label={copy.app.languageLabel}>
                 {([
-                  ["zh-CN", "简体中文"],
-                  ["en-US", "English"],
+                  ["zh-CN", copy.app.languageChinese],
+                  ["en-US", copy.app.languageEnglish],
                 ] as const).map(([value, label]) => (
                   <button
                     key={value}
@@ -1141,6 +1374,105 @@ export default function App() {
                   </section>
                 ) : null}
 
+                <section className="prompt-template-section">
+                  <div className="section-heading">
+                    <h3>{copy.cards.promptTemplateLibrary}</h3>
+                    <p>{copy.notes.promptTemplateLibraryDescription}</p>
+                  </div>
+
+                  <div className="template-filter-grid">
+                    <label className="field">
+                      <span>{copy.fields.templateSearch}</span>
+                      <input
+                        value={templateQuery}
+                        onChange={(event) => setTemplateQuery(event.target.value)}
+                        placeholder={copy.fields.templateSearchPlaceholder}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>{copy.fields.templateCategory}</span>
+                      <select
+                        value={templateCategory}
+                        onChange={(event) => setTemplateCategory(event.target.value as PromptTemplateCategory | "all")}
+                      >
+                        <option value="all">{promptTemplateCategoryLabels.all}</option>
+                        {promptTemplateCategories.map((category) => (
+                          <option key={category} value={category}>
+                            {promptTemplateCategoryLabels[category]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  {filteredPromptTemplates.length === 0 ? (
+                    <p className="empty-state">{copy.empty.noPromptTemplates}</p>
+                  ) : (
+                    <div className="prompt-template-grid">
+                      {filteredPromptTemplates.map((template) => (
+                        <article key={template.id} className="prompt-template-card">
+                          <div className="template-card-head">
+                            <span>{promptTemplateCategoryLabels[template.category]}</span>
+                            <strong>{getPromptTemplateTitle(template)}</strong>
+                          </div>
+                          <p>{template.prompt}</p>
+                          <div className="action-row">
+                            <button
+                              type="button"
+                              className="ghost-button"
+                              onClick={() => void handleApplyPromptTemplate(template)}
+                            >
+                              {copy.actions.applyTemplate}
+                            </button>
+                            {template.source === "custom" ? (
+                              <button
+                                type="button"
+                                className="ghost-button danger-button"
+                                onClick={() => void handleDeleteCustomPromptTemplate(template)}
+                              >
+                                {copy.actions.deleteTemplate}
+                              </button>
+                            ) : null}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="custom-template-card">
+                    <div className="section-heading">
+                      <h3>{copy.cards.customPromptTemplate}</h3>
+                      <p>{copy.notes.customPromptTemplateDescription}</p>
+                    </div>
+                    <div className="template-filter-grid">
+                      <label className="field">
+                        <span>{copy.fields.templateTitle}</span>
+                        <input
+                          value={customTemplateTitle}
+                          onChange={(event) => setCustomTemplateTitle(event.target.value)}
+                          placeholder={copy.fields.templateTitlePlaceholder}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>{copy.fields.templateCategory}</span>
+                        <select
+                          value={customTemplateCategory}
+                          onChange={(event) => setCustomTemplateCategory(event.target.value as PromptTemplateCategory)}
+                        >
+                          {(["portrait", "product", "social", "style", "custom"] as const).map((category) => (
+                            <option key={category} value={category}>
+                              {promptTemplateCategoryLabels[category]}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <button type="button" className="secondary-button" onClick={handleSaveCurrentPromptAsTemplate}>
+                      {copy.actions.savePromptTemplate}
+                    </button>
+                  </div>
+                </section>
+
                 <label className="field">
                   <span>{copy.fields.prompt}</span>
                   <textarea
@@ -1264,10 +1596,77 @@ export default function App() {
                     <strong>{history.length}</strong>
                   </div>
                   <div className="stat-card">
+                    <span>{copy.cards.filteredRecords}</span>
+                    <strong>{filteredHistory.length}</strong>
+                  </div>
+                  <div className="stat-card">
                     <span>{copy.cards.dateGroups}</span>
                     <strong>{historyGroups.length}</strong>
                   </div>
+                  <div className="stat-card">
+                    <span>{copy.cards.selectedRecords}</span>
+                    <strong>{selectedHistoryCount}</strong>
+                  </div>
                 </div>
+
+                <section className="history-filter-card">
+                  <div className="section-heading">
+                    <h3>{copy.cards.historyFilters}</h3>
+                    <p>{copy.notes.historyFilterDescription}</p>
+                  </div>
+                  <div className="template-filter-grid">
+                    <label className="field">
+                      <span>{copy.fields.historySearch}</span>
+                      <input
+                        value={historyQuery}
+                        onChange={(event) => setHistoryQuery(event.target.value)}
+                        placeholder={copy.fields.historySearchPlaceholder}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>{copy.fields.historyStatus}</span>
+                      <select
+                        value={historyStatusFilter}
+                        onChange={(event) => setHistoryStatusFilter(event.target.value as HistoryStatusFilter)}
+                      >
+                        {(["all", "success", "failed", "cancelled"] as const).map((status) => (
+                          <option key={status} value={status}>
+                            {historyStatusLabels[status]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="history-batch-actions">
+                    <span>{copy.messages.historySelectionSummary(selectedHistoryCount, filteredHistory.length)}</span>
+                    <div className="action-row">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={handleSelectVisibleHistory}
+                        disabled={filteredHistory.length === 0}
+                      >
+                        {copy.actions.selectVisible}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={handleClearHistorySelection}
+                        disabled={selectedHistoryCount === 0}
+                      >
+                        {copy.actions.clearSelection}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button danger-button"
+                        onClick={() => void handleDeleteSelectedHistory()}
+                        disabled={selectedHistoryCount === 0 || isDeletingHistory || !runtime}
+                      >
+                        {isDeletingHistory ? copy.actions.deleteSelectedBusy : copy.actions.deleteSelected}
+                      </button>
+                    </div>
+                  </div>
+                </section>
 
                 <div className="info-card">
                   <h3>{copy.cards.selectedRun}</h3>
@@ -1532,6 +1931,14 @@ export default function App() {
                     <button
                       type="button"
                       className="secondary-button"
+                      onClick={() => void handleOpenOutputDirectory()}
+                      disabled={!runtime}
+                    >
+                      {copy.actions.openOutputDirectory}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
                       onClick={handleTestTextModel}
                       disabled={isTestingText}
                     >
@@ -1660,7 +2067,7 @@ export default function App() {
                         </div>
                         <div>
                           <dt>{copy.labels.status}</dt>
-                          <dd>{selectedRecord.status}</dd>
+                          <dd>{historyStatusLabels[selectedRecord.status]}</dd>
                         </div>
                       </dl>
                     </div>
@@ -1771,12 +2178,67 @@ export default function App() {
                 <h2>{copy.panel.historyTitle}</h2>
                 <p>{copy.panel.historyDescription}</p>
               </div>
-              <div className="history-count">{history.length}</div>
+              <div className="history-count">{filteredHistory.length}/{history.length}</div>
             </header>
 
             <div className="panel-body history-body">
-              {historyGroups.length === 0 ? (
+              <div className="history-toolbar">
+                <label className="field">
+                  <span>{copy.fields.historySearch}</span>
+                  <input
+                    value={historyQuery}
+                    onChange={(event) => setHistoryQuery(event.target.value)}
+                    placeholder={copy.fields.historySearchPlaceholder}
+                  />
+                </label>
+                <label className="field">
+                  <span>{copy.fields.historyStatus}</span>
+                  <select
+                    value={historyStatusFilter}
+                    onChange={(event) => setHistoryStatusFilter(event.target.value as HistoryStatusFilter)}
+                  >
+                    {(["all", "success", "failed", "cancelled"] as const).map((status) => (
+                      <option key={status} value={status}>
+                        {historyStatusLabels[status]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="history-batch-actions compact">
+                  <span>{copy.messages.historySelectionSummary(selectedHistoryCount, filteredHistory.length)}</span>
+                  <div className="action-row">
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={handleSelectVisibleHistory}
+                      disabled={filteredHistory.length === 0}
+                    >
+                      {copy.actions.selectVisible}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={handleClearHistorySelection}
+                      disabled={selectedHistoryCount === 0}
+                    >
+                      {copy.actions.clearSelection}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button danger-button"
+                      onClick={() => void handleDeleteSelectedHistory()}
+                      disabled={selectedHistoryCount === 0 || isDeletingHistory || !runtime}
+                    >
+                      {isDeletingHistory ? copy.actions.deleteSelectedBusy : copy.actions.deleteSelected}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {history.length === 0 ? (
                 <p className="empty-state">{copy.empty.noHistorySaved}</p>
+              ) : historyGroups.length === 0 ? (
+                <p className="empty-state">{copy.empty.noHistoryMatches}</p>
               ) : (
                 historyGroups.map((group) => (
                   <section key={group.date} className="history-group">
@@ -1792,7 +2254,15 @@ export default function App() {
                           className={`history-item ${record.id === selectedHistoryId ? "selected" : ""}`}
                         >
                           <div className="history-item-head">
-                            <span className={`status-pill ${record.status}`}>{record.status}</span>
+                            <label className="history-select">
+                              <input
+                                type="checkbox"
+                                checked={selectedHistoryIds.has(record.id)}
+                                aria-label={`${copy.actions.selectRecord}: ${record.prompt}`}
+                                onChange={(event) => handleToggleHistorySelection(record.id, event.target.checked)}
+                              />
+                              <span className={`status-pill ${record.status}`}>{historyStatusLabels[record.status]}</span>
+                            </label>
                             <time dateTime={record.createdAt}>{formatDateTime(record.createdAt, language)}</time>
                           </div>
                           <p className="history-prompt">{record.optimizedPrompt || record.prompt}</p>

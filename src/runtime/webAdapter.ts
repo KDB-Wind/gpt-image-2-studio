@@ -1,6 +1,6 @@
 import { DEFAULT_CONFIG, mergeConfig, type AppConfig } from "../core/config";
 import { buildImageFileName, buildOutputPath, formatDateFolder } from "../core/fileNames";
-import { sortHistoryNewestFirst, type ImageRecord } from "../core/history";
+import { removeHistoryRecords, sortHistoryNewestFirst, type ImageRecord } from "../core/history";
 import type { RuntimeAdapter, SaveImageInput, SaveImageResult } from "./types";
 
 const CONFIG_KEY = "chat-to-image.config.v1";
@@ -106,6 +106,12 @@ export const webAdapter: RuntimeAdapter = {
     return sortHistoryNewestFirst(readStoredValue<ImageRecord[]>(HISTORY_KEY, []));
   },
 
+  async deleteHistoryRecords(ids: string[]) {
+    const remaining = sortHistoryNewestFirst(removeHistoryRecords(await this.loadHistory(), new Set(ids)));
+    writeStoredValue(HISTORY_KEY, remaining);
+    return remaining;
+  },
+
   async chooseOutputDirectory() {
     if (!window.showDirectoryPicker) {
       return null;
@@ -141,6 +147,10 @@ export const webAdapter: RuntimeAdapter = {
   },
 
   async openOutputPath(_path: string) {
+    return;
+  },
+
+  async openOutputDirectory(_config: AppConfig) {
     return;
   },
 };

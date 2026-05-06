@@ -1,6 +1,7 @@
 import { formatDateFolder } from "./fileNames";
 
 export type ImageRecordStatus = "success" | "failed" | "cancelled";
+export type HistoryStatusFilter = ImageRecordStatus | "all";
 
 export type ImageRecord = {
   id: string;
@@ -18,6 +19,11 @@ export type ImageRecord = {
 export type HistoryGroup = {
   date: string;
   records: ImageRecord[];
+};
+
+export type HistoryFilter = {
+  query: string;
+  status: HistoryStatusFilter;
 };
 
 export function sortHistoryNewestFirst(records: ImageRecord[]): ImageRecord[] {
@@ -45,6 +51,40 @@ export function groupHistoryByDate(records: ImageRecord[]): HistoryGroup[] {
     date,
     records: groupedRecords,
   }));
+}
+
+export function filterHistoryRecords(records: ImageRecord[], filter: HistoryFilter): ImageRecord[] {
+  const query = filter.query.trim().toLowerCase();
+
+  return records.filter((record) => {
+    if (filter.status !== "all" && record.status !== filter.status) {
+      return false;
+    }
+
+    if (!query) {
+      return true;
+    }
+
+    return [
+      record.prompt,
+      record.optimizedPrompt,
+      record.model,
+      record.size,
+      record.outputPath,
+      record.errorMessage ?? "",
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(query);
+  });
+}
+
+export function removeHistoryRecords(records: ImageRecord[], ids: ReadonlySet<string>): ImageRecord[] {
+  if (ids.size === 0) {
+    return [...records];
+  }
+
+  return records.filter((record) => !ids.has(record.id));
 }
 
 function getHistoryGroupDate(record: ImageRecord): string {

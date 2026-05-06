@@ -13,6 +13,8 @@ pub fn run() {
             storage::load_config,
             storage::save_config,
             storage::load_history,
+            storage::delete_history_records,
+            storage::open_output_directory,
             storage::save_generated_image,
         ])
         .run(tauri::generate_context!())

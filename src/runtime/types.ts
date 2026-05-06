@@ -22,7 +22,9 @@ export type RuntimeAdapter = {
   loadConfig(): Promise<AppConfig>;
   saveConfig(config: AppConfig): Promise<void>;
   loadHistory(): Promise<ImageRecord[]>;
+  deleteHistoryRecords(ids: string[]): Promise<ImageRecord[]>;
   saveImage(input: SaveImageInput): Promise<SaveImageResult>;
   chooseOutputDirectory(): Promise<string | null>;
   openOutputPath(path: string): Promise<void>;
+  openOutputDirectory(config: AppConfig): Promise<void>;
 };

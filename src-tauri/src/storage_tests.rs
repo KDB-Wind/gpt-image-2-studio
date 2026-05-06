@@ -43,11 +43,31 @@ fn merges_partial_config_with_defaults() {
 }
 
 #[test]
+fn merges_custom_prompt_templates_with_defaults() {
+    let merged = crate::storage::merge_config_value(serde_json::json!({
+        "customPromptTemplates": [
+            {
+                "id": "custom-local",
+                "title": "Local template",
+                "category": "portrait",
+                "prompt": "A local custom prompt template saved by the current user.",
+                "source": "custom",
+                "createdAt": "2026-05-05T00:00:00.000Z"
+            }
+        ]
+    }));
+
+    assert_eq!(merged.custom_prompt_templates.len(), 1);
+    assert_eq!(merged.custom_prompt_templates[0].id, "custom-local");
+}
+
+#[test]
 fn default_config_uses_chinese_ui_and_shows_welcome_once() {
     let defaults = crate::storage::default_config();
 
     assert_eq!(defaults.ui_language, "zh-CN");
     assert!(!defaults.has_dismissed_welcome);
+    assert!(defaults.custom_prompt_templates.is_empty());
 }
 
 #[test]
@@ -112,6 +132,59 @@ fn history_for_save_keeps_parse_fallback_but_returns_io_errors() {
 
     let invalid_history = crate::storage::load_history_for_save(&invalid_path).unwrap();
     assert!(invalid_history.is_empty());
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn delete_history_records_removes_selected_ids() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-history-delete-test-{}",
+        std::process::id()
+    ));
+    let history_path = temp_root.join("history.json");
+    std::fs::create_dir_all(&temp_root).unwrap();
+    std::fs::write(
+        &history_path,
+        serde_json::json!([
+            {
+                "id": "keep",
+                "status": "success",
+                "createdAt": "2026-05-05T00:01:00.000Z",
+                "prompt": "keep",
+                "optimizedPrompt": "",
+                "model": "gpt-image-2",
+                "size": "1024x1024",
+                "outputPath": "outputs/keep.png",
+                "durationMs": 1000,
+                "errorMessage": null
+            },
+            {
+                "id": "remove",
+                "status": "success",
+                "createdAt": "2026-05-05T00:00:00.000Z",
+                "prompt": "remove",
+                "optimizedPrompt": "",
+                "model": "gpt-image-2",
+                "size": "1024x1024",
+                "outputPath": "outputs/remove.png",
+                "durationMs": 1000,
+                "errorMessage": null
+            }
+        ])
+        .to_string(),
+    )
+    .unwrap();
+
+    let remaining =
+        crate::storage::delete_history_records_from_path(&history_path, &["remove".to_string()]).unwrap();
+
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].id, "keep");
+
+    let stored = crate::storage::load_history_for_save(&history_path).unwrap();
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].id, "keep");
 
     let _ = std::fs::remove_dir_all(&temp_root);
 }

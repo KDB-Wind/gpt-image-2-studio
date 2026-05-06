@@ -112,6 +112,25 @@ describe("mergeConfig", () => {
     expect(merged.hasDismissedWelcome).toBe(true);
   });
 
+  it("starts with no custom prompt templates and preserves saved custom templates", () => {
+    const merged = mergeConfig({
+      customPromptTemplates: [
+        {
+          id: "custom-local",
+          title: "Local template",
+          category: "portrait",
+          prompt: "A local custom prompt template saved by the current user.",
+          source: "custom",
+          createdAt: "2026-05-05T00:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(DEFAULT_CONFIG.customPromptTemplates).toEqual([]);
+    expect(merged.customPromptTemplates).toHaveLength(1);
+    expect(merged.customPromptTemplates[0].id).toBe("custom-local");
+  });
+
   it("does not let undefined partial values wipe defaults", () => {
     const merged = mergeConfig({
       baseUrl: undefined,
@@ -119,6 +138,7 @@ describe("mergeConfig", () => {
       timeoutSeconds: undefined,
       uiLanguage: undefined,
       hasDismissedWelcome: undefined,
+      customPromptTemplates: undefined,
     } as Partial<AppConfig>);
 
     expect(merged.baseUrl).toBe(DEFAULT_CONFIG.baseUrl);
@@ -126,6 +146,7 @@ describe("mergeConfig", () => {
     expect(merged.timeoutSeconds).toBe(DEFAULT_CONFIG.timeoutSeconds);
     expect(merged.uiLanguage).toBe(DEFAULT_CONFIG.uiLanguage);
     expect(merged.hasDismissedWelcome).toBe(DEFAULT_CONFIG.hasDismissedWelcome);
+    expect(merged.customPromptTemplates).toEqual(DEFAULT_CONFIG.customPromptTemplates);
   });
 
   it("returns a config that validateConfig can handle even with undefined-like partial input", () => {

@@ -2,6 +2,17 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PromptTemplate {
+    pub id: String,
+    pub title: String,
+    pub category: String,
+    pub prompt: String,
+    pub source: String,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     pub base_url: String,
     pub api_key: String,
@@ -16,6 +27,7 @@ pub struct AppConfig {
     pub default_compression: u8,
     pub ui_language: String,
     pub has_dismissed_welcome: bool,
+    pub custom_prompt_templates: Vec<PromptTemplate>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
