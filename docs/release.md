@@ -28,7 +28,7 @@ Release workflow 会在打包后生成 `SHA256SUMS.txt`：
 用户或维护者可以在下载后用以下命令校验安装包：
 
 ```powershell
-Get-FileHash .\GPT-Image-2-Studio_0.1.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\GPT-Image-2-Studio_0.1.1_x64-setup.exe -Algorithm SHA256
 Get-Content .\SHA256SUMS.txt
 ```
 
@@ -61,9 +61,9 @@ cargo test --manifest-path src-tauri/Cargo.toml
 5. 创建并推送 tag。
 
 ```powershell
-git tag v0.1.0
+git tag v0.1.1
 git push origin main
-git push origin v0.1.0
+git push origin v0.1.1
 ```
 
 6. 打开 GitHub Actions，等待 `Release` workflow 完成。

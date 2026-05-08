@@ -43,7 +43,7 @@ jobs:
             SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
-          body_path: docs/release-notes/v0.1.0.md
+          body_path: docs/release-notes/v0.1.1.md
           files: |
             src-tauri/target/release/bundle/nsis/*.exe
             SHA256SUMS.txt
@@ -77,7 +77,7 @@ jobs:
       - uses: actions/upload-artifact@v4
       - uses: softprops/action-gh-release@v2
         with:
-          body_path: docs/release-notes/v0.1.0.md
+          body_path: docs/release-notes/v0.1.1.md
           files: |
             src-tauri/target/release/bundle/nsis/*.exe
 `;

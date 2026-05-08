@@ -28,7 +28,7 @@ The Release workflow generates `SHA256SUMS.txt` after packaging:
 Maintainers and users can verify a downloaded installer with:
 
 ```powershell
-Get-FileHash .\GPT-Image-2-Studio_0.1.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\GPT-Image-2-Studio_0.1.1_x64-setup.exe -Algorithm SHA256
 Get-Content .\SHA256SUMS.txt
 ```
 
@@ -61,9 +61,9 @@ cargo test --manifest-path src-tauri/Cargo.toml
 5. Create and push the tag.
 
 ```powershell
-git tag v0.1.0
+git tag v0.1.1
 git push origin main
-git push origin v0.1.0
+git push origin v0.1.1
 ```
 
 6. Open GitHub Actions and wait for the `Release` workflow to finish.

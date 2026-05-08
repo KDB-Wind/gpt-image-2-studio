@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag to create or update, such as v0.1.0"
+        description: "Release tag to create or update, such as v0.1.1"
         required: true
-        default: "v0.1.0"
+        default: "v0.1.1"
 
 permissions:
   contents: write
@@ -97,7 +97,7 @@ jobs:
         with:
           tag_name: ${{ steps.release_tag.outputs.tag }}
           name: GPT-Image-2 Studio ${{ steps.release_tag.outputs.tag }}
-          body_path: docs/release-notes/v0.1.0.md
+          body_path: docs/release-notes/v0.1.1.md
           draft: true
           prerelease: false
           generate_release_notes: true

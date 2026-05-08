@@ -1,4 +1,4 @@
-# v0.1.0 人工验收清单
+# v0.1.1 人工验收清单
 
 本文档用于首个公开 Release 前的人工验收。自动检查不能替代安装包实测。
 
@@ -18,7 +18,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 ## GitHub Actions 检查
 
-1. 推送 `v0.1.0` tag，或手动触发 `Release` workflow。
+1. 推送 `v0.1.1` tag，或手动触发 `Release` workflow。
 2. 等待 `Release` workflow 完成。
 3. 确认 workflow 上传了 Windows installer artifact。
 4. 确认 artifact 中包含 `setup.exe` 和 `SHA256SUMS.txt`。
@@ -53,7 +53,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 - README 顶部 badges 显示正常。
 - README 链接到中文、英文、FAQ、Release、贡献和安全文档。
-- Release 文案使用 `docs/release-notes/v0.1.0.md`。
+- Release 文案使用 `docs/release-notes/v0.1.1.md`。
 - Release 页面明确普通用户优先下载 `setup.exe`。
 - Release 页面附带 `SHA256SUMS.txt`。
 - 如果发现安装失败、启动失败、图片生成关键链路失败或校验和不匹配，不发布正式 Release。

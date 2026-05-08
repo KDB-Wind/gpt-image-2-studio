@@ -13,7 +13,7 @@
 
 ## P0 剩余人工动作
 
-- 推送 `v0.1.0` tag 后，等待 GitHub Actions 生成草稿 Release。
+- 推送 `v0.1.1` tag 后，等待 GitHub Actions 生成草稿 Release。
 - 从草稿 Release 下载 `setup.exe` 和 `SHA256SUMS.txt`，按 [release-checklist.md](./release-checklist.md) 做一次干净 Windows 环境验收。
 - 验收通过后，在 GitHub Releases 页面手动发布正式 Release。
 

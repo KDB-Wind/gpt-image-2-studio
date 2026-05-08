@@ -1,6 +1,6 @@
 [package]
 name = "gpt-image-2-studio"
-version = "0.1.0"
+version = "0.1.1"
 description = "GPT-Image-2 Studio desktop shell"
 authors = ["KDB-Wind"]
 edition = "2021"

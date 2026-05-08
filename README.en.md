@@ -141,7 +141,7 @@ Local pre-release check:
 npm run release:check
 ```
 
-See [docs/release.en.md](./docs/release.en.md) for the full process, [docs/release-notes/v0.1.0.md](./docs/release-notes/v0.1.0.md) for the first release text, and [docs/release-checklist.md](./docs/release-checklist.md) for the manual QA checklist.
+See [docs/release.en.md](./docs/release.en.md) for the full process, [docs/release-notes/v0.1.1.md](./docs/release-notes/v0.1.1.md) for the current release text, and [docs/release-checklist.md](./docs/release-checklist.md) for the manual QA checklist.
 
 ## Contributing And Feedback
 

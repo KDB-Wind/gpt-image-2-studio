@@ -141,7 +141,7 @@ npm run desktop:build
 npm run release:check
 ```
 
-完整说明见 [docs/release.md](./docs/release.md)，首版 Release 文案见 [docs/release-notes/v0.1.0.md](./docs/release-notes/v0.1.0.md)，人工验收清单见 [docs/release-checklist.md](./docs/release-checklist.md)。
+完整说明见 [docs/release.md](./docs/release.md)，当前 Release 文案见 [docs/release-notes/v0.1.1.md](./docs/release-notes/v0.1.1.md)，人工验收清单见 [docs/release-checklist.md](./docs/release-checklist.md)。
 
 ## 贡献与反馈
 

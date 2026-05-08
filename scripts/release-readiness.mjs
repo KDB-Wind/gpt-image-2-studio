@@ -97,7 +97,7 @@ export function checkReleaseWorkflow(workflowText) {
     [/actions\/upload-artifact@v4[\s\S]*path:\s*\|[\s\S]*SHA256SUMS\.txt/, "Release workflow must upload SHA256SUMS.txt as a workflow artifact."],
     [/actions\/upload-artifact@v4[\s\S]*retention-days:\s*\d+/, "Release workflow must set artifact retention-days for installer artifacts."],
     [/softprops\/action-gh-release@v2/, "Release workflow must create or update a GitHub Release."],
-    [/body_path:\s*docs\/release-notes\/v0\.1\.0\.md/, "Release workflow must use the v0.1.0 release notes body."],
+    [/body_path:\s*docs\/release-notes\/v0\.1\.1\.md/, "Release workflow must use the v0.1.1 release notes body."],
     [/softprops\/action-gh-release@v2[\s\S]*files:\s*\|[\s\S]*SHA256SUMS\.txt/, "Release workflow must attach SHA256SUMS.txt to the draft GitHub Release."],
   ];
 
@@ -131,7 +131,7 @@ function checkPublicProjectDocs(rootDir) {
     join("docs", "release.md"),
     join("docs", "release.en.md"),
     join("docs", "release-checklist.md"),
-    join("docs", "release-notes", "v0.1.0.md"),
+    join("docs", "release-notes", "v0.1.1.md"),
     join("docs", "assets", "app-preview.svg"),
     join(".github", "ISSUE_TEMPLATE", "bug_report.yml"),
     join(".github", "ISSUE_TEMPLATE", "feature_request.yml"),
