@@ -1602,6 +1602,18 @@ export default function App() {
                       <dt>{copy.app.statusLabel}</dt>
                       <dd>{formatMode(runtime?.mode ?? null, language)}</dd>
                     </div>
+                    <div>
+                      <dt>{copy.batch.fields.concurrency}</dt>
+                      <dd>{config.batchDefaultConcurrency}</dd>
+                    </div>
+                    <div>
+                      <dt>{copy.batch.fields.intervalSeconds}</dt>
+                      <dd>{config.batchDefaultIntervalSeconds}</dd>
+                    </div>
+                    <div>
+                      <dt>{copy.batch.fields.maxRetries}</dt>
+                      <dd>{config.batchDefaultMaxRetries}</dd>
+                    </div>
                   </dl>
 
                   <div className="action-row">

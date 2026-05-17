@@ -398,6 +398,40 @@ export function BatchPanel({
         </label>
       </div>
 
+      <p className="panel-note">{copy.batch.defaultsNote}</p>
+
+      {source === "ai-split" ? (
+        <div className="form-stack">
+          <label className="field">
+            <span>{copy.batch.fields.splitTemplate}</span>
+            <select
+              value={config.batchLastSplitTemplateId}
+              disabled={isRunning}
+              onChange={(event) =>
+                onConfigChange("batchLastSplitTemplateId", event.target.value as AppConfig["batchLastSplitTemplateId"])
+              }
+            >
+              <option value="basic">{copy.batch.templates.basicSplit}</option>
+              <option value="style-consistent">{copy.batch.templates.styleConsistentSplit}</option>
+              <option value="series">{copy.batch.templates.seriesSplit}</option>
+              <option value="custom">{copy.batch.templates.customSplit}</option>
+            </select>
+          </label>
+
+          {config.batchLastSplitTemplateId === "custom" ? (
+            <label className="field">
+              <span>{copy.batch.fields.customSystemPrompt}</span>
+              <textarea
+                rows={5}
+                value={config.batchCustomSplitSystemPrompt}
+                disabled={isRunning}
+                onChange={(event) => onConfigChange("batchCustomSplitSystemPrompt", event.target.value)}
+              />
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="action-row">
         <button type="button" className="secondary-button" onClick={handleCreateTasks} disabled={isRunning}>
           {copy.batch.actions.createTasks}

@@ -99,4 +99,15 @@ describe("getTranslations", () => {
     expect(en.batch.emptyTasks).toContain("Create tasks");
     expect(en.batch.messages.costRiskPaused).toContain("provider");
   });
+
+  it("contains batch defaults and split template copy", () => {
+    const zh = getTranslations("zh-CN");
+    const en = getTranslations("en-US");
+
+    expect(zh.batch.defaultsNote.length).toBeGreaterThan(0);
+    expect(zh.batch.templates.basicSplit.length).toBeGreaterThan(0);
+    expect(en.batch.defaultsNote).toContain("Save settings");
+    expect(en.batch.templates.basicSplit).toBe("Basic split");
+    expect(en.batch.templates.customSplit).toBe("Custom systemPrompt");
+  });
 });
