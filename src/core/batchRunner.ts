@@ -63,6 +63,17 @@ export async function runBatchTasks(input: RunBatchTasksInput): Promise<RunBatch
         return;
       }
 
+      tasks[task.index] = {
+        ...task,
+        status: "running",
+        attemptCount: Math.max(1, task.attemptCount + 1),
+        errorMessage: "",
+        failureCategory: null,
+        startedAt: new Date().toISOString(),
+        completedAt: "",
+      };
+      notify(input, tasks);
+
       const updated = await runOneTask({ ...input, executionConfig }, task);
       tasks[task.index] = updated;
       notify(input, tasks);

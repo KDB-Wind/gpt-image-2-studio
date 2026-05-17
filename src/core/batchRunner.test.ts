@@ -97,6 +97,26 @@ describe("batchRunner", () => {
     expect(result.tasks[0].status).toBe("succeeded");
   });
 
+  it("notifies when a task starts running", async () => {
+    const updates: string[][] = [];
+    const tasks = createTasksFromMultilinePrompts("one");
+    await runBatchTasks({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG,
+      tasks,
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 0 },
+      referenceImages: [],
+      generateImages: async () => [{ base64: "ok" }],
+      saveBatchImage: async (input) => createSaveResult(input),
+      onTaskUpdate: (nextTasks) => updates.push(nextTasks.map((task) => task.status)),
+    });
+
+    expect(updates[0]).toEqual(["running"]);
+    expect(updates.at(-1)).toEqual(["succeeded"]);
+  });
+
   it("pauses the whole batch on cost-risk errors", async () => {
     const tasks = createTasksFromMultilinePrompts("one\ntwo");
     const result = await runBatchTasks({

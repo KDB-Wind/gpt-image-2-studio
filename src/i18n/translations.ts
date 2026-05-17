@@ -25,6 +25,7 @@ type TranslationBundle = {
   batch: {
     title: string;
     description: string;
+    emptyTasks: string;
     sources: {
       samePrompt: string;
       multiline: string;
@@ -316,6 +317,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
     batch: {
       title: "批量生图",
       description: "把一个主任务拆成多条提示词，或手动导入多行提示词，再按可控节奏逐张生成。",
+      emptyTasks: "先生成任务列表，再逐条微调提示词并开始批量生图。",
       sources: {
         samePrompt: "同一提示词生成多张",
         multiline: "多行提示词排队",
@@ -625,6 +627,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
     batch: {
       title: "Batch generation",
       description: "Split one master task into prompts, or import one prompt per line, then generate images at a controlled pace.",
+      emptyTasks: "Create tasks first, then review each prompt before starting the batch.",
       sources: {
         samePrompt: "Repeat one prompt",
         multiline: "Queue multiline prompts",

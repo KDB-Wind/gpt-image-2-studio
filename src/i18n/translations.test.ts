@@ -82,4 +82,21 @@ describe("getTranslations", () => {
     expect(en.batch.title).toBe("Batch generation");
     expect(en.batch.sources.aiSplit).toBe("AI split");
   });
+
+  it("contains batch execution actions and safety warnings", () => {
+    const zh = getTranslations("zh-CN");
+    const en = getTranslations("en-US");
+
+    expect(zh.batch.actions.start.length).toBeGreaterThan(0);
+    expect(zh.batch.actions.pause.length).toBeGreaterThan(0);
+    expect(zh.batch.actions.cancel.length).toBeGreaterThan(0);
+    expect(zh.batch.actions.retryTask.length).toBeGreaterThan(0);
+    expect(zh.batch.emptyTasks.length).toBeGreaterThan(0);
+    expect(zh.batch.messages.costRiskPaused.length).toBeGreaterThan(0);
+
+    expect(en.batch.actions.start).toBe("Start batch");
+    expect(en.batch.actions.retryTask).toBe("Retry this task");
+    expect(en.batch.emptyTasks).toContain("Create tasks");
+    expect(en.batch.messages.costRiskPaused).toContain("provider");
+  });
 });

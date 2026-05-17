@@ -597,6 +597,88 @@ img {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.batch-execution-row {
+  align-items: center;
+}
+
+.batch-task-list {
+  display: grid;
+  gap: 14px;
+}
+
+.batch-task-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.batch-task-card.running {
+  border-color: rgba(209, 143, 73, 0.4);
+  background: linear-gradient(135deg, rgba(255, 250, 237, 0.96), rgba(247, 242, 231, 0.92));
+}
+
+.batch-task-card.succeeded {
+  border-color: rgba(128, 168, 122, 0.36);
+}
+
+.batch-task-card.failed {
+  border-color: rgba(186, 82, 70, 0.34);
+}
+
+.batch-task-card.skipped {
+  opacity: 0.78;
+}
+
+.batch-task-index {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 15px;
+  background: var(--surface-strong);
+  color: var(--accent-strong);
+  font-weight: 800;
+}
+
+.batch-task-main {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.batch-task-meta {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+.batch-task-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.batch-task-actions {
+  align-items: center;
+}
+
+.batch-task-thumb {
+  width: 72px;
+  height: 72px;
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  object-fit: cover;
+  background: rgba(255, 250, 242, 0.9);
+}
+
 .section-heading {
   display: grid;
   gap: 6px;
@@ -683,6 +765,12 @@ img {
   border-color: rgba(186, 82, 70, 0.24);
   color: var(--danger);
   background: rgba(255, 242, 239, 0.92);
+}
+
+.message-card.warning {
+  border-color: rgba(181, 127, 45, 0.24);
+  color: #7b5a1e;
+  background: rgba(255, 249, 233, 0.92);
 }
 
 .validation-list.warning {
@@ -844,7 +932,8 @@ img {
   color: var(--text-muted);
 }
 
-.status-pill.success {
+.status-pill.success,
+.status-pill.succeeded {
   background: rgba(128, 168, 122, 0.14);
   color: #4c6a43;
 }
@@ -853,6 +942,17 @@ img {
 .status-pill.cancelled {
   background: rgba(186, 82, 70, 0.12);
   color: var(--danger);
+}
+
+.status-pill.running {
+  background: rgba(209, 143, 73, 0.14);
+  color: #8b6524;
+}
+
+.status-pill.pending,
+.status-pill.skipped {
+  background: rgba(122, 127, 118, 0.1);
+  color: var(--text-muted);
 }
 
 .history-prompt {
@@ -1090,6 +1190,15 @@ img {
 
   .batch-source-grid {
     grid-template-columns: 1fr;
+  }
+
+  .batch-task-card {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-task-index {
+    width: fit-content;
+    padding: 0 14px;
   }
 }
 
