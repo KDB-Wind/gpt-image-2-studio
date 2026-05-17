@@ -13,6 +13,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:static": "tsc && vite build --config vite.static.config.ts && node scripts/inline-static-html.mjs",
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",

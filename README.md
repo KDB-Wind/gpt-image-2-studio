@@ -1,5 +1,15 @@
 # Chat To Image
 
+## 静态 HTML 基础工具版
+
+如果你只想把基础工具版提供给 GitHub 用户快速使用，可以构建静态 HTML 版本：
+
+```powershell
+npm run build:static
+```
+
+构建完成后发布 `dist-static/index.html` 即可。用户下载后双击打开该文件，填写自己的 `API key` 和 `Base URL` 后使用，不需要运行 `npm run dev`，也不占用作者的后端资源。详细说明见 [docs/static-html-basic-tool.md](docs/static-html-basic-tool.md)。
+
 本项目当前保留两个方向：
 
 - 基础工具版：面向个人本机使用，配置和图片优先保存在当前用户本机，后续可作为轻量开源版本发布。
