@@ -70,4 +70,16 @@ describe("getTranslations", () => {
     const language: UiLanguage = "en-US";
     expect(getTranslations(language).tabs.settings).toBe("Settings");
   });
+
+  it("contains batch workspace copy in both languages", () => {
+    const zh = getTranslations("zh-CN");
+    const en = getTranslations("en-US");
+
+    expect(zh.tabs.batch).toBe("批量");
+    expect(zh.batch.title).toBe("批量生图");
+    expect(zh.batch.sources.samePrompt).toBe("同一提示词生成多张");
+    expect(en.tabs.batch).toBe("Batch");
+    expect(en.batch.title).toBe("Batch generation");
+    expect(en.batch.sources.aiSplit).toBe("AI split");
+  });
 });

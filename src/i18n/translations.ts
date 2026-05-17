@@ -18,8 +18,59 @@ type TranslationBundle = {
   };
   tabs: {
     generate: string;
+    batch: string;
     history: string;
     settings: string;
+  };
+  batch: {
+    title: string;
+    description: string;
+    sources: {
+      samePrompt: string;
+      multiline: string;
+      aiSplit: string;
+    };
+    fields: {
+      batchTitle: string;
+      taskCount: string;
+      multilinePrompts: string;
+      masterPrompt: string;
+      splitTemplate: string;
+      customSystemPrompt: string;
+      concurrency: string;
+      intervalSeconds: string;
+      maxRetries: string;
+    };
+    actions: {
+      createTasks: string;
+      splitWithAi: string;
+      start: string;
+      pause: string;
+      continue: string;
+      cancel: string;
+      retryTask: string;
+      retryFailed: string;
+      saveDefaults: string;
+    };
+    status: {
+      draft: string;
+      running: string;
+      paused: string;
+      cancelled: string;
+      completed: string;
+      pending: string;
+      succeeded: string;
+      failed: string;
+      skipped: string;
+    };
+    messages: {
+      promptRequired: string;
+      splitSuccess: (count: number) => string;
+      splitFailed: (detail: string) => string;
+      batchComplete: (success: number, failed: number, skipped: number) => string;
+      costRiskPaused: string;
+      authPaused: string;
+    };
   };
   modes: {
     textToImage: string;
@@ -258,8 +309,59 @@ const translations: Record<UiLanguage, TranslationBundle> = {
     },
     tabs: {
       generate: "生成",
+      batch: "批量",
       history: "历史",
       settings: "设置",
+    },
+    batch: {
+      title: "批量生图",
+      description: "把一个主任务拆成多条提示词，或手动导入多行提示词，再按可控节奏逐张生成。",
+      sources: {
+        samePrompt: "同一提示词生成多张",
+        multiline: "多行提示词排队",
+        aiSplit: "AI 拆分",
+      },
+      fields: {
+        batchTitle: "批次名称",
+        taskCount: "任务数量",
+        multilinePrompts: "多行提示词",
+        masterPrompt: "主任务",
+        splitTemplate: "拆分模板",
+        customSystemPrompt: "自定义 systemPrompt",
+        concurrency: "并发数",
+        intervalSeconds: "间隔秒数",
+        maxRetries: "失败重试次数",
+      },
+      actions: {
+        createTasks: "生成任务列表",
+        splitWithAi: "调用文字模型拆分",
+        start: "开始批量生成",
+        pause: "暂停",
+        continue: "继续",
+        cancel: "取消剩余任务",
+        retryTask: "重试该任务",
+        retryFailed: "重试失败项",
+        saveDefaults: "保存批量默认值",
+      },
+      status: {
+        draft: "草稿",
+        running: "运行中",
+        paused: "已暂停",
+        cancelled: "已取消",
+        completed: "已完成",
+        pending: "等待中",
+        succeeded: "成功",
+        failed: "失败",
+        skipped: "已跳过",
+      },
+      messages: {
+        promptRequired: "请先输入提示词或主任务。",
+        splitSuccess: (count) => `已拆分出 ${count} 条子提示词，可继续微调后再执行。`,
+        splitFailed: (detail) => `AI 拆分失败。${detail}`,
+        batchComplete: (success, failed, skipped) => `批量完成：成功 ${success}，失败 ${failed}，跳过 ${skipped}。`,
+        costRiskPaused: "供应商返回可能已产生费用但没有图片的异常，批次已暂停。确认后再继续。",
+        authPaused: "API key 或权限异常，批次已暂停。请先检查设置。",
+      },
     },
     modes: {
       textToImage: "文生图",
@@ -516,8 +618,59 @@ const translations: Record<UiLanguage, TranslationBundle> = {
     },
     tabs: {
       generate: "Generate",
+      batch: "Batch",
       history: "History",
       settings: "Settings",
+    },
+    batch: {
+      title: "Batch generation",
+      description: "Split one master task into prompts, or import one prompt per line, then generate images at a controlled pace.",
+      sources: {
+        samePrompt: "Repeat one prompt",
+        multiline: "Queue multiline prompts",
+        aiSplit: "AI split",
+      },
+      fields: {
+        batchTitle: "Batch title",
+        taskCount: "Task count",
+        multilinePrompts: "Multiline prompts",
+        masterPrompt: "Master task",
+        splitTemplate: "Split template",
+        customSystemPrompt: "Custom systemPrompt",
+        concurrency: "Concurrency",
+        intervalSeconds: "Interval seconds",
+        maxRetries: "Max retries",
+      },
+      actions: {
+        createTasks: "Create tasks",
+        splitWithAi: "Split with text model",
+        start: "Start batch",
+        pause: "Pause",
+        continue: "Continue",
+        cancel: "Cancel remaining",
+        retryTask: "Retry this task",
+        retryFailed: "Retry failed tasks",
+        saveDefaults: "Save batch defaults",
+      },
+      status: {
+        draft: "Draft",
+        running: "Running",
+        paused: "Paused",
+        cancelled: "Cancelled",
+        completed: "Completed",
+        pending: "Pending",
+        succeeded: "Succeeded",
+        failed: "Failed",
+        skipped: "Skipped",
+      },
+      messages: {
+        promptRequired: "Enter a prompt or master task first.",
+        splitSuccess: (count) => `${count} child prompts were created. You can edit them before running.`,
+        splitFailed: (detail) => `AI split failed. ${detail}`,
+        batchComplete: (success, failed, skipped) => `Batch complete: ${success} succeeded, ${failed} failed, ${skipped} skipped.`,
+        costRiskPaused: "The provider returned an error that may still have incurred cost but no image. The batch is paused until you confirm.",
+        authPaused: "API key or permission failed. The batch is paused. Check Settings first.",
+      },
     },
     modes: {
       textToImage: "Text to image",

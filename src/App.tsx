@@ -2,6 +2,7 @@
 
 import packageJson from "../package.json";
 import paymentQrCode from "./assets/payment-wechat-qr.png";
+import { BatchPanel } from "./components/BatchPanel";
 import {
   generateImages,
   optimizePrompt,
@@ -31,7 +32,7 @@ const APP_VERSION = packageJson.version;
 const RECOMMENDED_RELAY_URL = "https://ruoli.dev/register?aff=mR35";
 const DEFAULT_CUSTOM_SIZE = { width: "1024", height: "1024" };
 
-type AppTab = "generate" | "history" | "settings";
+type AppTab = "generate" | "batch" | "history" | "settings";
 type GenerationMode = "text-to-image" | "image-to-image";
 
 type SettingsMessage = {
@@ -1005,6 +1006,7 @@ export default function App() {
         <div className="tab-strip" role="tablist" aria-label="Workspace tabs">
           {([
             ["generate", copy.tabs.generate],
+            ["batch", copy.tabs.batch],
             ["history", copy.tabs.history],
             ["settings", copy.tabs.settings],
           ] as const).map(([tab, label]) => (
@@ -1027,11 +1029,13 @@ export default function App() {
               <div>
                 <h2>
                   {activeTab === "generate" && copy.panel.generateTitle}
+                  {activeTab === "batch" && copy.batch.title}
                   {activeTab === "history" && copy.panel.historyToolsTitle}
                   {activeTab === "settings" && copy.panel.settingsTitle}
                 </h2>
                 <p>
                   {activeTab === "generate" && copy.panel.generateDescription}
+                  {activeTab === "batch" && copy.batch.description}
                   {activeTab === "history" && copy.panel.historyToolsDescription}
                   {activeTab === "settings" && copy.panel.settingsDescription}
                 </p>
@@ -1254,6 +1258,23 @@ export default function App() {
                   ) : null}
                 </div>
               </div>
+            ) : null}
+
+            {activeTab === "batch" ? (
+              <BatchPanel
+                config={config}
+                runtime={runtime}
+                language={language}
+                referenceImages={referenceImages.map((item) => item.file)}
+                onConfigChange={updateConfig}
+                onHistoryChanged={async () => {
+                  if (runtime) {
+                    await reloadHistory(runtime);
+                  }
+                }}
+                requireValidConfig={requireValidConfig}
+                setAppMessage={setAppMessage}
+              />
             ) : null}
 
             {activeTab === "history" ? (
