@@ -51,6 +51,34 @@ fn default_config_uses_chinese_ui_and_shows_welcome_once() {
 }
 
 #[test]
+fn default_config_includes_batch_defaults() {
+    let defaults = crate::storage::default_config();
+
+    assert_eq!(defaults.batch_default_concurrency, 1);
+    assert_eq!(defaults.batch_default_interval_seconds, 20);
+    assert_eq!(defaults.batch_default_max_retries, 1);
+    assert_eq!(defaults.batch_custom_split_system_prompt, "");
+    assert_eq!(defaults.batch_last_split_template_id, "basic");
+}
+
+#[test]
+fn merges_and_clamps_batch_config() {
+    let merged = crate::storage::merge_config_value(serde_json::json!({
+        "batchDefaultConcurrency": 9,
+        "batchDefaultIntervalSeconds": 999,
+        "batchDefaultMaxRetries": 8,
+        "batchCustomSplitSystemPrompt": "Split consistently.",
+        "batchLastSplitTemplateId": "series"
+    }));
+
+    assert_eq!(merged.batch_default_concurrency, 3);
+    assert_eq!(merged.batch_default_interval_seconds, 300);
+    assert_eq!(merged.batch_default_max_retries, 3);
+    assert_eq!(merged.batch_custom_split_system_prompt, "Split consistently.");
+    assert_eq!(merged.batch_last_split_template_id, "series");
+}
+
+#[test]
 fn invalid_history_json_falls_back_to_empty_list() {
     let history = crate::storage::parse_history_json("not-json");
     assert!(history.is_empty());

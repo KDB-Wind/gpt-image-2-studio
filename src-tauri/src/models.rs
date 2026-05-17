@@ -16,6 +16,11 @@ pub struct AppConfig {
     pub default_compression: u8,
     pub ui_language: String,
     pub has_dismissed_welcome: bool,
+    pub batch_default_concurrency: u8,
+    pub batch_default_interval_seconds: u64,
+    pub batch_default_max_retries: u8,
+    pub batch_custom_split_system_prompt: String,
+    pub batch_last_split_template_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

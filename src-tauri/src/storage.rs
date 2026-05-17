@@ -42,6 +42,11 @@ pub fn default_config() -> AppConfig {
         default_compression: 90,
         ui_language: "zh-CN".to_string(),
         has_dismissed_welcome: false,
+        batch_default_concurrency: 1,
+        batch_default_interval_seconds: 20,
+        batch_default_max_retries: 1,
+        batch_custom_split_system_prompt: String::new(),
+        batch_last_split_template_id: "basic".to_string(),
     }
 }
 
@@ -144,6 +149,36 @@ pub fn merge_config_value(value: serde_json::Value) -> AppConfig {
         .and_then(|item| item.as_bool())
     {
         config.has_dismissed_welcome = has_dismissed_welcome;
+    }
+    if let Some(batch_default_concurrency) = value
+        .get("batchDefaultConcurrency")
+        .and_then(|item| item.as_u64())
+        .map(|item| item.clamp(1, 3) as u8)
+    {
+        config.batch_default_concurrency = batch_default_concurrency;
+    }
+    if let Some(batch_default_interval_seconds) = value
+        .get("batchDefaultIntervalSeconds")
+        .and_then(|item| item.as_u64())
+        .map(|item| item.min(300))
+    {
+        config.batch_default_interval_seconds = batch_default_interval_seconds;
+    }
+    if let Some(batch_default_max_retries) = value
+        .get("batchDefaultMaxRetries")
+        .and_then(|item| item.as_u64())
+        .map(|item| item.min(3) as u8)
+    {
+        config.batch_default_max_retries = batch_default_max_retries;
+    }
+    if let Some(batch_custom_split_system_prompt) = get_string_field(&value, "batchCustomSplitSystemPrompt") {
+        config.batch_custom_split_system_prompt = batch_custom_split_system_prompt;
+    }
+    if let Some(batch_last_split_template_id) = get_string_field(&value, "batchLastSplitTemplateId") {
+        config.batch_last_split_template_id = match batch_last_split_template_id.as_str() {
+            "basic" | "style-consistent" | "series" | "custom" => batch_last_split_template_id,
+            _ => "basic".to_string(),
+        };
     }
 
     config

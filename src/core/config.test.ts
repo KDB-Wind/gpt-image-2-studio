@@ -145,4 +145,28 @@ describe("mergeConfig", () => {
       DEFAULT_CONFIG.defaultCompression,
     );
   });
+
+  it("includes local batch generation defaults", () => {
+    expect(DEFAULT_CONFIG.batchDefaultConcurrency).toBe(1);
+    expect(DEFAULT_CONFIG.batchDefaultIntervalSeconds).toBe(20);
+    expect(DEFAULT_CONFIG.batchDefaultMaxRetries).toBe(1);
+    expect(DEFAULT_CONFIG.batchLastSplitTemplateId).toBe("basic");
+    expect(DEFAULT_CONFIG.batchCustomSplitSystemPrompt).toBe("");
+  });
+
+  it("normalizes invalid batch settings while merging config", () => {
+    const merged = mergeConfig({
+      batchDefaultConcurrency: 10,
+      batchDefaultIntervalSeconds: -1,
+      batchDefaultMaxRetries: 6,
+      batchLastSplitTemplateId: 123 as never,
+      batchCustomSplitSystemPrompt: 100 as never,
+    });
+
+    expect(merged.batchDefaultConcurrency).toBe(3);
+    expect(merged.batchDefaultIntervalSeconds).toBe(0);
+    expect(merged.batchDefaultMaxRetries).toBe(3);
+    expect(merged.batchLastSplitTemplateId).toBe("basic");
+    expect(merged.batchCustomSplitSystemPrompt).toBe("");
+  });
 });
