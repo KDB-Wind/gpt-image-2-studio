@@ -84,7 +84,28 @@ export function BatchPanel({
     pauseRef.current = false;
   }
 
+  function handleClearBatch() {
+    if (isRunning) {
+      return;
+    }
+
+    resetBatchIdentity();
+    setSource("same-prompt");
+    setStatus("draft");
+    setBatchTitle("");
+    setMasterPrompt("");
+    setMultilinePrompts("");
+    setTaskCount(10);
+    setTasks([]);
+    setIsSplitting(false);
+  }
+
   function handleCreateTasks() {
+    if (source === "ai-split") {
+      void handleSplitWithAi();
+      return;
+    }
+
     if (source === "multi-line" && !multilinePrompts.trim()) {
       setAppMessage(copy.batch.messages.promptRequired);
       return;
@@ -433,12 +454,23 @@ export function BatchPanel({
       ) : null}
 
       <div className="action-row">
-        <button type="button" className="secondary-button" onClick={handleCreateTasks} disabled={isRunning}>
-          {copy.batch.actions.createTasks}
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={source === "ai-split" ? () => void handleSplitWithAi() : handleCreateTasks}
+          disabled={isRunning || (source === "ai-split" && isSplitting)}
+        >
+          {source === "ai-split"
+            ? isSplitting
+              ? copy.actions.optimizeBusy
+              : copy.batch.actions.splitWithAi
+            : copy.batch.actions.createTasks}
         </button>
-        <button type="button" className="secondary-button" onClick={handleSplitWithAi} disabled={isSplitting || isRunning}>
-          {isSplitting ? copy.actions.optimizeBusy : copy.batch.actions.splitWithAi}
-        </button>
+        {source === "ai-split" ? null : (
+          <button type="button" className="secondary-button" onClick={handleSplitWithAi} disabled={isSplitting || isRunning}>
+            {isSplitting ? copy.actions.optimizeBusy : copy.batch.actions.splitWithAi}
+          </button>
+        )}
       </div>
 
       <div className="info-card batch-summary-card">
@@ -490,6 +522,9 @@ export function BatchPanel({
         </button>
         <button type="button" className="secondary-button" onClick={handleCancelBatch} disabled={!isRunning}>
           {copy.batch.actions.cancel}
+        </button>
+        <button type="button" className="secondary-button" onClick={handleClearBatch} disabled={isRunning}>
+          {copy.batch.actions.clearDraft}
         </button>
       </div>
 

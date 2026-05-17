@@ -53,6 +53,7 @@ type TranslationBundle = {
       retryTask: string;
       retryFailed: string;
       saveDefaults: string;
+      clearDraft: string;
     };
     status: {
       draft: string;
@@ -352,6 +353,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
         retryTask: "重试该任务",
         retryFailed: "重试失败项",
         saveDefaults: "保存批量默认值",
+        clearDraft: "清空当前批量",
       },
       status: {
         draft: "草稿",
@@ -669,6 +671,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
         retryTask: "Retry this task",
         retryFailed: "Retry failed tasks",
         saveDefaults: "Save batch defaults",
+        clearDraft: "Clear current batch",
       },
       status: {
         draft: "Draft",

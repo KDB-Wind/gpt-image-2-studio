@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "dev.local.chat-to-image",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run dev -- --strictPort",
     "devUrl": "http://localhost:5173",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"

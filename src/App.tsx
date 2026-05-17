@@ -1260,7 +1260,7 @@ export default function App() {
               </div>
             ) : null}
 
-            {activeTab === "batch" ? (
+            <div hidden={activeTab !== "batch"}>
               <BatchPanel
                 config={config}
                 runtime={runtime}
@@ -1275,7 +1275,7 @@ export default function App() {
                 requireValidConfig={requireValidConfig}
                 setAppMessage={setAppMessage}
               />
-            ) : null}
+            </div>
 
             {activeTab === "history" ? (
               <div className="panel-body form-stack">
