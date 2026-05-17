@@ -1,4 +1,6 @@
 import { DEFAULT_CONFIG, mergeConfig, type AppConfig } from "../core/config";
+import { buildBatchDirectoryName, buildBatchImageFileName } from "../core/batchManifest";
+import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest } from "../core/batchTypes";
 import { buildImageFileName, buildOutputPath, formatDateFolder } from "../core/fileNames";
 import { sortHistoryNewestFirst, type ImageRecord } from "../core/history";
 import type { RuntimeAdapter, SaveImageInput, SaveImageResult } from "./types";
@@ -52,6 +54,18 @@ async function imageToBlob(input: SaveImageInput): Promise<Blob> {
   throw new Error("Image payload did not include base64 data or a URL.");
 }
 
+async function batchImageToBlob(input: BatchImageSaveInput): Promise<Blob> {
+  return imageToBlob({
+    image: input.image,
+    prompt: input.task.prompt,
+    optimizedPrompt: "",
+    customName: "",
+    config: input.config,
+    generatedAt: input.generatedAt,
+    durationMs: input.durationMs,
+  });
+}
+
 function buildRecord(input: SaveImageInput, outputPath: string): ImageRecord {
   return {
     id: crypto.randomUUID(),
@@ -72,8 +86,8 @@ async function saveWithFileSystemAccess(
   fileName: string,
   blob: Blob,
 ): Promise<string> {
-  const dateDirectory = await rootHandle.getDirectoryHandle(dateFolder, { create: true });
-  const fileHandle = await dateDirectory.getFileHandle(fileName, { create: true });
+  const targetDirectory = dateFolder ? await rootHandle.getDirectoryHandle(dateFolder, { create: true }) : rootHandle;
+  const fileHandle = await targetDirectory.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();
   await writable.write(blob);
   await writable.close();
@@ -138,6 +152,51 @@ export const webAdapter: RuntimeAdapter = {
     writeStoredValue(HISTORY_KEY, sortHistoryNewestFirst([record, ...history]));
 
     return { record, previewUrl };
+  },
+
+  async saveBatchImage(input: BatchImageSaveInput): Promise<BatchImageSaveResult> {
+    const history = await this.loadHistory();
+    const batchFolder = buildBatchDirectoryName(input.batchCreatedAt, input.batchTitle);
+    const existingFileNames = history
+      .filter((record) => record.outputPath.includes(`/${batchFolder}/`) || record.outputPath.includes(`\\${batchFolder}\\`))
+      .map((record) => record.outputPath.split(/[\\/]/).pop() ?? "");
+    const fileName = buildBatchImageFileName(input.task, input.config.defaultFormat, existingFileNames);
+    const outputRoot = input.config.outputDirectory.replace(/\\/g, "/").replace(/\/+$/g, "") || "outputs";
+    const outputPath = `${outputRoot}/${batchFolder}/${fileName}`;
+    const blob = await batchImageToBlob(input);
+    const previewUrl = directoryHandle
+      ? await saveWithFileSystemAccess(await directoryHandle.getDirectoryHandle(batchFolder, { create: true }), "", fileName, blob)
+      : downloadBlob(blob, fileName);
+    const record: ImageRecord = {
+      id: crypto.randomUUID(),
+      status: "success",
+      createdAt: input.generatedAt.toISOString(),
+      prompt: input.task.prompt,
+      optimizedPrompt: "",
+      model: input.config.imageModel,
+      size: input.config.defaultSize,
+      outputPath,
+      durationMs: input.durationMs,
+    };
+
+    writeStoredValue(HISTORY_KEY, sortHistoryNewestFirst([record, ...history]));
+
+    return { record, previewUrl, outputPath };
+  },
+
+  async saveBatchManifest(manifest: BatchManifest): Promise<string> {
+    const batchFolder = buildBatchDirectoryName(manifest.createdAt, manifest.title);
+    const fileName = "manifest.json";
+    const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" });
+
+    if (directoryHandle) {
+      const batchHandle = await directoryHandle.getDirectoryHandle(batchFolder, { create: true });
+      await saveWithFileSystemAccess(batchHandle, "", fileName, blob);
+    } else {
+      downloadBlob(blob, fileName);
+    }
+
+    return `${batchFolder}/${fileName}`;
   },
 
   async openOutputPath(_path: string) {

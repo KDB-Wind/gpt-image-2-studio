@@ -14,6 +14,8 @@ pub fn run() {
             storage::save_config,
             storage::load_history,
             storage::save_generated_image,
+            storage::save_batch_image,
+            storage::save_batch_manifest,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

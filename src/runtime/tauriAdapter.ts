@@ -2,6 +2,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 
+import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest } from "../core/batchTypes";
 import type { AppConfig } from "../core/config";
 import type { ImageRecord } from "../core/history";
 import type { RuntimeAdapter, SaveImageInput, SaveImageResult } from "./types";
@@ -50,12 +51,42 @@ async function imageToBase64(input: SaveImageInput): Promise<string> {
   throw new Error("Image payload did not include base64 data or a URL.");
 }
 
+async function batchImageToBase64(input: BatchImageSaveInput): Promise<string> {
+  return imageToBase64({
+    image: input.image,
+    prompt: input.task.prompt,
+    optimizedPrompt: "",
+    customName: "",
+    config: input.config,
+    generatedAt: input.generatedAt,
+    durationMs: input.durationMs,
+  });
+}
+
 async function createPayload(input: SaveImageInput): Promise<SaveGeneratedImagePayload> {
   return {
     imageBase64: await imageToBase64(input),
     prompt: input.prompt,
     optimizedPrompt: input.optimizedPrompt,
     customName: input.customName,
+    config: input.config,
+    generatedAt: input.generatedAt.toISOString(),
+    durationMs: input.durationMs,
+  };
+}
+
+async function createBatchImagePayload(input: BatchImageSaveInput) {
+  return {
+    batchId: input.batchId,
+    batchTitle: input.batchTitle,
+    batchCreatedAt: input.batchCreatedAt,
+    task: {
+      id: input.task.id,
+      index: input.task.index,
+      title: input.task.title,
+      prompt: input.task.prompt,
+    },
+    imageBase64: await batchImageToBase64(input),
     config: input.config,
     generatedAt: input.generatedAt.toISOString(),
     durationMs: input.durationMs,
@@ -86,6 +117,22 @@ export const tauriAdapter: RuntimeAdapter = {
       ...result,
       previewUrl: convertFileSrc(result.record.outputPath),
     };
+  },
+
+  async saveBatchImage(input: BatchImageSaveInput): Promise<BatchImageSaveResult> {
+    const result = await invoke<BatchImageSaveResult>("save_batch_image", {
+      input: await createBatchImagePayload(input),
+    });
+
+    return {
+      ...result,
+      previewUrl: convertFileSrc(result.record.outputPath),
+      outputPath: result.record.outputPath,
+    };
+  },
+
+  async saveBatchManifest(manifest: BatchManifest): Promise<string> {
+    return invoke<string>("save_batch_manifest", { manifest });
   },
 
   async chooseOutputDirectory() {

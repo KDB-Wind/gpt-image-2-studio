@@ -13,7 +13,7 @@ use directories::ProjectDirs;
 use keyring::Entry;
 use serde::Serialize;
 
-use crate::models::{AppConfig, ImageRecord, SaveGeneratedImageInput, SaveImageResult};
+use crate::models::{AppConfig, ImageRecord, SaveBatchImageInput, SaveGeneratedImageInput, SaveImageResult};
 
 const KEYRING_SERVICE: &str = "chat-to-image";
 const KEYRING_ACCOUNT: &str = "default";
@@ -427,6 +427,45 @@ fn image_output_directory(input: &SaveGeneratedImageInput) -> Result<PathBuf, St
     Ok(output_root.join(format_date_folder(generated_at)))
 }
 
+pub fn batch_directory_name(created_at: &str, title: &str) -> Result<String, String> {
+    let date_time = parse_generated_at(created_at)?;
+    Ok(format!(
+        "{}-{}-batch-{}",
+        format_date_folder(date_time),
+        date_time.format("%H%M%S"),
+        sanitize_file_base_name(title)
+    ))
+}
+
+fn batch_output_directory(input: &SaveBatchImageInput) -> Result<PathBuf, String> {
+    let output_root = resolve_output_root(&input.config.output_directory, &output_base_dir()?);
+    Ok(output_root.join(batch_directory_name(&input.batch_created_at, &input.batch_title)?))
+}
+
+fn build_batch_file_name(input: &SaveBatchImageInput, directory: &Path) -> Result<String, String> {
+    let extension = normalize_extension(&input.config.default_format);
+    let base_title = if input.task.title.trim().is_empty() {
+        &input.task.prompt
+    } else {
+        &input.task.title
+    };
+    let base_name = format!("{:03}-{}", input.task.index + 1, sanitize_file_base_name(base_title));
+    let existing = existing_file_names(directory)?;
+    let initial = format!("{base_name}.{extension}");
+    if !existing.contains(&initial.to_lowercase()) {
+        return Ok(initial);
+    }
+
+    let mut index = 2;
+    loop {
+        let candidate = format!("{base_name}-{index}.{extension}");
+        if !existing.contains(&candidate.to_lowercase()) {
+            return Ok(candidate);
+        }
+        index += 1;
+    }
+}
+
 fn create_record(input: SaveGeneratedImageInput, output_path: &Path) -> ImageRecord {
     ImageRecord {
         id: unique_id(),
@@ -537,4 +576,63 @@ pub fn save_generated_image(input: SaveGeneratedImageInput) -> Result<SaveImageR
         preview_url: output_path.to_string_lossy().to_string(),
         record,
     })
+}
+
+#[tauri::command]
+pub fn save_batch_image(input: SaveBatchImageInput) -> Result<SaveImageResult, String> {
+    let _save_guard = SAVE_IMAGE_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|_| "Save image lock was poisoned.".to_string())?;
+    let directory = batch_output_directory(&input)?;
+    fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+
+    let file_name = build_batch_file_name(&input, &directory)?;
+    let output_path = directory.join(file_name);
+    let bytes = STANDARD
+        .decode(input.image_base64.as_bytes())
+        .map_err(|error| error.to_string())?;
+    fs::write(&output_path, bytes).map_err(|error| error.to_string())?;
+
+    let record = ImageRecord {
+        id: unique_id(),
+        status: "success".to_string(),
+        created_at: input.generated_at,
+        prompt: input.task.prompt,
+        optimized_prompt: String::new(),
+        model: input.config.image_model,
+        size: input.config.default_size,
+        output_path: output_path.to_string_lossy().to_string(),
+        duration_ms: input.duration_ms,
+        error_message: None,
+    };
+    let history_file = history_path()?;
+    let mut history = load_history_for_save(&history_file)?;
+    history.push(record.clone());
+    sort_history(&mut history);
+    write_json(&history_file, &history)?;
+
+    Ok(SaveImageResult {
+        preview_url: output_path.to_string_lossy().to_string(),
+        record,
+    })
+}
+
+#[tauri::command]
+pub fn save_batch_manifest(manifest: serde_json::Value) -> Result<String, String> {
+    let created_at = manifest
+        .get("createdAt")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "manifest.createdAt is required".to_string())?;
+    let title = manifest
+        .get("title")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "manifest.title is required".to_string())?;
+    let config = load_config()?;
+    let output_root = resolve_output_root(&config.output_directory, &output_base_dir()?);
+    let directory = output_root.join(batch_directory_name(created_at, title)?);
+    fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    let output_path = directory.join("manifest.json");
+    write_json(&output_path, &manifest)?;
+    Ok(output_path.to_string_lossy().to_string())
 }

@@ -52,6 +52,28 @@ pub struct SaveGeneratedImageInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SaveBatchImageTaskInput {
+    pub id: String,
+    pub index: usize,
+    pub title: String,
+    pub prompt: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveBatchImageInput {
+    pub batch_id: String,
+    pub batch_title: String,
+    pub batch_created_at: String,
+    pub task: SaveBatchImageTaskInput,
+    pub image_base64: String,
+    pub config: AppConfig,
+    pub generated_at: String,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SaveImageResult {
     pub record: ImageRecord,
     pub preview_url: String,

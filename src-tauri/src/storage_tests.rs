@@ -62,6 +62,17 @@ fn default_config_includes_batch_defaults() {
 }
 
 #[test]
+fn batch_directory_names_include_timestamp_and_title() {
+    let name = crate::storage::batch_directory_name(
+        "2026-05-17T12:30:12+08:00",
+        "World Cup Posters",
+    )
+    .unwrap();
+
+    assert!(name.contains("2026-05-17-123012-batch-world-cup-posters"));
+}
+
+#[test]
 fn merges_and_clamps_batch_config() {
     let merged = crate::storage::merge_config_value(serde_json::json!({
         "batchDefaultConcurrency": 9,
