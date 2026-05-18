@@ -2,6 +2,7 @@
 .worktrees/
 node_modules/
 dist/
+dist-static/
 dist-ssr/
 src-tauri/target/
 src-tauri/gen/

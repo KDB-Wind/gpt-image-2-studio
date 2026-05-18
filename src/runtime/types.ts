@@ -1,4 +1,5 @@
 import type { ParsedImage } from "../core/apiClient";
+import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest } from "../core/batchTypes";
 import type { AppConfig } from "../core/config";
 import type { ImageRecord } from "../core/history";
 
@@ -22,9 +23,9 @@ export type RuntimeAdapter = {
   loadConfig(): Promise<AppConfig>;
   saveConfig(config: AppConfig): Promise<void>;
   loadHistory(): Promise<ImageRecord[]>;
-  deleteHistoryRecords(ids: string[]): Promise<ImageRecord[]>;
   saveImage(input: SaveImageInput): Promise<SaveImageResult>;
+  saveBatchImage(input: BatchImageSaveInput): Promise<BatchImageSaveResult>;
+  saveBatchManifest(manifest: BatchManifest): Promise<string>;
   chooseOutputDirectory(): Promise<string | null>;
   openOutputPath(path: string): Promise<void>;
-  openOutputDirectory(config: AppConfig): Promise<void>;
 };

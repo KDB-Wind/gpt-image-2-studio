@@ -1,13 +1,17 @@
 export type UiLanguage = "zh-CN" | "en-US";
 
 import {
+  DEFAULT_BATCH_EXECUTION_CONFIG,
+  clampBatchExecutionConfig,
+  type BatchSplitTemplateId,
+} from "./batchTypes";
+import {
   isImageOutputFormat,
   isImageQuality,
   validateImageSize,
   type ImageOutputFormat,
   type ImageQuality,
 } from "./imageOptions";
-import type { PromptTemplate } from "./promptTemplates";
 
 export type AppConfig = {
   baseUrl: string;
@@ -23,7 +27,11 @@ export type AppConfig = {
   defaultCompression: number;
   uiLanguage: UiLanguage;
   hasDismissedWelcome: boolean;
-  customPromptTemplates: PromptTemplate[];
+  batchDefaultConcurrency: number;
+  batchDefaultIntervalSeconds: number;
+  batchDefaultMaxRetries: number;
+  batchCustomSplitSystemPrompt: string;
+  batchLastSplitTemplateId: BatchSplitTemplateId;
 };
 
 export type ValidationResult = {
@@ -47,7 +55,11 @@ export const DEFAULT_CONFIG: AppConfig = {
   defaultCompression: 90,
   uiLanguage: "zh-CN",
   hasDismissedWelcome: false,
-  customPromptTemplates: [],
+  batchDefaultConcurrency: DEFAULT_BATCH_EXECUTION_CONFIG.concurrency,
+  batchDefaultIntervalSeconds: DEFAULT_BATCH_EXECUTION_CONFIG.intervalSeconds,
+  batchDefaultMaxRetries: DEFAULT_BATCH_EXECUTION_CONFIG.maxRetries,
+  batchCustomSplitSystemPrompt: "",
+  batchLastSplitTemplateId: "basic",
 };
 
 export function normalizeBaseUrl(value: string): string {
@@ -70,7 +82,18 @@ export function mergeConfig(value: Partial<AppConfig> | null | undefined): AppCo
   merged.baseUrl = normalizeBaseUrl(asString(merged.baseUrl) || DEFAULT_CONFIG.baseUrl);
   merged.uiLanguage = isUiLanguage(merged.uiLanguage) ? merged.uiLanguage : DEFAULT_CONFIG.uiLanguage;
   merged.hasDismissedWelcome = asBoolean(merged.hasDismissedWelcome, DEFAULT_CONFIG.hasDismissedWelcome);
-  merged.customPromptTemplates = normalizeCustomPromptTemplates(merged.customPromptTemplates);
+  const batchExecutionConfig = clampBatchExecutionConfig({
+    concurrency: asNumber(merged.batchDefaultConcurrency),
+    intervalSeconds: asNumber(merged.batchDefaultIntervalSeconds),
+    maxRetries: asNumber(merged.batchDefaultMaxRetries),
+  });
+  merged.batchDefaultConcurrency = batchExecutionConfig.concurrency;
+  merged.batchDefaultIntervalSeconds = batchExecutionConfig.intervalSeconds;
+  merged.batchDefaultMaxRetries = batchExecutionConfig.maxRetries;
+  merged.batchCustomSplitSystemPrompt = asString(merged.batchCustomSplitSystemPrompt);
+  merged.batchLastSplitTemplateId = isBatchSplitTemplateId(merged.batchLastSplitTemplateId)
+    ? merged.batchLastSplitTemplateId
+    : DEFAULT_CONFIG.batchLastSplitTemplateId;
 
   return merged;
 }
@@ -160,25 +183,6 @@ function isUiLanguage(value: unknown): value is UiLanguage {
   return value === "zh-CN" || value === "en-US";
 }
 
-function normalizeCustomPromptTemplates(value: unknown): PromptTemplate[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.filter(isCustomPromptTemplate);
-}
-
-function isCustomPromptTemplate(value: unknown): value is PromptTemplate {
-  if (value === null || typeof value !== "object") {
-    return false;
-  }
-
-  const candidate = value as Partial<PromptTemplate>;
-  return (
-    typeof candidate.id === "string" &&
-    typeof candidate.title === "string" &&
-    typeof candidate.prompt === "string" &&
-    typeof candidate.category === "string" &&
-    candidate.source === "custom"
-  );
+function isBatchSplitTemplateId(value: unknown): value is BatchSplitTemplateId {
+  return value === "basic" || value === "style-consistent" || value === "series" || value === "custom";
 }

@@ -1,154 +1,107 @@
-# GPT-Image-2 Studio
+# GPT Image 2 Studio
 
-[简体中文](./README.md) | [English](./README.en.md)
+中文为主文档语言，English is available as a secondary guide.
 
-[![CI](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/ci.yml)
-[![Release](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/release.yml/badge.svg)](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/release.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
-
-轻量、本地优先的 `gpt-image-2` 调用工具，支持文生图、图生图、多图参考、提示词模板、历史记录和 Windows 桌面安装包。
-
-![GPT-Image-2 Studio 明亮界面预览](./docs/assets/app-preview.svg)
-
-## 普通用户安装
-
-普通用户不需要安装 Node.js、npm 或 Rust。
-
-1. 打开 [Releases](https://github.com/KDB-Wind/gpt-image-2-studio/releases)。
-2. 下载最新版本里的 `setup.exe`。
-3. 安装并打开应用。
-4. 在设置页填写自己的 `API key`、`Base URL`、文字模型、图片模型和输出目录。
-5. 保存配置后开始生成图片。
-
-如果 Windows 提示 SmartScreen 风险，这是因为开源项目首版暂未做代码签名。请只从本仓库 Release 页面下载安装包。
-
-## 作者推荐中转站
-
-如果你需要 OpenAI compatible 的中转服务，可以参考作者推荐链接：
-
-[https://ruoli.dev/register?aff=mR35](https://ruoli.dev/register?aff=mR35)
+- [静态 HTML 版使用指南（中文）](docs/user-guide-static-html.zh-CN.md)
+- [Static HTML User Guide (English)](docs/user-guide-static-html.en-US.md)
+- [基础工具版使用指南（中文）](docs/user-guide-basic-tool.zh-CN.md)
+- [Basic Tool User Guide (English)](docs/user-guide-basic-tool.en-US.md)
 
 ## 项目定位
 
-这个公开仓库只包含基础独立工具版，适合个人本地使用或轻量分享。
+GPT Image 2 Studio 是一个轻量的本地生图调用工具。用户填写自己的 `API key`、`Base URL`、文字模型和图片模型后，即可进行文生图、图生图、多图参考和批量生图。
 
-不包含以下内容：
+当前仓库同时保留两个方向：
 
-- 平台 API
-- 队列 Worker
-- 支付流程
-- 用户注册与登录
-- 托管 key 路由
-- 平台级供应商熔断与后台管理
+- 基础工具版：面向个人本地使用和 GitHub 开源分发，不包含用户管理、积分、平台托管 Key、支付和服务端图片存储。
+- Web 平台版：面向后续公网服务，包含注册、兑换码积分、平台托管 Key、供应商熔断、健康探测和轻后台能力。
 
-这些内容属于单独维护的私有平台代码，不在本仓库公开。
+如果你只是第一次在 GitHub 上看到这个项目，并且只想快速使用基础工具版，优先使用静态 HTML 版。
 
-## 功能特性
+## 最快使用方式：静态 HTML 版
 
-- 默认中文界面，支持 `简体中文 / English` 切换。
-- 支持 `API key`、`Base URL`、文字模型、图片模型、超时时间、输出目录配置。
-- 支持文生图和图生图。
-- 支持最多 8 张参考图上传，推荐不超过 4 张。
-- 支持多图拖拽上传。
-- 支持图片尺寸、质量、格式和压缩参数选择。
-- 支持文字模型、文生图、图生图最小连通测试。
-- 支持本地提示词模板和自定义模板。
-- 支持本地历史记录、搜索、过滤和批量删除。
-- 支持按日期保存图片到本地目录。
-- 支持 Tauri Windows 桌面打包。
+静态 HTML 版不需要安装 Node.js，不需要运行 `npm run dev`，也不需要作者提供后端服务器。
 
-## 默认配置
+普通用户只需要：
 
-- `Base URL`: `https://ruoli.dev/v1`
-- `Text model`: `gpt-5.4-mini`
-- `Image model`: `gpt-image-2`
-- `API key`: 默认留空
-- `Timeout`: 最低建议 `180` 秒
-- `Output directory`: `outputs`
+1. 在 GitHub Release 中下载静态 HTML 版本压缩包，或直接下载发布资产里的 `index.html`。
+2. 双击打开 `index.html`。
+3. 进入“设置”，填写自己的 `API key`、`Base URL`、文字模型、图片模型和超时时间。
+4. 保存配置后开始生成图片。
 
-## 安全说明
-
-- `API key` 不会保存在仓库里。
-- Web 版本的配置保存在浏览器本地存储中。
-- 桌面版本会优先使用系统级安全存储，失败时才回退到本地配置文件。
-- 真实 `.env` 文件已被忽略，不会被跟踪。
-- 公开仓库使用的是从私有多产品仓库中导出的干净快照，避免带出不应公开的平台历史。
-
-如果你曾在其他地方暴露过真实 `API key`，建议先轮换。
-
-## 开发者本地运行
-
-环境要求：
-
-- Node.js `>= 20.19.0`
-- npm `>= 10`
-- 如果需要构建 Tauri 桌面版，还需要 Rust toolchain
-
-安装依赖：
+维护者构建静态 HTML：
 
 ```powershell
 npm install
+npm run build:static
 ```
 
-启动 Web 版本：
+构建完成后发布 `dist-static/index.html` 即可。详细说明见 [静态 HTML 版使用指南（中文）](docs/user-guide-static-html.zh-CN.md)。
+
+## 作者推荐中转站
+
+如果你还没有可用的模型服务，可以参考作者推荐中转站：
+
+[https://ruoli.dev/register?aff=mR35](https://ruoli.dev/register?aff=mR35)
+
+请自行评估服务稳定性、价格和合规性。本项目不会把任何真实 `API key` 提交到仓库。
+
+## 基础工具版能力
+
+- 文生图：输入提示词，调用图片模型生成图片。
+- 图生图：上传图片并输入修改说明，调用图片编辑接口。
+- 多图参考：最多 8 张，建议不超过 4 张。
+- 拖拽上传：支持把图片拖到上传区域。
+- 批量生图：支持同一提示词多张、多行提示词排队、AI 拆分主任务。
+- 本地历史：记录成功生成的图片信息，方便复用提示词。
+- 本地配置：`API key`、`Base URL`、模型名、超时时间和默认图片参数保存在当前用户本机。
+
+当前提示词模板能力不是核心功能，后续计划移除后重新设计为独立菜单。
+
+## 常用命令
+
+源码网页模式：
 
 ```powershell
 npm run dev
 ```
 
-构建前端：
+静态 HTML 构建：
 
 ```powershell
-npm run build
+npm run build:static
 ```
 
-运行测试：
-
-```powershell
-npm run test:run
-```
-
-如果你希望 npm 缓存和下载落在 `D:`：
-
-```powershell
-$env:npm_config_cache = "D:\npm-cache"
-npm install
-```
-
-## 桌面版开发
-
-桌面调试：
+桌面版开发：
 
 ```powershell
 npm run desktop:dev
 ```
 
-构建桌面安装包：
+桌面版打包：
 
 ```powershell
 npm run desktop:build
 ```
 
-## 发布安装包
-
-本仓库已经配置 GitHub Actions Release 链路。推送 `v*.*.*` tag 后，会在 Windows runner 上构建 Tauri 安装包，并创建草稿 GitHub Release。
-
-普通用户优先下载 `setup.exe`。源码运行方式只推荐开发者使用。
-
-发布前本地检查：
+测试：
 
 ```powershell
-npm run release:check
+npm run test:run
+npm run build
 ```
 
-完整说明见 [docs/release.md](./docs/release.md)，当前 Release 文案见 [docs/release-notes/v0.1.1.md](./docs/release-notes/v0.1.1.md)，人工验收清单见 [docs/release-checklist.md](./docs/release-checklist.md)。
+## 安全说明
 
-## 贡献与反馈
+- 仓库不应包含真实 `API key`。
+- 静态 HTML 版会把配置保存在当前浏览器本地存储中。
+- 源码网页模式同样主要使用浏览器本地存储。
+- 桌面版会使用本地应用配置文件和本地目录保存能力。
+- 如果在公共电脑或他人电脑上使用，请不要保存自己的 `API key`。
 
-- 提交问题前请先阅读 [FAQ](./docs/faq.md)。
-- 贡献代码请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
-- 安全问题请阅读 [SECURITY.md](./SECURITY.md)。
+## 更多文档
 
-## 后续路线图
-
-后续优化事项记录在 [docs/roadmap.md](./docs/roadmap.md)。
+- [产品版本说明](docs/product-editions.md)
+- [本地手动验收](docs/manual-local-acceptance.md)
+- [批量生图验收](docs/manual-batch-generation-acceptance.md)
+- [Web 平台部署说明](docs/deployment/4c4g-linux-platform.md)

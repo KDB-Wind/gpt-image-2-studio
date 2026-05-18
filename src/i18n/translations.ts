@@ -1,5 +1,4 @@
 import type { UiLanguage } from "../core/config";
-import { classifyErrorForUser, type UserErrorKind } from "../core/errorClassifier";
 
 export type { UiLanguage } from "../core/config";
 
@@ -14,15 +13,73 @@ type TranslationBundle = {
     runtimeDesktop: string;
     runtimeWeb: string;
     languageLabel: string;
-    languageChinese: string;
-    languageEnglish: string;
     statusLabel: string;
     environment: string;
   };
   tabs: {
     generate: string;
+    batch: string;
     history: string;
     settings: string;
+  };
+  batch: {
+    title: string;
+    description: string;
+    emptyTasks: string;
+    defaultsNote: string;
+    sources: {
+      samePrompt: string;
+      multiline: string;
+      aiSplit: string;
+    };
+    fields: {
+      batchTitle: string;
+      taskCount: string;
+      multilinePrompts: string;
+      masterPrompt: string;
+      splitTemplate: string;
+      customSystemPrompt: string;
+      concurrency: string;
+      intervalSeconds: string;
+      maxRetries: string;
+    };
+    actions: {
+      createTasks: string;
+      splitWithAi: string;
+      start: string;
+      pause: string;
+      continue: string;
+      cancel: string;
+      retryTask: string;
+      retryFailed: string;
+      saveDefaults: string;
+      clearDraft: string;
+    };
+    status: {
+      draft: string;
+      running: string;
+      paused: string;
+      cancelled: string;
+      completed: string;
+      pending: string;
+      succeeded: string;
+      failed: string;
+      skipped: string;
+    };
+    messages: {
+      promptRequired: string;
+      splitSuccess: (count: number) => string;
+      splitFailed: (detail: string) => string;
+      batchComplete: (success: number, failed: number, skipped: number) => string;
+      costRiskPaused: string;
+      authPaused: string;
+    };
+    templates: {
+      basicSplit: string;
+      styleConsistentSplit: string;
+      seriesSplit: string;
+      customSplit: string;
+    };
   };
   modes: {
     textToImage: string;
@@ -56,15 +113,6 @@ type TranslationBundle = {
     enlarge: string;
     openRecommended: string;
     inspect: string;
-    applyTemplate: string;
-    savePromptTemplate: string;
-    deleteTemplate: string;
-    selectRecord: string;
-    selectVisible: string;
-    clearSelection: string;
-    deleteSelected: string;
-    deleteSelectedBusy: string;
-    openOutputDirectory: string;
   };
   panel: {
     generateTitle: string;
@@ -105,14 +153,6 @@ type TranslationBundle = {
     defaultCompression: string;
     customWidth: string;
     customHeight: string;
-    templateSearch: string;
-    templateSearchPlaceholder: string;
-    templateTitle: string;
-    templateTitlePlaceholder: string;
-    templateCategory: string;
-    historySearch: string;
-    historySearchPlaceholder: string;
-    historyStatus: string;
   };
   options: {
     sizeAuto: string;
@@ -131,16 +171,6 @@ type TranslationBundle = {
     formatPng: string;
     formatJpeg: string;
     formatWebp: string;
-    statusAll: string;
-    statusSuccess: string;
-    statusFailed: string;
-    statusCancelled: string;
-    categoryAll: string;
-    categoryPortrait: string;
-    categoryProduct: string;
-    categorySocial: string;
-    categoryStyle: string;
-    categoryCustom: string;
   };
   sections: {
     connection: string;
@@ -165,11 +195,6 @@ type TranslationBundle = {
     supportRecommendation: string;
     supportZoomHint: string;
     referenceImages: string;
-    promptTemplateLibrary: string;
-    customPromptTemplate: string;
-    filteredRecords: string;
-    selectedRecords: string;
-    historyFilters: string;
   };
   labels: {
     imageModel: string;
@@ -206,8 +231,6 @@ type TranslationBundle = {
     noHistorySaved: string;
     loadingRuntime: string;
     noReferenceImages: string;
-    noPromptTemplates: string;
-    noHistoryMatches: string;
   };
   notes: {
     optimizedPromptLinked: string;
@@ -225,9 +248,6 @@ type TranslationBundle = {
     customSizeHint: string;
     compressionHint: string;
     compressionUnavailable: string;
-    promptTemplateLibraryDescription: string;
-    customPromptTemplateDescription: string;
-    historyFilterDescription: string;
   };
   welcome: {
     title: string;
@@ -278,31 +298,7 @@ type TranslationBundle = {
     historyPreviewPreparationFailed: (detail: string) => string;
     generatedPreviewLoadFailed: string;
     updateStatus: (version: string) => string;
-    runtimeUnavailable: string;
-    promptTemplateApplied: (title: string) => string;
-    promptTemplatePromptRequired: string;
-    promptTemplateSaved: (title: string) => string;
-    promptTemplateSaveFailed: (detail: string) => string;
-    promptTemplateRemoved: (title: string) => string;
-    promptTemplateDeleteFailed: (detail: string) => string;
-    promptTemplateUntitled: string;
-    historySelectionSummary: (selectedCount: number, visibleCount: number) => string;
-    historySelected: (count: number) => string;
-    historySelectionCleared: string;
-    historyDeleted: (count: number) => string;
-    historyDeleteFailed: (detail: string) => string;
-    openOutputDirectoryOpened: string;
-    openOutputDirectoryUnavailableWeb: string;
   };
-  errors: Record<
-    UserErrorKind,
-    {
-      title: string;
-      message: string;
-      retryAdvice: string;
-    }
-  >;
-  promptTemplates: Record<string, string>;
   validation: Record<string, string>;
 };
 
@@ -317,15 +313,73 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       runtimeDesktop: "桌面模式",
       runtimeWeb: "网页模式",
       languageLabel: "界面语言",
-      languageChinese: "简体中文",
-      languageEnglish: "English",
       statusLabel: "当前状态",
       environment: "当前运行环境",
     },
     tabs: {
       generate: "生成",
+      batch: "批量",
       history: "历史",
       settings: "设置",
+    },
+    batch: {
+      title: "批量生图",
+      description: "把一个主任务拆成多条提示词，或手动导入多行提示词，再按可控节奏逐张生成。",
+      emptyTasks: "先生成任务列表，再逐条微调提示词并开始批量生图。",
+      defaultsNote: "批量并发、间隔和重试次数会跟随配置保存；修改后请到“设置”页保存配置。",
+      sources: {
+        samePrompt: "同一提示词生成多张",
+        multiline: "多行提示词排队",
+        aiSplit: "AI 拆分",
+      },
+      fields: {
+        batchTitle: "批次名称",
+        taskCount: "任务数量",
+        multilinePrompts: "多行提示词",
+        masterPrompt: "主任务",
+        splitTemplate: "拆分模板",
+        customSystemPrompt: "自定义 systemPrompt",
+        concurrency: "并发数",
+        intervalSeconds: "间隔秒数",
+        maxRetries: "失败重试次数",
+      },
+      actions: {
+        createTasks: "生成任务列表",
+        splitWithAi: "调用文字模型拆分",
+        start: "开始批量生成",
+        pause: "暂停",
+        continue: "继续",
+        cancel: "取消剩余任务",
+        retryTask: "重试该任务",
+        retryFailed: "重试失败项",
+        saveDefaults: "保存批量默认值",
+        clearDraft: "清空当前批量",
+      },
+      status: {
+        draft: "草稿",
+        running: "运行中",
+        paused: "已暂停",
+        cancelled: "已取消",
+        completed: "已完成",
+        pending: "等待中",
+        succeeded: "成功",
+        failed: "失败",
+        skipped: "已跳过",
+      },
+      messages: {
+        promptRequired: "请先输入提示词或主任务。",
+        splitSuccess: (count) => `已拆分出 ${count} 条子提示词，可继续微调后再执行。`,
+        splitFailed: (detail) => `AI 拆分失败。${detail}`,
+        batchComplete: (success, failed, skipped) => `批量完成：成功 ${success}，失败 ${failed}，跳过 ${skipped}。`,
+        costRiskPaused: "供应商返回可能已产生费用但没有图片的异常，批次已暂停。确认后再继续。",
+        authPaused: "API key 或权限异常，批次已暂停。请先检查设置。",
+      },
+      templates: {
+        basicSplit: "基础拆分",
+        styleConsistentSplit: "统一风格增强",
+        seriesSplit: "系列作品拆分",
+        customSplit: "自定义 systemPrompt",
+      },
     },
     modes: {
       textToImage: "文生图",
@@ -359,15 +413,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       enlarge: "点击放大",
       openRecommended: "前往推荐中转站",
       inspect: "查看",
-      applyTemplate: "使用模板",
-      savePromptTemplate: "保存为我的模板",
-      deleteTemplate: "删除模板",
-      selectRecord: "选择记录",
-      selectVisible: "选择当前结果",
-      clearSelection: "清空选择",
-      deleteSelected: "删除所选",
-      deleteSelectedBusy: "正在删除...",
-      openOutputDirectory: "打开保存目录",
     },
     panel: {
       generateTitle: "生成工作区",
@@ -408,14 +453,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       defaultCompression: "默认压缩",
       customWidth: "自定义宽度",
       customHeight: "自定义高度",
-      templateSearch: "搜索模板",
-      templateSearchPlaceholder: "按标题或提示词搜索",
-      templateTitle: "模板标题",
-      templateTitlePlaceholder: "例如：我的商品主图模板",
-      templateCategory: "模板分类",
-      historySearch: "搜索历史",
-      historySearchPlaceholder: "按提示词、模型、路径或错误信息搜索",
-      historyStatus: "记录状态",
     },
     options: {
       sizeAuto: "自动（由模型决定）",
@@ -434,16 +471,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       formatPng: "PNG",
       formatJpeg: "JPEG",
       formatWebp: "WebP",
-      statusAll: "全部状态",
-      statusSuccess: "成功",
-      statusFailed: "失败",
-      statusCancelled: "已取消",
-      categoryAll: "全部分类",
-      categoryPortrait: "人物肖像",
-      categoryProduct: "商品宣传",
-      categorySocial: "社媒封面",
-      categoryStyle: "风格化",
-      categoryCustom: "我的模板",
     },
     sections: {
       connection: "连接配置",
@@ -468,11 +495,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       supportRecommendation: "推荐使用微信支付",
       supportZoomHint: "点击二维码可放大查看。",
       referenceImages: "当前参考图",
-      promptTemplateLibrary: "提示词模板库",
-      customPromptTemplate: "保存当前提示词",
-      filteredRecords: "筛选结果",
-      selectedRecords: "已选记录",
-      historyFilters: "历史筛选",
     },
     labels: {
       imageModel: "生图模型",
@@ -509,8 +531,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       noHistorySaved: "还没有保存任何图片记录。",
       loadingRuntime: "正在读取本地配置和历史记录...",
       noReferenceImages: "还没有添加参考图。",
-      noPromptTemplates: "没有找到匹配的提示词模板。",
-      noHistoryMatches: "没有符合筛选条件的历史记录。",
     },
     notes: {
       optimizedPromptLinked: "优化稿与当前提示词绑定；原提示词发生变化时，会自动清空旧优化稿，避免误用。",
@@ -530,9 +550,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       customSizeHint: "自定义尺寸适合高级用法；只要满足约束就可以尝试，但兼容服务商不支持时仍会返回接口错误。",
       compressionHint: "output_compression 仅对 JPEG / WebP 生效；数值越高通常画质越高、文件也越大。",
       compressionUnavailable: "PNG 不使用压缩参数。",
-      promptTemplateLibraryDescription: "内置常用场景模板，也可以把当前提示词保存成本地个人模板。",
-      customPromptTemplateDescription: "保存后仅写入当前用户本地配置，不会进入仓库或上传到服务器。",
-      historyFilterDescription: "可以按关键词和状态筛选记录，再批量选择或删除本地历史。",
     },
     welcome: {
       title: "欢迎来到本地生图工作台",
@@ -583,63 +600,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       historyPreviewPreparationFailed: (detail) => `准备历史预览失败。${detail}`,
       generatedPreviewLoadFailed: "图片已保存，但预览加载失败。",
       updateStatus: (version) => `当前版本：${version}。如需更新，请手动下载安装新版本。`,
-      runtimeUnavailable: "当前运行环境尚未加载完成，请稍后再试。",
-      promptTemplateApplied: (title) => `已使用提示词模板：${title}`,
-      promptTemplatePromptRequired: "请先输入或生成一段实际提示词，再保存为模板。",
-      promptTemplateSaved: (title) => `已保存个人模板：${title}`,
-      promptTemplateSaveFailed: (detail) => `保存提示词模板失败。${detail}`,
-      promptTemplateRemoved: (title) => `已删除个人模板：${title}`,
-      promptTemplateDeleteFailed: (detail) => `删除提示词模板失败。${detail}`,
-      promptTemplateUntitled: "未命名模板",
-      historySelectionSummary: (selectedCount, visibleCount) =>
-        `已选择 ${selectedCount} 条；当前筛选显示 ${visibleCount} 条。`,
-      historySelected: (count) => `已选择当前筛选结果中的 ${count} 条记录。`,
-      historySelectionCleared: "已清空历史记录选择。",
-      historyDeleted: (count) => `已删除 ${count} 条历史记录。图片文件不会被自动删除。`,
-      historyDeleteFailed: (detail) => `删除历史记录失败。${detail}`,
-      openOutputDirectoryOpened: "已打开保存目录。",
-      openOutputDirectoryUnavailableWeb: "网页模式不能直接打开本机目录；请在桌面版中使用，或手动打开保存路径。",
-    },
-    errors: {
-      auth: {
-        title: "鉴权失败",
-        message: "请检查 API key、Base URL 和模型供应商账户状态。当前请求没有通过鉴权。",
-        retryAdvice: "不要直接重试；先修正配置并使用设置页的测试按钮验证。",
-      },
-      provider: {
-        title: "模型供应商异常",
-        message: "请求已到达模型供应商或中转站，但上游返回了异常状态，可能是供应商暂时不可用。",
-        retryAdvice: "再次调用可能仍然产生费用。建议等待几分钟，或确认供应商恢复后手动重试。",
-      },
-      timeout: {
-        title: "请求超时",
-        message: "图片生成耗时超过了当前超时设置，服务端可能仍在处理或已经失败。",
-        retryAdvice: "不会自动重试。若确认供应商正常，可以先增加超时时间，再手动发起新请求。",
-      },
-      "empty-image": {
-        title: "未返回图片数据",
-        message: "接口返回了响应，但响应中没有可保存的图片数据。这通常是模型供应商或兼容接口异常。",
-        retryAdvice: "再次调用可能仍然产生费用。建议先测试图片模型，确认正常后再手动重试。",
-      },
-      network: {
-        title: "网络连接失败",
-        message: "当前设备无法连接到配置的 Base URL，或浏览器/系统拦截了请求。",
-        retryAdvice: "不会自动重试。请检查网络、Base URL 和代理设置后手动重试。",
-      },
-      unknown: {
-        title: "未知错误",
-        message: "请求失败，但应用无法确定具体原因。",
-        retryAdvice: "不会自动重试。请查看技术详情，确认配置和供应商状态后再手动重试。",
-      },
-    },
-    promptTemplates: {
-      "built-in-portrait-graduation": "毕业照肖像",
-      "built-in-portrait-profile": "职业头像",
-      "built-in-product-poster": "商品宣传海报",
-      "built-in-product-lifestyle": "商品生活方式场景",
-      "built-in-social-cover": "社媒封面图",
-      "built-in-style-clay": "软陶 3D 插画",
-      "built-in-style-film": "电影感剧照",
     },
     validation: {
       "Base URL must be a valid URL.": "Base URL 必须是有效的 URL。",
@@ -671,15 +631,73 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       runtimeDesktop: "Desktop mode",
       runtimeWeb: "Web mode",
       languageLabel: "Language",
-      languageChinese: "简体中文",
-      languageEnglish: "English",
       statusLabel: "Status",
       environment: "Current runtime",
     },
     tabs: {
       generate: "Generate",
+      batch: "Batch",
       history: "History",
       settings: "Settings",
+    },
+    batch: {
+      title: "Batch generation",
+      description: "Split one master task into prompts, or import one prompt per line, then generate images at a controlled pace.",
+      emptyTasks: "Create tasks first, then review each prompt before starting the batch.",
+      defaultsNote: "Batch concurrency, interval, and retry defaults are saved with Settings. Save settings after changing them.",
+      sources: {
+        samePrompt: "Repeat one prompt",
+        multiline: "Queue multiline prompts",
+        aiSplit: "AI split",
+      },
+      fields: {
+        batchTitle: "Batch title",
+        taskCount: "Task count",
+        multilinePrompts: "Multiline prompts",
+        masterPrompt: "Master task",
+        splitTemplate: "Split template",
+        customSystemPrompt: "Custom systemPrompt",
+        concurrency: "Concurrency",
+        intervalSeconds: "Interval seconds",
+        maxRetries: "Max retries",
+      },
+      actions: {
+        createTasks: "Create tasks",
+        splitWithAi: "Split with text model",
+        start: "Start batch",
+        pause: "Pause",
+        continue: "Continue",
+        cancel: "Cancel remaining",
+        retryTask: "Retry this task",
+        retryFailed: "Retry failed tasks",
+        saveDefaults: "Save batch defaults",
+        clearDraft: "Clear current batch",
+      },
+      status: {
+        draft: "Draft",
+        running: "Running",
+        paused: "Paused",
+        cancelled: "Cancelled",
+        completed: "Completed",
+        pending: "Pending",
+        succeeded: "Succeeded",
+        failed: "Failed",
+        skipped: "Skipped",
+      },
+      messages: {
+        promptRequired: "Enter a prompt or master task first.",
+        splitSuccess: (count) => `${count} child prompts were created. You can edit them before running.`,
+        splitFailed: (detail) => `AI split failed. ${detail}`,
+        batchComplete: (success, failed, skipped) => `Batch complete: ${success} succeeded, ${failed} failed, ${skipped} skipped.`,
+        costRiskPaused: "The provider returned an error that may still have incurred cost but no image. The batch is paused until you confirm.",
+        authPaused: "API key or permission failed. The batch is paused. Check Settings first.",
+      },
+      templates: {
+        basicSplit: "Basic split",
+        styleConsistentSplit: "Style-consistent split",
+        seriesSplit: "Series split",
+        customSplit: "Custom systemPrompt",
+      },
     },
     modes: {
       textToImage: "Text to image",
@@ -713,15 +731,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       enlarge: "Click to enlarge",
       openRecommended: "Open recommended relay",
       inspect: "Inspect",
-      applyTemplate: "Use template",
-      savePromptTemplate: "Save as my template",
-      deleteTemplate: "Delete template",
-      selectRecord: "Select record",
-      selectVisible: "Select visible",
-      clearSelection: "Clear selection",
-      deleteSelected: "Delete selected",
-      deleteSelectedBusy: "Deleting...",
-      openOutputDirectory: "Open save folder",
     },
     panel: {
       generateTitle: "Generation workspace",
@@ -762,14 +771,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       defaultCompression: "Default compression",
       customWidth: "Custom width",
       customHeight: "Custom height",
-      templateSearch: "Search templates",
-      templateSearchPlaceholder: "Search by title or prompt text",
-      templateTitle: "Template title",
-      templateTitlePlaceholder: "Example: My product hero template",
-      templateCategory: "Template category",
-      historySearch: "Search history",
-      historySearchPlaceholder: "Search prompts, models, paths, or error text",
-      historyStatus: "Record status",
     },
     options: {
       sizeAuto: "Auto (model decides)",
@@ -788,16 +789,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       formatPng: "PNG",
       formatJpeg: "JPEG",
       formatWebp: "WebP",
-      statusAll: "All statuses",
-      statusSuccess: "Success",
-      statusFailed: "Failed",
-      statusCancelled: "Cancelled",
-      categoryAll: "All categories",
-      categoryPortrait: "Portrait",
-      categoryProduct: "Product",
-      categorySocial: "Social",
-      categoryStyle: "Style",
-      categoryCustom: "My templates",
     },
     sections: {
       connection: "Connection",
@@ -822,11 +813,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       supportRecommendation: "WeChat Pay is recommended",
       supportZoomHint: "Click the QR code to enlarge it.",
       referenceImages: "Reference images",
-      promptTemplateLibrary: "Prompt template library",
-      customPromptTemplate: "Save current prompt",
-      filteredRecords: "Filtered records",
-      selectedRecords: "Selected records",
-      historyFilters: "History filters",
     },
     labels: {
       imageModel: "Image model",
@@ -863,8 +849,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       noHistorySaved: "No image records have been saved yet.",
       loadingRuntime: "Loading local settings and history...",
       noReferenceImages: "No reference images have been added yet.",
-      noPromptTemplates: "No matching prompt templates were found.",
-      noHistoryMatches: "No history records match the current filters.",
     },
     notes: {
       optimizedPromptLinked: "The optimized draft is tied to the current prompt. If the source prompt changes, the old optimized draft is cleared automatically.",
@@ -884,9 +868,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       customSizeHint: "Custom sizes are for advanced use. Any size that meets the limits can be tried, but a compatible provider may still reject unsupported values.",
       compressionHint: "output_compression only applies to JPEG and WebP. Higher values usually mean higher quality and larger files.",
       compressionUnavailable: "PNG does not use a compression parameter.",
-      promptTemplateLibraryDescription: "Use built-in scenario templates, or save the current prompt as a local personal template.",
-      customPromptTemplateDescription: "Saved templates stay in this user's local settings and are not uploaded or written into the repository.",
-      historyFilterDescription: "Filter records by keyword and status, then select or delete local history in batches.",
     },
     welcome: {
       title: "Welcome to Local Image Studio",
@@ -939,67 +920,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       historyPreviewPreparationFailed: (detail) => `Could not prepare a preview for this saved output. ${detail}`,
       generatedPreviewLoadFailed: "The image was saved, but the preview failed to load afterward.",
       updateStatus: (version) => `Current version: ${version}. To update, download and install a newer release manually.`,
-      runtimeUnavailable: "The current runtime has not finished loading. Try again shortly.",
-      promptTemplateApplied: (title) => `Prompt template applied: ${title}`,
-      promptTemplatePromptRequired: "Enter or prepare an effective prompt before saving it as a template.",
-      promptTemplateSaved: (title) => `Personal template saved: ${title}`,
-      promptTemplateSaveFailed: (detail) => `Failed to save prompt template. ${detail}`,
-      promptTemplateRemoved: (title) => `Personal template deleted: ${title}`,
-      promptTemplateDeleteFailed: (detail) => `Failed to delete prompt template. ${detail}`,
-      promptTemplateUntitled: "Untitled template",
-      historySelectionSummary: (selectedCount, visibleCount) =>
-        `${selectedCount} selected; ${visibleCount} visible with the current filters.`,
-      historySelected: (count) => `${count} visible history record${count === 1 ? "" : "s"} selected.`,
-      historySelectionCleared: "History selection cleared.",
-      historyDeleted: (count) =>
-        `${count} history record${count === 1 ? "" : "s"} deleted. Image files are not deleted automatically.`,
-      historyDeleteFailed: (detail) => `Failed to delete history records. ${detail}`,
-      openOutputDirectoryOpened: "Save folder opened.",
-      openOutputDirectoryUnavailableWeb: "Web mode cannot open local folders directly. Use the desktop app or open the path manually.",
-    },
-    errors: {
-      auth: {
-        title: "Authentication failed",
-        message: "Check the API key, Base URL, and provider account status. The request was not authorized.",
-        retryAdvice: "Do not retry immediately. Fix the settings first, then use the test buttons in Settings.",
-      },
-      provider: {
-        title: "Provider or upstream failure",
-        message: "The request reached the provider or relay, but the upstream service returned an abnormal response.",
-        retryAdvice:
-          "Retrying may still incur cost. Wait a few minutes or confirm the provider recovered before retrying manually.",
-      },
-      timeout: {
-        title: "Request timed out",
-        message: "The generation exceeded the configured timeout. The server may still be processing or may have failed.",
-        retryAdvice:
-          "The app will not retry automatically. If the provider is healthy, increase the timeout before retrying manually.",
-      },
-      "empty-image": {
-        title: "No image data returned",
-        message: "The API returned a response, but it contained no image data that could be saved.",
-        retryAdvice: "Retrying may still incur cost. Test the image model first, then retry manually after it looks healthy.",
-      },
-      network: {
-        title: "Network connection failed",
-        message: "This device could not connect to the configured Base URL, or the request was blocked.",
-        retryAdvice: "The app will not retry automatically. Check the network, Base URL, and proxy settings before retrying.",
-      },
-      unknown: {
-        title: "Unknown error",
-        message: "The request failed, but the app could not identify a specific cause.",
-        retryAdvice:
-          "The app will not retry automatically. Review the technical detail, settings, and provider status before retrying.",
-      },
-    },
-    promptTemplates: {
-      "built-in-portrait-graduation": "Graduation portrait",
-      "built-in-portrait-profile": "Professional profile photo",
-      "built-in-product-poster": "Product poster",
-      "built-in-product-lifestyle": "Lifestyle product scene",
-      "built-in-social-cover": "Social media cover",
-      "built-in-style-clay": "Soft clay illustration",
-      "built-in-style-film": "Cinematic film still",
     },
     validation: {
       "Base URL must be a valid URL.": "Base URL must be a valid URL.",
@@ -1034,14 +954,4 @@ export function isSupportedLanguage(value: unknown): value is UiLanguage {
 
 export function getTranslations(language: UiLanguage): TranslationBundle {
   return translations[resolveLanguage(language)];
-}
-
-export function formatClassifiedError(error: unknown, language: UiLanguage): string {
-  const resolvedLanguage = resolveLanguage(language);
-  const copy = getTranslations(resolvedLanguage);
-  const classified = classifyErrorForUser(error);
-  const errorCopy = copy.errors[classified.kind];
-  const separator = resolvedLanguage === "zh-CN" ? "：" : ": ";
-
-  return `${errorCopy.title}${separator}${errorCopy.message} ${errorCopy.retryAdvice} ${classified.technicalDetail}`.trim();
 }

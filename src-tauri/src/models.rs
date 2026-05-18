@@ -2,17 +2,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PromptTemplate {
-    pub id: String,
-    pub title: String,
-    pub category: String,
-    pub prompt: String,
-    pub source: String,
-    pub created_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     pub base_url: String,
     pub api_key: String,
@@ -27,7 +16,11 @@ pub struct AppConfig {
     pub default_compression: u8,
     pub ui_language: String,
     pub has_dismissed_welcome: bool,
-    pub custom_prompt_templates: Vec<PromptTemplate>,
+    pub batch_default_concurrency: u8,
+    pub batch_default_interval_seconds: u64,
+    pub batch_default_max_retries: u8,
+    pub batch_custom_split_system_prompt: String,
+    pub batch_last_split_template_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +45,28 @@ pub struct SaveGeneratedImageInput {
     pub prompt: String,
     pub optimized_prompt: String,
     pub custom_name: String,
+    pub config: AppConfig,
+    pub generated_at: String,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveBatchImageTaskInput {
+    pub id: String,
+    pub index: usize,
+    pub title: String,
+    pub prompt: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveBatchImageInput {
+    pub batch_id: String,
+    pub batch_title: String,
+    pub batch_created_at: String,
+    pub task: SaveBatchImageTaskInput,
+    pub image_base64: String,
     pub config: AppConfig,
     pub generated_at: String,
     pub duration_ms: u64,

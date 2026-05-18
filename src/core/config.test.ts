@@ -112,25 +112,6 @@ describe("mergeConfig", () => {
     expect(merged.hasDismissedWelcome).toBe(true);
   });
 
-  it("starts with no custom prompt templates and preserves saved custom templates", () => {
-    const merged = mergeConfig({
-      customPromptTemplates: [
-        {
-          id: "custom-local",
-          title: "Local template",
-          category: "portrait",
-          prompt: "A local custom prompt template saved by the current user.",
-          source: "custom",
-          createdAt: "2026-05-05T00:00:00.000Z",
-        },
-      ],
-    });
-
-    expect(DEFAULT_CONFIG.customPromptTemplates).toEqual([]);
-    expect(merged.customPromptTemplates).toHaveLength(1);
-    expect(merged.customPromptTemplates[0].id).toBe("custom-local");
-  });
-
   it("does not let undefined partial values wipe defaults", () => {
     const merged = mergeConfig({
       baseUrl: undefined,
@@ -138,7 +119,6 @@ describe("mergeConfig", () => {
       timeoutSeconds: undefined,
       uiLanguage: undefined,
       hasDismissedWelcome: undefined,
-      customPromptTemplates: undefined,
     } as Partial<AppConfig>);
 
     expect(merged.baseUrl).toBe(DEFAULT_CONFIG.baseUrl);
@@ -146,7 +126,6 @@ describe("mergeConfig", () => {
     expect(merged.timeoutSeconds).toBe(DEFAULT_CONFIG.timeoutSeconds);
     expect(merged.uiLanguage).toBe(DEFAULT_CONFIG.uiLanguage);
     expect(merged.hasDismissedWelcome).toBe(DEFAULT_CONFIG.hasDismissedWelcome);
-    expect(merged.customPromptTemplates).toEqual(DEFAULT_CONFIG.customPromptTemplates);
   });
 
   it("returns a config that validateConfig can handle even with undefined-like partial input", () => {
@@ -165,5 +144,29 @@ describe("mergeConfig", () => {
     expect(mergeConfig({ defaultCompression: undefined } as Partial<AppConfig>).defaultCompression).toBe(
       DEFAULT_CONFIG.defaultCompression,
     );
+  });
+
+  it("includes local batch generation defaults", () => {
+    expect(DEFAULT_CONFIG.batchDefaultConcurrency).toBe(1);
+    expect(DEFAULT_CONFIG.batchDefaultIntervalSeconds).toBe(20);
+    expect(DEFAULT_CONFIG.batchDefaultMaxRetries).toBe(1);
+    expect(DEFAULT_CONFIG.batchLastSplitTemplateId).toBe("basic");
+    expect(DEFAULT_CONFIG.batchCustomSplitSystemPrompt).toBe("");
+  });
+
+  it("normalizes invalid batch settings while merging config", () => {
+    const merged = mergeConfig({
+      batchDefaultConcurrency: 10,
+      batchDefaultIntervalSeconds: -1,
+      batchDefaultMaxRetries: 6,
+      batchLastSplitTemplateId: 123 as never,
+      batchCustomSplitSystemPrompt: 100 as never,
+    });
+
+    expect(merged.batchDefaultConcurrency).toBe(3);
+    expect(merged.batchDefaultIntervalSeconds).toBe(0);
+    expect(merged.batchDefaultMaxRetries).toBe(3);
+    expect(merged.batchLastSplitTemplateId).toBe("basic");
+    expect(merged.batchCustomSplitSystemPrompt).toBe("");
   });
 });

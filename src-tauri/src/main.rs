@@ -1,3 +1,3 @@
 fn main() {
-    gpt_image_2_studio_lib::run();
+    chat_to_image_lib::run();
 }

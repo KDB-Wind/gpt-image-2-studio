@@ -301,31 +301,6 @@ describe("parseImageGenerationResponse", () => {
     ]);
   });
 
-  it("parses Responses API image generation output results", () => {
-    expect(
-      parseImageGenerationResponse({
-        output: [
-          {
-            type: "image_generation_call",
-            result: "cmVzcG9uc2VzLWltYWdl",
-            revised_prompt: "Responses prompt",
-          },
-        ],
-      }),
-    ).toEqual([
-      {
-        base64: "cmVzcG9uc2VzLWltYWdl",
-        revisedPrompt: "Responses prompt",
-      },
-    ]);
-  });
-
-  it("throws a clear error for empty image responses", () => {
-    expect(() => parseImageGenerationResponse({ data: [] })).toThrow(
-      "Image generation response did not contain any image data.",
-    );
-  });
-
   it("surfaces structured provider errors from 200 payloads", () => {
     expect(() =>
       parseImageGenerationResponse({
@@ -334,14 +309,6 @@ describe("parseImageGenerationResponse", () => {
         },
       }),
     ).toThrow("Upstream image worker returned no result.");
-  });
-
-  it("surfaces string provider errors from compatible relays", () => {
-    expect(() =>
-      parseImageGenerationResponse({
-        error: "openai_error",
-      }),
-    ).toThrow("openai_error");
   });
 });
 
