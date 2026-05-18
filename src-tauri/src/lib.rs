@@ -13,6 +13,7 @@ pub fn run() {
             storage::load_config,
             storage::save_config,
             storage::load_history,
+            storage::delete_history_records,
             storage::save_generated_image,
             storage::save_batch_image,
             storage::save_batch_manifest,

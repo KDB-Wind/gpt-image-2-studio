@@ -1,4 +1,5 @@
 import type { UiLanguage } from "../core/config";
+import { classifyErrorForUser } from "../core/errorClassifier";
 
 export type { UiLanguage } from "../core/config";
 
@@ -954,4 +955,35 @@ export function isSupportedLanguage(value: unknown): value is UiLanguage {
 
 export function getTranslations(language: UiLanguage): TranslationBundle {
   return translations[resolveLanguage(language)];
+}
+
+export function formatClassifiedError(error: unknown, language: UiLanguage): string {
+  const classified = classifyErrorForUser(error);
+  const detail = classified.technicalDetail;
+  const isChinese = resolveLanguage(language) === "zh-CN";
+
+  const messages: Record<typeof classified.kind, string> = isChinese
+    ? {
+        auth: "认证失败：请检查 API key、Base URL 和模型名称。不要反复重试，这通常不会产生有效图片。",
+        provider:
+          "模型供应商异常：请求已到达模型供应商或中转站，但上游返回异常。再次调用可能仍然产生费用，建议等待供应商恢复后再手动重试。",
+        timeout: "请求超时：图片生成耗时较长，可以增加超时时间后再尝试。",
+        "empty-image":
+          "模型供应商异常：接口返回成功但没有图片数据。这类空图片响应可能已经产生调用成本，建议等待供应商恢复后再重试。",
+        network: "网络连接失败：请检查 Base URL、网络连接或浏览器跨域限制。系统不会自动重试。",
+        unknown: "生成失败：无法明确判断错误类型。请检查配置和供应商状态，谨慎重试。",
+      }
+    : {
+        auth: "Authentication failed: check your API key, Base URL, and model names. Do not retry repeatedly because this usually will not generate an image.",
+        provider:
+          "Provider error: the request reached the provider or relay, but the upstream service returned an abnormal response. Retrying may still incur cost, so wait for recovery before manually retrying.",
+        timeout: "The request timed out. Image generation can take a long time; increase the timeout before trying again.",
+        "empty-image":
+          "The provider returned no image data. This abnormal empty response may still incur cost, so wait for provider recovery before retrying.",
+        network:
+          "Network error: check the Base URL, network connection, or browser CORS limits. The app will not retry automatically.",
+        unknown: "Generation failed and the error type is unclear. Check your settings and provider status before retrying.",
+      };
+
+  return `${messages[classified.kind]} ${detail}`;
 }

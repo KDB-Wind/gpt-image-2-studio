@@ -17,6 +17,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
+    "release:check": "vitest run scripts/release-readiness.test.mjs && node scripts/release-readiness.mjs",
     "platform:test": "vitest run packages apps",
     "platform:check-env": "tsx apps/api/src/checkProductionEnvCli.ts",
     "api:dev": "tsx apps/api/src/server.ts",

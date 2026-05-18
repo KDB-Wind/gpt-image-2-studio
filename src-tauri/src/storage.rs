@@ -550,6 +550,19 @@ pub fn load_history() -> Result<Vec<ImageRecord>, String> {
 }
 
 #[tauri::command]
+pub fn delete_history_records(record_ids: Vec<String>) -> Result<Vec<ImageRecord>, String> {
+    let path = history_path()?;
+    let record_id_set: HashSet<String> = record_ids.into_iter().collect();
+    let mut history = load_history_for_save(&path)?
+        .into_iter()
+        .filter(|record| !record_id_set.contains(&record.id))
+        .collect::<Vec<_>>();
+    sort_history(&mut history);
+    write_json(&path, &history)?;
+    Ok(history)
+}
+
+#[tauri::command]
 pub fn save_generated_image(input: SaveGeneratedImageInput) -> Result<SaveImageResult, String> {
     let _save_guard = SAVE_IMAGE_LOCK
         .get_or_init(|| Mutex::new(()))

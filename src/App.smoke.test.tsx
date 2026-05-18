@@ -36,9 +36,12 @@ function createMockRuntime(config: Partial<AppConfig> = {}): RuntimeAdapter {
     saveImage: async () => {
       throw new Error("saveImage is not used in smoke tests.");
     },
+    saveBatchImage: async () => {
+      throw new Error("saveBatchImage is not used in smoke tests.");
+    },
+    saveBatchManifest: async () => "manifest.json",
     chooseOutputDirectory: async () => null,
     openOutputPath: async () => undefined,
-    openOutputDirectory: async () => undefined,
   };
 }
 
@@ -70,7 +73,7 @@ describe("App smoke", () => {
     runtimeMock.adapter = null;
   });
 
-  it("renders the core three-panel workspace with local runtime state", async () => {
+  it("renders the core workspace with local runtime state", async () => {
     await act(async () => {
       root.render(<App />);
     });
@@ -81,7 +84,7 @@ describe("App smoke", () => {
     expect(container.querySelector(".control-panel")).not.toBeNull();
     expect(container.querySelector(".preview-panel")).not.toBeNull();
     expect(container.querySelector(".history-panel")).not.toBeNull();
-    expect(container.querySelectorAll(".tab-button")).toHaveLength(3);
+    expect(container.querySelectorAll(".tab-button")).toHaveLength(4);
     expect(container.querySelector(".modal-card.wide")).not.toBeNull();
   });
 

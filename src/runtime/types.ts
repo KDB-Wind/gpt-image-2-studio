@@ -23,6 +23,7 @@ export type RuntimeAdapter = {
   loadConfig(): Promise<AppConfig>;
   saveConfig(config: AppConfig): Promise<void>;
   loadHistory(): Promise<ImageRecord[]>;
+  deleteHistoryRecords(recordIds: string[]): Promise<ImageRecord[]>;
   saveImage(input: SaveImageInput): Promise<SaveImageResult>;
   saveBatchImage(input: BatchImageSaveInput): Promise<BatchImageSaveResult>;
   saveBatchManifest(manifest: BatchManifest): Promise<string>;

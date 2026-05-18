@@ -108,6 +108,10 @@ export const tauriAdapter: RuntimeAdapter = {
     return invoke<ImageRecord[]>("load_history");
   },
 
+  deleteHistoryRecords(recordIds: string[]) {
+    return invoke<ImageRecord[]>("delete_history_records", { recordIds });
+  },
+
   async saveImage(input: SaveImageInput): Promise<SaveImageResult> {
     const result = await invoke<SaveImageResult>("save_generated_image", {
       input: await createPayload(input),
