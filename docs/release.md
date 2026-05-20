@@ -61,9 +61,9 @@ Tauri Windows 配置要求：
 2. 创建版本 tag，例如：
 
 ```powershell
-git tag v0.1.2
+git tag v0.1.3
 git push origin main
-git push origin v0.1.2
+git push origin v0.1.3
 ```
 
 3. 等待 `.github/workflows/release.yml` 完成。
@@ -79,7 +79,7 @@ Windows PowerShell：
 
 ```powershell
 Get-FileHash .\gpt-image-2-studio-lite.html -Algorithm SHA256
-Get-FileHash .\GPT-Image-2-Studio_0.1.2_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\GPT-Image-2-Studio_0.1.3_x64-setup.exe -Algorithm SHA256
 Get-Content .\SHA256SUMS.txt
 ```
 
