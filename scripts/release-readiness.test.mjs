@@ -45,14 +45,14 @@ jobs:
             SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
-          body_path: docs/release-notes/v0.1.1.md
+          body_path: docs/release-notes/v0.1.2.md
           files: |
             src-tauri/target/release/bundle/nsis/*.exe
             dist-static/gpt-image-2-studio-lite.html
             SHA256SUMS.txt
 `;
 
-    expect(checkReleaseWorkflow(workflow)).toEqual([]);
+    expect(checkReleaseWorkflow(workflow, "0.1.2")).toEqual([]);
   });
 
   it("requires checksums and bounded artifact retention for installer releases", () => {
@@ -80,12 +80,12 @@ jobs:
       - uses: actions/upload-artifact@v4
       - uses: softprops/action-gh-release@v2
         with:
-          body_path: docs/release-notes/v0.1.1.md
+          body_path: docs/release-notes/v0.1.2.md
           files: |
             src-tauri/target/release/bundle/nsis/*.exe
 `;
 
-    expect(checkReleaseWorkflow(workflow)).toEqual(
+    expect(checkReleaseWorkflow(workflow, "0.1.2")).toEqual(
       expect.arrayContaining([
         "Release workflow must generate SHA256SUMS.txt for Windows installer assets.",
         "Release workflow must build the single-file HTML release asset.",

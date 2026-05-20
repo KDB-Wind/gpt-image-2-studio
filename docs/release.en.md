@@ -61,9 +61,9 @@ This produces a normal-user `setup.exe`.
 2. Create and push a version tag:
 
 ```powershell
-git tag v0.1.1
+git tag v0.1.2
 git push origin main
-git push origin v0.1.1
+git push origin v0.1.2
 ```
 
 3. Wait for `.github/workflows/release.yml`.
@@ -77,7 +77,7 @@ You can also trigger the Release workflow manually from GitHub Actions and provi
 
 ```powershell
 Get-FileHash .\gpt-image-2-studio-lite.html -Algorithm SHA256
-Get-FileHash .\GPT-Image-2-Studio_0.1.1_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\GPT-Image-2-Studio_0.1.2_x64-setup.exe -Algorithm SHA256
 Get-Content .\SHA256SUMS.txt
 ```
 

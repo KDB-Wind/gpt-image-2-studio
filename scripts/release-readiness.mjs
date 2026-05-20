@@ -78,7 +78,15 @@ export function findSensitivePatterns(filesByPath) {
   return findings;
 }
 
-export function checkReleaseWorkflow(workflowText) {
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function checkReleaseWorkflow(workflowText, releaseVersion) {
+  const releaseNotesPathPattern = new RegExp(
+    `body_path:\\s*docs\\/release-notes\\/v${escapeRegExp(releaseVersion)}\\.md`,
+  );
+
   const checks = [
     [/v\*\.\*\.\*/, "Release workflow must trigger on v*.*.* tags."],
     [/workflow_dispatch:/, "Release workflow must support manual dispatch."],
@@ -99,7 +107,7 @@ export function checkReleaseWorkflow(workflowText) {
     [/actions\/upload-artifact@v4[\s\S]*path:\s*\|[\s\S]*SHA256SUMS\.txt/, "Release workflow must upload SHA256SUMS.txt as a workflow artifact."],
     [/actions\/upload-artifact@v4[\s\S]*retention-days:\s*\d+/, "Release workflow must set artifact retention-days for installer artifacts."],
     [/softprops\/action-gh-release@v2/, "Release workflow must create or update a GitHub Release."],
-    [/body_path:\s*docs\/release-notes\/v0\.1\.1\.md/, "Release workflow must use the v0.1.1 release notes body."],
+    [releaseNotesPathPattern, `Release workflow must use the v${releaseVersion} release notes body.`],
     [/softprops\/action-gh-release@v2[\s\S]*files:\s*\|[\s\S]*dist-static\/gpt-image-2-studio-lite\.html/, "Release workflow must attach the single-file HTML asset to the draft GitHub Release."],
     [/softprops\/action-gh-release@v2[\s\S]*files:\s*\|[\s\S]*SHA256SUMS\.txt/, "Release workflow must attach SHA256SUMS.txt to the draft GitHub Release."],
   ];
@@ -124,7 +132,7 @@ export function checkTauriWindowsBundleConfig(config) {
   return errors;
 }
 
-function checkPublicProjectDocs(rootDir) {
+function checkPublicProjectDocs(rootDir, releaseVersion) {
   const requiredFiles = [
     "README.md",
     "README.en.md",
@@ -134,7 +142,7 @@ function checkPublicProjectDocs(rootDir) {
     join("docs", "release.md"),
     join("docs", "release.en.md"),
     join("docs", "release-checklist.md"),
-    join("docs", "release-notes", "v0.1.1.md"),
+    join("docs", "release-notes", `v${releaseVersion}.md`),
     join("docs", "assets", "app-preview.svg"),
     join(".github", "ISSUE_TEMPLATE", "bug_report.yml"),
     join(".github", "ISSUE_TEMPLATE", "feature_request.yml"),
@@ -150,11 +158,13 @@ export function runReleaseReadiness(rootDir) {
   const releaseWorkflowPath = join(rootDir, ".github", "workflows", "release.yml");
   const ciWorkflowPath = join(rootDir, ".github", "workflows", "ci.yml");
   const tauriConfigPath = join(rootDir, "src-tauri", "tauri.conf.json");
+  const packageJsonPath = join(rootDir, "package.json");
+  const releaseVersion = readJson(packageJsonPath).version;
 
   if (!existsSync(releaseWorkflowPath)) {
     errors.push(".github/workflows/release.yml is missing.");
   } else {
-    errors.push(...checkReleaseWorkflow(readText(releaseWorkflowPath)));
+    errors.push(...checkReleaseWorkflow(readText(releaseWorkflowPath), releaseVersion));
   }
 
   if (!existsSync(ciWorkflowPath)) {
@@ -167,7 +177,7 @@ export function runReleaseReadiness(rootDir) {
     errors.push(...checkTauriWindowsBundleConfig(readJson(tauriConfigPath)));
   }
 
-  errors.push(...checkPublicProjectDocs(rootDir));
+  errors.push(...checkPublicProjectDocs(rootDir, releaseVersion));
   errors.push(...findSensitivePatterns(readCandidateFiles(rootDir)));
 
   return errors;
