@@ -1,8 +1,0 @@
-/opt/chat-to-image/shared/logs/*.log {
-  daily
-  rotate 14
-  compress
-  missingok
-  notifempty
-  copytruncate
-}

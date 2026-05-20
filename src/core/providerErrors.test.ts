@@ -180,6 +180,22 @@ describe("classifyProviderError", () => {
       userChargeable: false,
     });
   });
+
+  it("treats new-api upstream failures as cost-risk provider errors", () => {
+    expect(
+      classifyProviderError({
+        status: 500,
+        responseBody:
+          '{"error":{"message":"upstream error: do request failed","type":"new_api_error","code":"do_request_failed"}}',
+      }),
+    ).toMatchObject({
+      category: "cost_risk",
+      shouldOpenProviderCircuit: true,
+      shouldCooldownApiKey: true,
+      shouldDisableApiKey: false,
+      userChargeable: false,
+    });
+  });
 });
 
 describe("isCostRiskProviderError", () => {

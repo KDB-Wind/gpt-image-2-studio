@@ -29,10 +29,11 @@ jobs:
       - run: npm run release:check
       - run: npm run test:run
       - run: npm run build
+      - run: npm run build:static
       - run: npm run desktop:build
       - name: Generate installer checksums
         run: |
-          Get-FileHash src-tauri/target/release/bundle/nsis/*.exe -Algorithm SHA256 |
+          Get-FileHash src-tauri/target/release/bundle/nsis/*.exe, dist-static/gpt-image-2-studio-lite.html -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash.ToLowerInvariant())  $([System.IO.Path]::GetFileName($_.Path))" } |
             Set-Content SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
@@ -40,12 +41,14 @@ jobs:
           retention-days: 30
           path: |
             src-tauri/target/release/bundle/nsis/*.exe
+            dist-static/gpt-image-2-studio-lite.html
             SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
           body_path: docs/release-notes/v0.1.1.md
           files: |
             src-tauri/target/release/bundle/nsis/*.exe
+            dist-static/gpt-image-2-studio-lite.html
             SHA256SUMS.txt
 `;
 
@@ -85,6 +88,9 @@ jobs:
     expect(checkReleaseWorkflow(workflow)).toEqual(
       expect.arrayContaining([
         "Release workflow must generate SHA256SUMS.txt for Windows installer assets.",
+        "Release workflow must build the single-file HTML release asset.",
+        "Release workflow must upload the single-file HTML release asset.",
+        "Release workflow must attach the single-file HTML asset to the draft GitHub Release.",
         "Release workflow must upload SHA256SUMS.txt as a workflow artifact.",
         "Release workflow must attach SHA256SUMS.txt to the draft GitHub Release.",
         "Release workflow must set artifact retention-days for installer artifacts.",

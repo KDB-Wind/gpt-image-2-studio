@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = resolve(rootDir, "dist-static");
 const htmlPath = resolve(distDir, "index.html");
+const releaseHtmlPath = resolve(distDir, "gpt-image-2-studio-lite.html");
 const viteHtmlPath = existsSync(htmlPath) ? htmlPath : resolve(distDir, "index.static.html");
 
 if (!existsSync(viteHtmlPath)) {
@@ -41,3 +42,4 @@ html = html.replace(
 );
 
 writeFileSync(htmlPath, html, "utf8");
+writeFileSync(releaseHtmlPath, html, "utf8");

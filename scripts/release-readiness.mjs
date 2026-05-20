@@ -91,13 +91,16 @@ export function checkReleaseWorkflow(workflowText) {
     [/npm run release:check/, "Release workflow must run the release readiness check."],
     [/npm run test:run/, "Release workflow must run tests before packaging."],
     [/npm run build/, "Release workflow must build the frontend before packaging."],
+    [/npm run build:static/, "Release workflow must build the single-file HTML release asset."],
     [/npm run desktop:build/, "Release workflow must build Tauri desktop bundles."],
     [/Get-FileHash[\s\S]*SHA256SUMS\.txt/, "Release workflow must generate SHA256SUMS.txt for Windows installer assets."],
     [/actions\/upload-artifact@v4/, "Release workflow must upload installer artifacts."],
+    [/actions\/upload-artifact@v4[\s\S]*path:\s*\|[\s\S]*dist-static\/gpt-image-2-studio-lite\.html/, "Release workflow must upload the single-file HTML release asset."],
     [/actions\/upload-artifact@v4[\s\S]*path:\s*\|[\s\S]*SHA256SUMS\.txt/, "Release workflow must upload SHA256SUMS.txt as a workflow artifact."],
     [/actions\/upload-artifact@v4[\s\S]*retention-days:\s*\d+/, "Release workflow must set artifact retention-days for installer artifacts."],
     [/softprops\/action-gh-release@v2/, "Release workflow must create or update a GitHub Release."],
     [/body_path:\s*docs\/release-notes\/v0\.1\.1\.md/, "Release workflow must use the v0.1.1 release notes body."],
+    [/softprops\/action-gh-release@v2[\s\S]*files:\s*\|[\s\S]*dist-static\/gpt-image-2-studio-lite\.html/, "Release workflow must attach the single-file HTML asset to the draft GitHub Release."],
     [/softprops\/action-gh-release@v2[\s\S]*files:\s*\|[\s\S]*SHA256SUMS\.txt/, "Release workflow must attach SHA256SUMS.txt to the draft GitHub Release."],
   ];
 

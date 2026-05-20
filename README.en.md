@@ -1,26 +1,35 @@
 # GPT-Image-2 Studio
 
-[简体中文](./README.md) | [English](./README.en.md)
+[简体中文](./README.md) | English
 
 [![CI](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/ci.yml)
 [![Release](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/release.yml/badge.svg)](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
-A lightweight, local-first tool for `gpt-image-2`, with text-to-image, image-to-image, multi-image references, prompt templates, history, and Windows desktop installer support.
+GPT-Image-2 Studio is a lightweight, local-first tool for calling `gpt-image-2`. Configure your own `API key`, `Base URL`, text model, and image model, then use text-to-image, image-to-image, multi-image references, and batch generation.
 
 ![GPT-Image-2 Studio bright UI preview](./docs/assets/app-preview.svg)
 
-## Install For Normal Users
+## Fastest Start: Single-File HTML
 
-Normal users do not need to install Node.js, npm, or Rust.
+Normal users do not need Node.js and do not need to run `npm run dev`.
 
-1. Open [Releases](https://github.com/KDB-Wind/gpt-image-2-studio/releases).
-2. Download the latest `setup.exe`.
-3. Install and open the app.
-4. Fill in your own `API key`, `Base URL`, text model, image model, and output directory in Settings.
-5. Save the settings and start generating images.
+1. Open [GitHub Releases](https://github.com/KDB-Wind/gpt-image-2-studio/releases).
+2. Download the latest `gpt-image-2-studio-lite.html` Release asset.
+3. Double-click the HTML file and open it with Edge or Chrome.
+4. Open Settings and fill in your own `API key`, `Base URL`, text model, image model, and timeout.
+5. Save settings and start generating images.
 
-If Windows shows a SmartScreen warning, it is because the first public version is not code-signed yet. Download installers only from this repository's Release page.
+Do not download the repository root `index.html` from the GitHub source file list. That file is only the Vite source entry and cannot run by itself. The directly usable file is the Release asset named `gpt-image-2-studio-lite.html`.
+
+Maintainers can build it with:
+
+```powershell
+npm install
+npm run build:static
+```
+
+The output is `dist-static/gpt-image-2-studio-lite.html`.
 
 ## Recommended Relay
 
@@ -28,127 +37,104 @@ If you need an OpenAI-compatible relay service, you can use the author's recomme
 
 [https://ruoli.dev/register?aff=mR35](https://ruoli.dev/register?aff=mR35)
 
-## Project Scope
-
-This public repository contains only the standalone basic tool, intended for personal local use and lightweight sharing.
-
-It does not include:
-
-- platform APIs
-- queue workers
-- payment flows
-- user registration and login
-- hosted key routing
-- platform-level provider circuit breaker and admin management
-
-Those parts belong to a separately maintained private platform codebase.
+Evaluate provider stability, pricing, and compliance yourself. This repository must not contain any real `API key`.
 
 ## Features
 
 - Chinese UI by default, with `简体中文 / English` switching.
-- Configurable `API key`, `Base URL`, text model, image model, timeout, and output directory.
-- Text-to-image and image-to-image generation.
+- Local settings for `API key`, `Base URL`, model names, timeout, and image defaults.
+- Text-to-image, image-to-image, and multi-image references.
 - Up to 8 reference images, with 4 or fewer recommended.
-- Drag-and-drop multi-image upload.
+- Drag-and-drop image upload.
 - Image size, quality, format, and compression options.
-- Built-in minimal connectivity tests for text, text-to-image, and image-to-image.
-- Built-in local prompt templates and custom templates.
-- Local history with search, filters, and batch deletion.
-- Date-based local image saving.
-- Tauri Windows desktop packaging support.
+- Batch generation: same prompt variants, multi-line prompt queue, and AI split from one master task.
+- Batch interval, limited concurrency, failed-task retry, and cost-risk pause.
+- Local history with search, filters, and bulk deletion.
+- Windows desktop installer support.
 
-## Default Settings
+The current prompt-template feature is not a core capability and may be removed and redesigned later.
 
-- `Base URL`: `https://ruoli.dev/v1`
-- `Text model`: `gpt-5.4-mini`
-- `Image model`: `gpt-image-2`
-- `API key`: blank by default
-- `Timeout`: at least `180` seconds is recommended
-- `Output directory`: `outputs`
+## Project Scope
 
-## Security Notes
+This public repository contains only the standalone local basic tool for personal use and lightweight open-source distribution.
 
-- `API key` is not stored in the repository.
-- Web settings are stored in browser local storage.
-- The desktop app prefers system secure storage and falls back to a local config file only when secure storage is unavailable.
-- Real `.env` files are ignored and not tracked.
-- This public repository is a clean snapshot exported from a private multi-product codebase, so unrelated platform history is not exposed.
+It does not include:
 
-If you exposed a real `API key` somewhere else before, rotate it first.
+- user registration, login, credits, or redemption codes
+- hosted `API key` routing
+- payment flows
+- admin dashboard
+- server queues, health monitoring, or provider scheduling
+- server-side image storage
+
+Those capabilities belong to a private platform edition and are not included in the current public code tree.
 
 ## Local Development
 
-Requirements:
-
-- Node.js `>= 20.19.0`
-- npm `>= 10`
-- Rust toolchain is required only if you build the Tauri desktop version
-
-Install dependencies:
+For developers:
 
 ```powershell
 npm install
-```
-
-Start the web version:
-
-```powershell
 npm run dev
 ```
 
-Build the web app:
+Then open the address shown by Vite, usually:
 
-```powershell
-npm run build
+```text
+http://localhost:5173/
 ```
 
-Run tests:
+## Common Commands
 
 ```powershell
 npm run test:run
+npm run build
+npm run build:static
 ```
 
-If you want npm cache and downloads on `D:`:
-
-```powershell
-$env:npm_config_cache = "D:\npm-cache"
-npm install
-```
-
-## Desktop Development
-
-Run the desktop app in development:
+Desktop development:
 
 ```powershell
 npm run desktop:dev
 ```
 
-Build the desktop package:
+Desktop packaging:
 
 ```powershell
 npm run desktop:build
 ```
 
-## Releasing Installers
+## Releases
 
-This repository includes a GitHub Actions release chain. When a `v*.*.*` tag is pushed, the workflow builds Tauri Windows installers and creates a draft GitHub Release.
+The release chain produces two user-facing assets:
 
-Normal users should download the `setup.exe` installer first. Source-based usage is recommended for developers only.
+- `gpt-image-2-studio-lite.html`: single-file HTML that opens directly in a browser.
+- Windows `setup.exe`: desktop installer for longer-term local use.
 
-Local pre-release check:
+Maintainer pre-release checks:
 
 ```powershell
 npm run release:check
+npm run test:run
+npm run build
+npm run build:static
 ```
 
-See [docs/release.en.md](./docs/release.en.md) for the full process, [docs/release-notes/v0.1.1.md](./docs/release-notes/v0.1.1.md) for the current release text, and [docs/release-checklist.md](./docs/release-checklist.md) for the manual QA checklist.
+See [docs/release.en.md](./docs/release.en.md) for the full release process.
 
-## Contributing And Feedback
+## Documentation
 
-- Read [FAQ](./docs/faq.md) before opening an issue.
-- Read [CONTRIBUTING.md](./CONTRIBUTING.md) before contributing code.
-- Read [SECURITY.md](./SECURITY.md) for security reports.
+- [单文件 HTML 使用指南（中文）](./docs/user-guide-static-html.zh-CN.md)
+- [Static HTML User Guide (English)](./docs/user-guide-static-html.en-US.md)
+- [基础工具版使用指南（中文）](./docs/user-guide-basic-tool.zh-CN.md)
+- [Basic Tool User Guide (English)](./docs/user-guide-basic-tool.en-US.md)
+- [FAQ](./docs/faq.md)
+- [Release Guide](./docs/release.en.md)
+- [Roadmap](./docs/roadmap.md)
 
-## Roadmap
+## Security
 
-The remaining work is tracked in [docs/roadmap.md](./docs/roadmap.md).
+- Do not commit real `API key` values.
+- The single-file HTML and source web modes store settings in browser local storage.
+- The desktop app uses local app configuration and local save paths.
+- Do not save keys on shared computers.

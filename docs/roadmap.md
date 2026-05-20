@@ -1,37 +1,39 @@
-# 后续工作记录
+# 路线图
 
-本文档记录 `GPT-Image-2 Studio` 公开轻量工具版的后续优化事项。平台注册、积分、支付、队列、托管 Key、供应商熔断和服务器图片存储不放入本仓库路线图。
+本文只记录公开本地基础工具版的后续工作。平台版、平台部署、托管 Key、注册登录、积分和管理员后台暂不进入本公开仓库路线图。
 
 ## 已完成
 
-- P0 自动发布链路：Windows `setup.exe` Release workflow、离线 WebView2 安装模式、首版 Release 文案、人工验收清单。
-- P0 README 门面：badges、界面预览、普通用户安装说明、推荐中转站链接。
-- P1 开源项目门面：`CONTRIBUTING.md`、`SECURITY.md`、FAQ、GitHub issue templates。
-- P2 工具版体验优化：错误解释、历史搜索过滤、批量删除、输出目录快捷打开、提示词模板、自定义模板。
-- P3 发布链路增强：安装包 `SHA256SUMS.txt`、Release 附件、workflow artifact 上传、artifact `30` 天保留策略、release readiness 校验。
-- P4 质量与兼容性：Vitest/jsdom UI smoke tests、窄屏 CSS smoke tests、更多 OpenAI-compatible 图片响应解析测试。
+- 明亮中文界面和中英文切换。
+- 文生图、图生图、多图参考和拖拽上传。
+- 批量生图：同一提示词多张、多行提示词、AI 拆分主任务。
+- 批量任务本地草稿持久化。
+- 本地历史记录、搜索、过滤和批量删除。
+- 单文件 HTML 构建链路。
+- Windows `setup.exe` Release 链路。
+- Release 校验和基础安全扫描。
 
-## P0 剩余人工动作
+## 近期优先级
 
-- 推送 `v0.1.1` tag 后，等待 GitHub Actions 生成草稿 Release。
-- 从草稿 Release 下载 `setup.exe` 和 `SHA256SUMS.txt`，按 [release-checklist.md](./release-checklist.md) 做一次干净 Windows 环境验收。
-- 验收通过后，在 GitHub Releases 页面手动发布正式 Release。
+- 优化提示词模板：当前实现不是核心能力，后续可能移除后重做独立菜单。
+- 完善单文件 HTML 文档和 Release 下载指引。
+- 增强不同 OpenAI-compatible 供应商的返回格式兼容。
+- 增加更多批量任务手动验收用例。
+- 继续降低普通用户首次使用门槛。
 
-## 后续可选优化
+## 暂缓
 
-- 增加 `.msi` 产物链路，但需要单独设计 QA 清单。
-- 增加代码签名，降低 Windows SmartScreen 对普通用户的拦截概率。
-- 增加自动更新，但需要先明确签名、发布通道和回滚策略。
-- 如果 UI smoke test 不足以捕捉真实布局问题，再评估引入 Playwright；当前为了保持仓库轻量，暂不下载浏览器运行时。
-- 增加更多供应商兼容测试样本，但不在公开工具版内实现供应商熔断或托管 Key 分发。
+- `.msi` 安装包。
+- 代码签名。
+- 自动更新。
+- 浏览器端代理服务。
 
-## 暂不纳入公开工具版
+## 不纳入公开基础工具版
 
 - 用户注册和登录。
 - 平台托管 `API key`。
-- 积分、充值、支付审核。
-- 平台任务队列和管理员后台。
-- 平台级供应商熔断与健康探测。
-- 服务器端图片存储。
-
-这些能力属于私有平台版，应在 `chatToImage` 主项目中继续维护。
+- 积分、充值、支付或兑换码。
+- 管理员后台。
+- 服务端任务队列。
+- 服务端图片存储。
+- 平台级供应商调度和健康监控。
