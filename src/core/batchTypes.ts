@@ -2,7 +2,7 @@ import type { ParsedImage } from "./apiClient";
 import type { AppConfig } from "./config";
 import type { ImageRecord } from "./history";
 
-export type BatchSource = "same-prompt" | "multi-line" | "ai-split";
+export type BatchSource = "same-prompt" | "custom-prompts";
 export type BatchStatus = "draft" | "running" | "paused" | "cancelled" | "completed";
 export type BatchTaskStatus = "pending" | "running" | "succeeded" | "failed" | "skipped";
 export type BatchFailureCategory =
@@ -126,12 +126,24 @@ export const DEFAULT_BATCH_EXECUTION_CONFIG: BatchExecutionConfig = {
   maxRetries: 1,
 };
 
+export const DEFAULT_BATCH_TASK_COUNT = 5;
+export const MAX_BATCH_TASK_COUNT = 20;
+export const MAX_BATCH_CONCURRENCY = 10;
+
 export function clampBatchExecutionConfig(value: Partial<BatchExecutionConfig>): BatchExecutionConfig {
   return {
-    concurrency: clampInteger(value.concurrency, 1, 3, DEFAULT_BATCH_EXECUTION_CONFIG.concurrency),
+    concurrency: clampBatchConcurrency(value.concurrency),
     intervalSeconds: clampInteger(value.intervalSeconds, 0, 300, DEFAULT_BATCH_EXECUTION_CONFIG.intervalSeconds),
     maxRetries: clampInteger(value.maxRetries, 0, 3, DEFAULT_BATCH_EXECUTION_CONFIG.maxRetries),
   };
+}
+
+export function clampBatchConcurrency(value: unknown, fallback = DEFAULT_BATCH_EXECUTION_CONFIG.concurrency): number {
+  return clampInteger(value, 1, MAX_BATCH_CONCURRENCY, fallback);
+}
+
+export function clampBatchTaskCount(value: unknown, fallback = DEFAULT_BATCH_TASK_COUNT): number {
+  return clampInteger(value, 1, MAX_BATCH_TASK_COUNT, fallback);
 }
 
 export function createBatchId(isoTimestamp = new Date().toISOString()): string {

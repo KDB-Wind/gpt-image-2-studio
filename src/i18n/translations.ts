@@ -30,23 +30,21 @@ type TranslationBundle = {
     defaultsNote: string;
     sources: {
       samePrompt: string;
-      multiline: string;
-      aiSplit: string;
+      customPrompts: string;
     };
     fields: {
       batchTitle: string;
       taskCount: string;
-      multilinePrompts: string;
+      customPrompt: (index: number) => string;
       masterPrompt: string;
-      splitTemplate: string;
-      customSystemPrompt: string;
       concurrency: string;
       intervalSeconds: string;
       maxRetries: string;
     };
     actions: {
       createTasks: string;
-      splitWithAi: string;
+      addPrompt: string;
+      removePrompt: string;
       start: string;
       pause: string;
       continue: string;
@@ -69,17 +67,10 @@ type TranslationBundle = {
     };
     messages: {
       promptRequired: string;
-      splitSuccess: (count: number) => string;
-      splitFailed: (detail: string) => string;
+      maxTaskCountWarning: (max: number) => string;
       batchComplete: (success: number, failed: number, skipped: number) => string;
       costRiskPaused: string;
       authPaused: string;
-    };
-    templates: {
-      basicSplit: string;
-      styleConsistentSplit: string;
-      seriesSplit: string;
-      customSplit: string;
     };
   };
   modes: {
@@ -325,28 +316,26 @@ const translations: Record<UiLanguage, TranslationBundle> = {
     },
     batch: {
       title: "批量生图",
-      description: "把一个主任务拆成多条提示词，或手动导入多行提示词，再按可控节奏逐张生成。",
+      description: "支持同一提示词生成多张，也支持一次填写多条不同提示词，再按可控节奏逐张生成。",
       emptyTasks: "先生成任务列表，再逐条微调提示词并开始批量生图。",
-      defaultsNote: "批量并发、间隔和重试次数会跟随配置保存；修改后请到“设置”页保存配置。",
+      defaultsNote: "任务数量、并发、间隔和重试次数会跟随配置保存；修改后请到“设置”页保存配置。",
       sources: {
         samePrompt: "同一提示词生成多张",
-        multiline: "多行提示词排队",
-        aiSplit: "AI 拆分",
+        customPrompts: "自定义多条提示词",
       },
       fields: {
         batchTitle: "批次名称",
         taskCount: "任务数量",
-        multilinePrompts: "多行提示词",
+        customPrompt: (index) => `提示词 ${index}`,
         masterPrompt: "主任务",
-        splitTemplate: "拆分模板",
-        customSystemPrompt: "自定义 systemPrompt",
         concurrency: "并发数",
         intervalSeconds: "间隔秒数",
         maxRetries: "失败重试次数",
       },
       actions: {
         createTasks: "生成任务列表",
-        splitWithAi: "调用文字模型拆分",
+        addPrompt: "添加提示词",
+        removePrompt: "删除",
         start: "开始批量生成",
         pause: "暂停",
         continue: "继续",
@@ -369,17 +358,10 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       },
       messages: {
         promptRequired: "请先输入提示词或主任务。",
-        splitSuccess: (count) => `已拆分出 ${count} 条子提示词，可继续微调后再执行。`,
-        splitFailed: (detail) => `AI 拆分失败。${detail}`,
+        maxTaskCountWarning: (max) => `一次最多建议 ${max} 个任务，数量过多可能触发供应商限流或失败，已自动限制为 ${max}。`,
         batchComplete: (success, failed, skipped) => `批量完成：成功 ${success}，失败 ${failed}，跳过 ${skipped}。`,
         costRiskPaused: "供应商返回可能已产生费用但没有图片的异常，批次已暂停。确认后再继续。",
         authPaused: "API key 或权限异常，批次已暂停。请先检查设置。",
-      },
-      templates: {
-        basicSplit: "基础拆分",
-        styleConsistentSplit: "统一风格增强",
-        seriesSplit: "系列作品拆分",
-        customSplit: "自定义 systemPrompt",
       },
     },
     modes: {
@@ -643,28 +625,26 @@ const translations: Record<UiLanguage, TranslationBundle> = {
     },
     batch: {
       title: "Batch generation",
-      description: "Split one master task into prompts, or import one prompt per line, then generate images at a controlled pace.",
+      description: "Repeat one prompt or fill multiple different prompts, then generate them at a controlled pace.",
       emptyTasks: "Create tasks first, then review each prompt before starting the batch.",
-      defaultsNote: "Batch concurrency, interval, and retry defaults are saved with Settings. Save settings after changing them.",
+      defaultsNote: "Task count, concurrency, interval, and retry defaults are saved with Settings. Save settings after changing them.",
       sources: {
         samePrompt: "Repeat one prompt",
-        multiline: "Queue multiline prompts",
-        aiSplit: "AI split",
+        customPrompts: "Custom multiple prompts",
       },
       fields: {
         batchTitle: "Batch title",
         taskCount: "Task count",
-        multilinePrompts: "Multiline prompts",
+        customPrompt: (index) => `Prompt ${index}`,
         masterPrompt: "Master task",
-        splitTemplate: "Split template",
-        customSystemPrompt: "Custom systemPrompt",
         concurrency: "Concurrency",
         intervalSeconds: "Interval seconds",
         maxRetries: "Max retries",
       },
       actions: {
         createTasks: "Create tasks",
-        splitWithAi: "Split with text model",
+        addPrompt: "Add prompt",
+        removePrompt: "Remove",
         start: "Start batch",
         pause: "Pause",
         continue: "Continue",
@@ -687,17 +667,11 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       },
       messages: {
         promptRequired: "Enter a prompt or master task first.",
-        splitSuccess: (count) => `${count} child prompts were created. You can edit them before running.`,
-        splitFailed: (detail) => `AI split failed. ${detail}`,
+        maxTaskCountWarning: (max) =>
+          `A batch is capped at ${max} tasks. Larger batches may hit provider rate limits or failures, so the count was capped at ${max}.`,
         batchComplete: (success, failed, skipped) => `Batch complete: ${success} succeeded, ${failed} failed, ${skipped} skipped.`,
         costRiskPaused: "The provider returned an error that may still have incurred cost but no image. The batch is paused until you confirm.",
         authPaused: "API key or permission failed. The batch is paused. Check Settings first.",
-      },
-      templates: {
-        basicSplit: "Basic split",
-        styleConsistentSplit: "Style-consistent split",
-        seriesSplit: "Series split",
-        customSplit: "Custom systemPrompt",
       },
     },
     modes: {

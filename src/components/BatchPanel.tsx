@@ -1,17 +1,19 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buildBatchManifest, summarizeBatchTasks } from "../core/batchManifest";
 import { notifyBatchComplete, restoreDocumentTitle, updateBatchDocumentTitle } from "../core/batchNotifications";
 import {
-  createTasksFromMultilinePrompts,
+  createTasksFromPromptList,
   createTasksFromRepeatedPrompt,
-  createTasksFromSplitResults,
   renumberBatchTasks,
 } from "../core/batchPlanner";
-import { splitPromptWithTextModel } from "../core/batchPromptSplitter";
 import { retrySingleBatchTask, runBatchTasks } from "../core/batchRunner";
 import {
+  MAX_BATCH_CONCURRENCY,
+  MAX_BATCH_TASK_COUNT,
   clampBatchExecutionConfig,
+  clampBatchConcurrency,
+  clampBatchTaskCount,
   createBatchId,
   type BatchExecutionConfig,
   type BatchSource,
@@ -52,10 +54,11 @@ export function BatchPanel({
   const [completedAt, setCompletedAt] = useState("");
   const [batchTitle, setBatchTitle] = useState("");
   const [masterPrompt, setMasterPrompt] = useState("");
-  const [multilinePrompts, setMultilinePrompts] = useState("");
-  const [taskCount, setTaskCount] = useState(10);
+  const [customPromptDrafts, setCustomPromptDrafts] = useState<string[]>(() =>
+    createEmptyPromptDrafts(config.batchDefaultTaskCount),
+  );
+  const [taskCount, setTaskCount] = useState(() => clampBatchTaskCount(config.batchDefaultTaskCount));
   const [tasks, setTasks] = useState<BatchTask[]>([]);
-  const [isSplitting, setIsSplitting] = useState(false);
   const [pauseMessage, setPauseMessage] = useState("");
   const cancelRef = useRef(false);
   const pauseRef = useRef(false);
@@ -74,6 +77,16 @@ export function BatchPanel({
   const isRunning = status === "running";
   const batchDisplayTitle = batchTitle.trim() || "batch-images";
 
+  useEffect(() => {
+    if (isRunning || tasks.length > 0) {
+      return;
+    }
+
+    const nextCount = clampBatchTaskCount(config.batchDefaultTaskCount);
+    setTaskCount(nextCount);
+    setCustomPromptDrafts((current) => resizePromptDrafts(current, nextCount));
+  }, [config.batchDefaultTaskCount, isRunning, tasks.length]);
+
   function resetBatchIdentity() {
     setBatchId(createBatchId());
     setBatchCreatedAt(new Date().toISOString());
@@ -89,36 +102,32 @@ export function BatchPanel({
       return;
     }
 
+    const nextCount = clampBatchTaskCount(config.batchDefaultTaskCount);
     resetBatchIdentity();
     setSource("same-prompt");
     setStatus("draft");
     setBatchTitle("");
     setMasterPrompt("");
-    setMultilinePrompts("");
-    setTaskCount(10);
+    setCustomPromptDrafts(createEmptyPromptDrafts(nextCount));
+    setTaskCount(nextCount);
     setTasks([]);
-    setIsSplitting(false);
+    setAppMessage("");
   }
 
   function handleCreateTasks() {
-    if (source === "ai-split") {
-      void handleSplitWithAi();
-      return;
-    }
-
-    if (source === "multi-line" && !multilinePrompts.trim()) {
+    if (source === "custom-prompts" && !customPromptDrafts.some((prompt) => prompt.trim())) {
       setAppMessage(copy.batch.messages.promptRequired);
       return;
     }
 
-    if (source !== "multi-line" && !masterPrompt.trim()) {
+    if (source !== "custom-prompts" && !masterPrompt.trim()) {
       setAppMessage(copy.batch.messages.promptRequired);
       return;
     }
 
     const nextTasks =
-      source === "multi-line"
-        ? createTasksFromMultilinePrompts(multilinePrompts)
+      source === "custom-prompts"
+        ? createTasksFromPromptList(customPromptDrafts)
         : createTasksFromRepeatedPrompt(masterPrompt, taskCount);
 
     if (nextTasks.length === 0) {
@@ -129,38 +138,42 @@ export function BatchPanel({
     resetBatchIdentity();
     setTasks(nextTasks);
     setStatus("draft");
+    setAppMessage("");
   }
 
-  async function handleSplitWithAi() {
-    if (!masterPrompt.trim()) {
-      setAppMessage(copy.batch.messages.promptRequired);
+  function updateTaskCount(rawValue: number) {
+    const nextCount = clampBatchTaskCount(rawValue);
+    if (rawValue > MAX_BATCH_TASK_COUNT) {
+      setAppMessage(copy.batch.messages.maxTaskCountWarning(MAX_BATCH_TASK_COUNT));
+    }
+
+    setTaskCount(nextCount);
+    onConfigChange("batchDefaultTaskCount", nextCount);
+    setCustomPromptDrafts((current) => resizePromptDrafts(current, nextCount));
+  }
+
+  function handleUpdateCustomPrompt(index: number, value: string) {
+    setCustomPromptDrafts((current) => current.map((prompt, itemIndex) => (itemIndex === index ? value : prompt)));
+  }
+
+  function handleAddCustomPrompt() {
+    if (customPromptDrafts.length >= MAX_BATCH_TASK_COUNT) {
+      setAppMessage(copy.batch.messages.maxTaskCountWarning(MAX_BATCH_TASK_COUNT));
       return;
     }
 
-    if (!requireValidConfig(copy.batch.actions.splitWithAi)) {
+    updateTaskCount(customPromptDrafts.length + 1);
+  }
+
+  function handleRemoveCustomPrompt(index: number) {
+    if (customPromptDrafts.length <= 1) {
       return;
     }
 
-    setIsSplitting(true);
-    try {
-      const items = await splitPromptWithTextModel({
-        config,
-        masterPrompt,
-        count: taskCount,
-        templateId: config.batchLastSplitTemplateId,
-        customSystemPrompt: config.batchCustomSplitSystemPrompt,
-      });
-      const nextTasks = createTasksFromSplitResults(items);
-      resetBatchIdentity();
-      setTasks(nextTasks);
-      setSource("ai-split");
-      setStatus("draft");
-      setAppMessage(copy.batch.messages.splitSuccess(nextTasks.length));
-    } catch (error) {
-      setAppMessage(copy.batch.messages.splitFailed(error instanceof Error ? error.message : "Unknown error"));
-    } finally {
-      setIsSplitting(false);
-    }
+    const nextDrafts = customPromptDrafts.filter((_, itemIndex) => itemIndex !== index);
+    setCustomPromptDrafts(nextDrafts);
+    setTaskCount(nextDrafts.length);
+    onConfigChange("batchDefaultTaskCount", nextDrafts.length);
   }
 
   function handleUpdateTask(id: string, patch: Partial<Pick<BatchTask, "title" | "prompt">>) {
@@ -235,6 +248,7 @@ export function BatchPanel({
     setCompletedAt("");
     setStatus("running");
     setPauseMessage("");
+    setAppMessage("");
 
     try {
       const result = await runBatchTasks({
@@ -330,8 +344,7 @@ export function BatchPanel({
       <div className="batch-source-grid">
         {([
           ["same-prompt", copy.batch.sources.samePrompt],
-          ["multi-line", copy.batch.sources.multiline],
-          ["ai-split", copy.batch.sources.aiSplit],
+          ["custom-prompts", copy.batch.sources.customPrompts],
         ] as const).map(([value, label]) => (
           <button
             key={value}
@@ -350,16 +363,30 @@ export function BatchPanel({
         <input value={batchTitle} disabled={isRunning} onChange={(event) => setBatchTitle(event.target.value)} />
       </label>
 
-      {source === "multi-line" ? (
-        <label className="field">
-          <span>{copy.batch.fields.multilinePrompts}</span>
-          <textarea
-            value={multilinePrompts}
-            rows={8}
-            disabled={isRunning}
-            onChange={(event) => setMultilinePrompts(event.target.value)}
-          />
-        </label>
+      {source === "custom-prompts" ? (
+        <div className="custom-prompt-list">
+          {customPromptDrafts.map((prompt, index) => (
+            <article key={index} className="custom-prompt-draft">
+              <label className="field">
+                <span>{copy.batch.fields.customPrompt(index + 1)}</span>
+                <textarea
+                  value={prompt}
+                  rows={3}
+                  disabled={isRunning}
+                  onChange={(event) => handleUpdateCustomPrompt(index, event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="ghost-button custom-prompt-remove"
+                onClick={() => handleRemoveCustomPrompt(index)}
+                disabled={isRunning || customPromptDrafts.length <= 1}
+              >
+                {copy.batch.actions.removePrompt}
+              </button>
+            </article>
+          ))}
+        </div>
       ) : (
         <label className="field">
           <span>{copy.batch.fields.masterPrompt}</span>
@@ -378,10 +405,10 @@ export function BatchPanel({
           <input
             type="number"
             min={1}
-            max={100}
+            max={MAX_BATCH_TASK_COUNT}
             value={taskCount}
             disabled={isRunning}
-            onChange={(event) => setTaskCount(Number(event.target.value) || 1)}
+            onChange={(event) => updateTaskCount(Number(event.target.value) || 1)}
           />
         </label>
         <label className="field">
@@ -389,10 +416,12 @@ export function BatchPanel({
           <input
             type="number"
             min={1}
-            max={3}
+            max={MAX_BATCH_CONCURRENCY}
             value={config.batchDefaultConcurrency}
             disabled={isRunning}
-            onChange={(event) => onConfigChange("batchDefaultConcurrency", Number(event.target.value) || 1)}
+            onChange={(event) =>
+              onConfigChange("batchDefaultConcurrency", clampBatchConcurrency(Number(event.target.value) || 1))
+            }
           />
         </label>
         <label className="field">
@@ -421,56 +450,15 @@ export function BatchPanel({
 
       <p className="panel-note">{copy.batch.defaultsNote}</p>
 
-      {source === "ai-split" ? (
-        <div className="form-stack">
-          <label className="field">
-            <span>{copy.batch.fields.splitTemplate}</span>
-            <select
-              value={config.batchLastSplitTemplateId}
-              disabled={isRunning}
-              onChange={(event) =>
-                onConfigChange("batchLastSplitTemplateId", event.target.value as AppConfig["batchLastSplitTemplateId"])
-              }
-            >
-              <option value="basic">{copy.batch.templates.basicSplit}</option>
-              <option value="style-consistent">{copy.batch.templates.styleConsistentSplit}</option>
-              <option value="series">{copy.batch.templates.seriesSplit}</option>
-              <option value="custom">{copy.batch.templates.customSplit}</option>
-            </select>
-          </label>
-
-          {config.batchLastSplitTemplateId === "custom" ? (
-            <label className="field">
-              <span>{copy.batch.fields.customSystemPrompt}</span>
-              <textarea
-                rows={5}
-                value={config.batchCustomSplitSystemPrompt}
-                disabled={isRunning}
-                onChange={(event) => onConfigChange("batchCustomSplitSystemPrompt", event.target.value)}
-              />
-            </label>
-          ) : null}
-        </div>
-      ) : null}
-
       <div className="action-row">
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={source === "ai-split" ? () => void handleSplitWithAi() : handleCreateTasks}
-          disabled={isRunning || (source === "ai-split" && isSplitting)}
-        >
-          {source === "ai-split"
-            ? isSplitting
-              ? copy.actions.optimizeBusy
-              : copy.batch.actions.splitWithAi
-            : copy.batch.actions.createTasks}
-        </button>
-        {source === "ai-split" ? null : (
-          <button type="button" className="secondary-button" onClick={handleSplitWithAi} disabled={isSplitting || isRunning}>
-            {isSplitting ? copy.actions.optimizeBusy : copy.batch.actions.splitWithAi}
+        {source === "custom-prompts" ? (
+          <button type="button" className="secondary-button" onClick={handleAddCustomPrompt} disabled={isRunning}>
+            {copy.batch.actions.addPrompt}
           </button>
-        )}
+        ) : null}
+        <button type="button" className="secondary-button" onClick={handleCreateTasks} disabled={isRunning}>
+          {copy.batch.actions.createTasks}
+        </button>
       </div>
 
       <div className="info-card batch-summary-card">
@@ -580,4 +568,21 @@ export function BatchPanel({
       )}
     </div>
   );
+}
+
+function createEmptyPromptDrafts(count: number): string[] {
+  return Array.from({ length: clampBatchTaskCount(count) }, () => "");
+}
+
+function resizePromptDrafts(current: string[], count: number): string[] {
+  const nextCount = clampBatchTaskCount(count);
+  if (current.length === nextCount) {
+    return current;
+  }
+
+  if (current.length > nextCount) {
+    return current.slice(0, nextCount);
+  }
+
+  return [...current, ...Array.from({ length: nextCount - current.length }, () => "")];
 }

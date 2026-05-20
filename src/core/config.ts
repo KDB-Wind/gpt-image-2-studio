@@ -1,7 +1,9 @@
 export type UiLanguage = "zh-CN" | "en-US";
 
 import {
+  DEFAULT_BATCH_TASK_COUNT,
   DEFAULT_BATCH_EXECUTION_CONFIG,
+  clampBatchTaskCount,
   clampBatchExecutionConfig,
   type BatchSplitTemplateId,
 } from "./batchTypes";
@@ -27,6 +29,7 @@ export type AppConfig = {
   defaultCompression: number;
   uiLanguage: UiLanguage;
   hasDismissedWelcome: boolean;
+  batchDefaultTaskCount: number;
   batchDefaultConcurrency: number;
   batchDefaultIntervalSeconds: number;
   batchDefaultMaxRetries: number;
@@ -55,6 +58,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   defaultCompression: 90,
   uiLanguage: "zh-CN",
   hasDismissedWelcome: false,
+  batchDefaultTaskCount: DEFAULT_BATCH_TASK_COUNT,
   batchDefaultConcurrency: DEFAULT_BATCH_EXECUTION_CONFIG.concurrency,
   batchDefaultIntervalSeconds: DEFAULT_BATCH_EXECUTION_CONFIG.intervalSeconds,
   batchDefaultMaxRetries: DEFAULT_BATCH_EXECUTION_CONFIG.maxRetries,
@@ -82,6 +86,7 @@ export function mergeConfig(value: Partial<AppConfig> | null | undefined): AppCo
   merged.baseUrl = normalizeBaseUrl(asString(merged.baseUrl) || DEFAULT_CONFIG.baseUrl);
   merged.uiLanguage = isUiLanguage(merged.uiLanguage) ? merged.uiLanguage : DEFAULT_CONFIG.uiLanguage;
   merged.hasDismissedWelcome = asBoolean(merged.hasDismissedWelcome, DEFAULT_CONFIG.hasDismissedWelcome);
+  merged.batchDefaultTaskCount = clampBatchTaskCount(asNumber(merged.batchDefaultTaskCount));
   const batchExecutionConfig = clampBatchExecutionConfig({
     concurrency: asNumber(merged.batchDefaultConcurrency),
     intervalSeconds: asNumber(merged.batchDefaultIntervalSeconds),

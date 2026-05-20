@@ -72,6 +72,32 @@ describe("batchRunner", () => {
     expect(result.status).toBe("completed");
   });
 
+  it("allows five concurrent image API calls when concurrency is set to five", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const tasks = createTasksFromMultilinePrompts("one\ntwo\nthree\nfour\nfive");
+    const result = await runBatchTasks({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG,
+      tasks,
+      executionConfig: { concurrency: 5, intervalSeconds: 0, maxRetries: 0 },
+      referenceImages: [],
+      generateImages: async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => window.setTimeout(resolve, 1));
+        active -= 1;
+        return [{ base64: "ok" }];
+      },
+      saveBatchImage: async (input) => createSaveResult(input),
+    });
+
+    expect(maxActive).toBe(5);
+    expect(result.status).toBe("completed");
+  });
+
   it("retries retryable failures", async () => {
     const tasks = createTasksFromMultilinePrompts("one");
     let attempts = 0;

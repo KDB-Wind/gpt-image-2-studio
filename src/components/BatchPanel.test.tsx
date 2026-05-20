@@ -3,21 +3,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_CONFIG } from "../core/config";
-import { splitPromptWithTextModel } from "../core/batchPromptSplitter";
 import { getTranslations } from "../i18n/translations";
 import { BatchPanel } from "./BatchPanel";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-vi.mock("../core/batchPromptSplitter", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../core/batchPromptSplitter")>();
-  return {
-    ...actual,
-    splitPromptWithTextModel: vi.fn(),
-  };
-});
-
-const splitPromptWithTextModelMock = vi.mocked(splitPromptWithTextModel);
 
 describe("BatchPanel", () => {
   let container: HTMLDivElement;
@@ -27,12 +16,6 @@ describe("BatchPanel", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
-    splitPromptWithTextModelMock.mockResolvedValue([
-      { title: "France poster", prompt: "Create a France World Cup poster in French." },
-      { title: "Japan poster", prompt: "Create a Japan World Cup poster in Japanese." },
-      { title: "Belgium poster", prompt: "Create a Belgium World Cup poster in Dutch and French." },
-      { title: "Korea poster", prompt: "Create a Korea World Cup poster in Korean." },
-    ]);
   });
 
   afterEach(() => {
@@ -43,58 +26,13 @@ describe("BatchPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("uses the text model split as the only task-list action in AI split mode", async () => {
-    const copy = getTranslations("en-US");
-    const requireValidConfig = vi.fn().mockReturnValue(true);
-
-    await act(async () => {
-      root.render(
-        <BatchPanel
-          config={{ ...DEFAULT_CONFIG, apiKey: "test-key" }}
-          runtime={null}
-          language="en-US"
-          referenceImages={[]}
-          onConfigChange={vi.fn()}
-          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
-          requireValidConfig={requireValidConfig}
-          setAppMessage={vi.fn()}
-        />,
-      );
-    });
-
-    clickButton(copy.batch.sources.aiSplit);
-    setFieldValue(container.querySelector("textarea"), "Create posters for France / Japan / Belgium / Korea.");
-    setFieldValue(container.querySelector('input[type="number"]'), "4");
-
-    expect(queryButton(copy.batch.actions.createTasks)).toBeNull();
-
-    await act(async () => {
-      clickButton(copy.batch.actions.splitWithAi);
-    });
-
-    expect(requireValidConfig).toHaveBeenCalledWith(copy.batch.actions.splitWithAi);
-    expect(splitPromptWithTextModelMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        count: 4,
-        masterPrompt: "Create posters for France / Japan / Belgium / Korea.",
-      }),
-    );
-    const inputValues = Array.from(container.querySelectorAll("input")).map((input) => input.value);
-    const textareaValues = Array.from(container.querySelectorAll("textarea")).map((textarea) => textarea.value);
-
-    expect(inputValues).toContain("France poster");
-    expect(inputValues).toContain("Japan poster");
-    expect(textareaValues).toContain("Create a France World Cup poster in French.");
-    expect(textareaValues).toContain("Create a Japan World Cup poster in Japanese.");
-  });
-
-  it("clears the current batch draft only when the user clicks clear", async () => {
+  it("creates editable prompt boxes for custom prompts and builds one task per filled prompt", async () => {
     const copy = getTranslations("en-US");
 
     await act(async () => {
       root.render(
         <BatchPanel
-          config={{ ...DEFAULT_CONFIG, apiKey: "test-key" }}
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 5 }}
           runtime={null}
           language="en-US"
           referenceImages={[]}
@@ -106,6 +44,106 @@ describe("BatchPanel", () => {
       );
     });
 
+    clickButton(copy.batch.sources.customPrompts);
+
+    const draftPrompts = getDraftPromptTextareas();
+    expect(draftPrompts).toHaveLength(5);
+
+    setFieldValue(draftPrompts[0], "Create a France World Cup poster in French.");
+    setFieldValue(draftPrompts[1], "Create a Japan World Cup poster in Japanese.");
+    clickButton(copy.batch.actions.createTasks);
+
+    const textareaValues = Array.from(container.querySelectorAll("textarea")).map((textarea) => textarea.value);
+
+    expect(textareaValues).toContain("Create a France World Cup poster in French.");
+    expect(textareaValues).toContain("Create a Japan World Cup poster in Japanese.");
+    expect(container.textContent).toContain(copy.batch.status.pending);
+    expect(container.textContent).not.toContain("Split with text model");
+    expect(container.textContent).not.toContain("AI split");
+  });
+
+  it("syncs custom prompt box count with the configurable default task count", async () => {
+    const copy = getTranslations("en-US");
+    const onConfigChange = vi.fn();
+    const setAppMessage = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 5 }}
+          runtime={null}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={onConfigChange}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={setAppMessage}
+        />,
+      );
+    });
+
+    clickButton(copy.batch.sources.customPrompts);
+    setFieldValue(getField(copy.batch.fields.taskCount, 'input[type="number"]'), "3");
+
+    expect(getDraftPromptTextareas()).toHaveLength(3);
+    expect(onConfigChange).toHaveBeenCalledWith("batchDefaultTaskCount", 3);
+
+    setFieldValue(getField(copy.batch.fields.taskCount, 'input[type="number"]'), "21");
+
+    expect(getDraftPromptTextareas()).toHaveLength(20);
+    expect(setAppMessage).toHaveBeenCalledWith(copy.batch.messages.maxTaskCountWarning(20));
+  });
+
+  it("lets the batch concurrency field keep a value of five", async () => {
+    const copy = getTranslations("en-US");
+    const onConfigChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultConcurrency: 5 }}
+          runtime={null}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={onConfigChange}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+
+    const concurrencyInput = getField(copy.batch.fields.concurrency, 'input[type="number"]');
+    if (!(concurrencyInput instanceof HTMLInputElement)) {
+      throw new Error("Concurrency input not found.");
+    }
+    expect(concurrencyInput.value).toBe("5");
+    expect(concurrencyInput.max).toBe("10");
+
+    setFieldValue(concurrencyInput, "6");
+
+    expect(onConfigChange).toHaveBeenCalledWith("batchDefaultConcurrency", 6);
+  });
+
+  it("clears the current batch draft only when the user clicks clear", async () => {
+    const copy = getTranslations("en-US");
+    const setAppMessage = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key" }}
+          runtime={null}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={setAppMessage}
+        />,
+      );
+    });
+
     setFieldValue(getField(copy.batch.fields.batchTitle, "input"), "World Cup batch");
     setFieldValue(container.querySelector("textarea"), "Create a France poster.");
     setFieldValue(container.querySelector('input[type="number"]'), "4");
@@ -113,14 +151,21 @@ describe("BatchPanel", () => {
 
     expect(getField(copy.batch.fields.batchTitle, "input").value).toBe("World Cup batch");
     expect(container.textContent).toContain(copy.batch.status.pending);
+    expect(setAppMessage).toHaveBeenCalledWith("");
+    setAppMessage.mockClear();
 
     clickButton(copy.batch.actions.clearDraft);
 
     expect(getField(copy.batch.fields.batchTitle, "input").value).toBe("");
     expect(container.querySelector("textarea")?.value).toBe("");
-    expect(getField(copy.batch.fields.taskCount, 'input[type="number"]').value).toBe("10");
+    expect(getField(copy.batch.fields.taskCount, 'input[type="number"]').value).toBe("5");
     expect(container.textContent).toContain(copy.batch.emptyTasks);
+    expect(setAppMessage).toHaveBeenCalledWith("");
   });
+
+  function getDraftPromptTextareas(): HTMLTextAreaElement[] {
+    return Array.from(container.querySelectorAll(".custom-prompt-draft textarea"));
+  }
 
   function clickButton(label: string) {
     const button = queryButton(label);

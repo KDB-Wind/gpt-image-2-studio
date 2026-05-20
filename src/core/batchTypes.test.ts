@@ -16,8 +16,8 @@ describe("batchTypes", () => {
   });
 
   it("clamps unsafe execution values", () => {
-    expect(clampBatchExecutionConfig({ concurrency: 9, intervalSeconds: -5, maxRetries: 8 })).toEqual({
-      concurrency: 3,
+    expect(clampBatchExecutionConfig({ concurrency: 42, intervalSeconds: -5, maxRetries: 8 })).toEqual({
+      concurrency: 10,
       intervalSeconds: 0,
       maxRetries: 3,
     });

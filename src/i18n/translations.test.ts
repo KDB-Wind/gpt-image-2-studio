@@ -78,9 +78,10 @@ describe("getTranslations", () => {
     expect(zh.tabs.batch).toBe("批量");
     expect(zh.batch.title).toBe("批量生图");
     expect(zh.batch.sources.samePrompt).toBe("同一提示词生成多张");
+    expect(zh.batch.sources.customPrompts).toBe("自定义多条提示词");
     expect(en.tabs.batch).toBe("Batch");
     expect(en.batch.title).toBe("Batch generation");
-    expect(en.batch.sources.aiSplit).toBe("AI split");
+    expect(en.batch.sources.customPrompts).toBe("Custom multiple prompts");
   });
 
   it("contains batch execution actions and safety warnings", () => {
@@ -100,14 +101,15 @@ describe("getTranslations", () => {
     expect(en.batch.messages.costRiskPaused).toContain("provider");
   });
 
-  it("contains batch defaults and split template copy", () => {
+  it("contains batch defaults and custom prompt copy", () => {
     const zh = getTranslations("zh-CN");
     const en = getTranslations("en-US");
 
     expect(zh.batch.defaultsNote.length).toBeGreaterThan(0);
-    expect(zh.batch.templates.basicSplit.length).toBeGreaterThan(0);
+    expect(zh.batch.fields.customPrompt(2)).toBe("提示词 2");
+    expect(zh.batch.messages.maxTaskCountWarning(20)).toContain("20");
     expect(en.batch.defaultsNote).toContain("Save settings");
-    expect(en.batch.templates.basicSplit).toBe("Basic split");
-    expect(en.batch.templates.customSplit).toBe("Custom systemPrompt");
+    expect(en.batch.fields.customPrompt(2)).toBe("Prompt 2");
+    expect(en.batch.messages.maxTaskCountWarning(20)).toContain("20");
   });
 });

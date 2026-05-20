@@ -50,7 +50,7 @@ describe("batchManifest", () => {
     const manifest = buildBatchManifest({
       id: "batch-1",
       title: "World Cup Posters",
-      source: "ai-split",
+      source: "custom-prompts",
       createdAt: "2026-05-17T12:00:00.000Z",
       startedAt: "2026-05-17T12:00:10.000Z",
       completedAt: "2026-05-17T12:03:00.000Z",

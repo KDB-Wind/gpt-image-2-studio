@@ -147,6 +147,7 @@ describe("mergeConfig", () => {
   });
 
   it("includes local batch generation defaults", () => {
+    expect(DEFAULT_CONFIG.batchDefaultTaskCount).toBe(5);
     expect(DEFAULT_CONFIG.batchDefaultConcurrency).toBe(1);
     expect(DEFAULT_CONFIG.batchDefaultIntervalSeconds).toBe(20);
     expect(DEFAULT_CONFIG.batchDefaultMaxRetries).toBe(1);
@@ -156,17 +157,23 @@ describe("mergeConfig", () => {
 
   it("normalizes invalid batch settings while merging config", () => {
     const merged = mergeConfig({
-      batchDefaultConcurrency: 10,
+      batchDefaultTaskCount: 42,
+      batchDefaultConcurrency: 42,
       batchDefaultIntervalSeconds: -1,
       batchDefaultMaxRetries: 6,
       batchLastSplitTemplateId: 123 as never,
       batchCustomSplitSystemPrompt: 100 as never,
     });
 
-    expect(merged.batchDefaultConcurrency).toBe(3);
+    expect(merged.batchDefaultTaskCount).toBe(20);
+    expect(merged.batchDefaultConcurrency).toBe(10);
     expect(merged.batchDefaultIntervalSeconds).toBe(0);
     expect(merged.batchDefaultMaxRetries).toBe(3);
     expect(merged.batchLastSplitTemplateId).toBe("basic");
     expect(merged.batchCustomSplitSystemPrompt).toBe("");
+  });
+
+  it("allows five as a saved batch concurrency value", () => {
+    expect(mergeConfig({ batchDefaultConcurrency: 5 }).batchDefaultConcurrency).toBe(5);
   });
 });

@@ -11,6 +11,7 @@ import {
   testTextModel,
 } from "./core/apiClient";
 import { DEFAULT_CONFIG, mergeConfig, type AppConfig, validateConfig } from "./core/config";
+import { MAX_BATCH_TASK_COUNT, clampBatchTaskCount } from "./core/batchTypes";
 import { groupHistoryByDate, type ImageRecord } from "./core/history";
 import {
   MAX_REFERENCE_IMAGES,
@@ -1414,6 +1415,20 @@ export default function App() {
                         onChange={(event) => updateConfig("defaultCount", Number(event.target.value) || 0)}
                       />
                     </label>
+
+                    <label className="field">
+                      <span>{copy.batch.fields.taskCount}</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={MAX_BATCH_TASK_COUNT}
+                        step={1}
+                        value={config.batchDefaultTaskCount}
+                        onChange={(event) =>
+                          updateConfig("batchDefaultTaskCount", clampBatchTaskCount(Number(event.target.value) || 1))
+                        }
+                      />
+                    </label>
                   </div>
 
                   <div className="field-grid">
@@ -1601,6 +1616,10 @@ export default function App() {
                     <div>
                       <dt>{copy.app.statusLabel}</dt>
                       <dd>{formatMode(runtime?.mode ?? null, language)}</dd>
+                    </div>
+                    <div>
+                      <dt>{copy.batch.fields.taskCount}</dt>
+                      <dd>{config.batchDefaultTaskCount}</dd>
                     </div>
                     <div>
                       <dt>{copy.batch.fields.concurrency}</dt>

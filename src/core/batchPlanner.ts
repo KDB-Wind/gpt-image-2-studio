@@ -1,3 +1,4 @@
+import { clampBatchTaskCount } from "./batchTypes";
 import type { BatchSplitResultItem, BatchTask } from "./batchTypes";
 
 export function createTasksFromRepeatedPrompt(prompt: string, count: number): BatchTask[] {
@@ -9,10 +10,14 @@ export function createTasksFromRepeatedPrompt(prompt: string, count: number): Ba
 }
 
 export function createTasksFromMultilinePrompts(value: string): BatchTask[] {
-  return value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
+  return createTasksFromPromptList(value.split(/\r?\n/));
+}
+
+export function createTasksFromPromptList(prompts: string[]): BatchTask[] {
+  return prompts
+    .map((prompt) => prompt.trim())
     .filter(Boolean)
+    .slice(0, clampBatchTaskCount(prompts.length))
     .map((prompt, index) => createDraftTask(index, summarizeTitle(prompt), prompt));
 }
 
@@ -56,9 +61,5 @@ function summarizeTitle(value: string): string {
 }
 
 function clampTaskCount(count: number): number {
-  if (!Number.isFinite(count)) {
-    return 1;
-  }
-
-  return Math.min(100, Math.max(1, Math.round(count)));
+  return clampBatchTaskCount(count);
 }
