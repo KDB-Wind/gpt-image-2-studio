@@ -11,6 +11,26 @@ Release 应包含两类普通用户可用的附件：
 
 `SHA256SUMS.txt` 会记录 Release 附件的 SHA-256 校验值。
 
+## 静态站发布
+
+GitHub Pages 发布由 `.github/workflows/pages.yml` 负责。
+
+发布前确认：
+
+```powershell
+npm run release:check
+npm run test:run
+npm run site:verify
+```
+
+仓库 Settings -> Pages 中，Source 应选择 `GitHub Actions`。推送 `main` 后会发布：
+
+```text
+https://kdb-wind.github.io/gpt-image-2-studio/
+```
+
+静态站只适用于 BYOK 模式，用户填写自己的 `API key` 和 `Base URL`。如果供应商 CORS 不通过，浏览器会拦截请求。
+
 ## 本地发布前检查
 
 ```powershell
@@ -18,6 +38,7 @@ npm run release:check
 npm run test:run
 npm run build
 npm run build:static
+npm run site:check
 cargo check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
@@ -30,6 +51,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 ```powershell
 npm run build:static
+npm run site:check
 ```
 
 发布附件：
@@ -55,7 +77,7 @@ Tauri Windows 配置要求：
 
 这会产出面向普通用户的 `setup.exe`。
 
-## GitHub Actions 发布流程
+## GitHub Actions Release 流程
 
 1. 确认 `main` 是干净的公开基础工具版。
 2. 创建版本 tag，例如：

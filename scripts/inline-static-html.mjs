@@ -41,5 +41,7 @@ html = html.replace(
   (_tag, src) => `\n    <script type="module">\n${readDistAsset(src)}\n    </script>`,
 );
 
+html = html.replace(/\r\n/g, "\n");
+
 writeFileSync(htmlPath, html, "utf8");
 writeFileSync(releaseHtmlPath, html, "utf8");

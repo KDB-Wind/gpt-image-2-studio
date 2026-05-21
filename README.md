@@ -1,8 +1,9 @@
 # GPT-Image-2 Studio
 
-简体中文为主文档语言。English is available as a secondary guide: [README.en.md](./README.en.md).
+简体中文为主要文档语言，English is available as a secondary guide: [README.en.md](./README.en.md).
 
 [![CI](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/ci.yml)
+[![Pages](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/pages.yml/badge.svg)](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/pages.yml)
 [![Release](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/release.yml/badge.svg)](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
@@ -10,26 +11,49 @@ GPT-Image-2 Studio 是一个轻量、本地优先的 `gpt-image-2` 调用工具�
 
 ![GPT-Image-2 Studio bright UI preview](./docs/assets/app-preview.svg)
 
-## 最快使用：单文件 HTML
+## 最快使用：在线静态页
 
 普通用户不需要安装 Node.js，也不需要运行 `npm run dev`。
+
+在线版地址：
+
+[https://kdb-wind.github.io/gpt-image-2-studio/](https://kdb-wind.github.io/gpt-image-2-studio/)
+
+首次使用：
+
+1. 打开在线静态页。
+2. 进入“设置”，填写你自己的 `API key`、`Base URL`、文字模型、图片模型和超时时间。
+3. 点击保存配置。
+4. 先测试文字模型和图片模型。
+5. 回到“生成”或“批量”开始使用。
+
+在线版采用 BYOK 模式，即 Bring Your Own Key。你的 `API key` 保存在你自己的浏览器本地存储中，请求由你的浏览器直接发往你填写的 `Base URL`。本项目不托管、不收集、不转发你的 key。
+
+## 离线单文件 HTML
+
+如果你更在意本地使用，可以下载单文件 HTML：
 
 1. 打开 [GitHub Releases](https://github.com/KDB-Wind/gpt-image-2-studio/releases)。
 2. 下载最新 Release 附件里的 `gpt-image-2-studio-lite.html`。
 3. 双击这个 HTML 文件，用 Edge 或 Chrome 打开。
-4. 进入“设置”，填写自己的 `API key`、`Base URL`、文字模型、图片模型和超时时间。
-5. 保存配置后开始生成图片。
+4. 进入“设置”，填写自己的 `API key`、`Base URL` 和模型名。
 
-注意：不要从 GitHub 源码文件列表里单独下载仓库根目录的 `index.html`。那个文件只是 Vite 的源码入口，不能独立运行。可直接使用的是 Release 附件 `gpt-image-2-studio-lite.html`。
+不要从 GitHub 源码文件列表里单独下载仓库根目录的 `index.html`。那个文件只是 Vite 的源码入口，不能独立运行。可以直接使用的是 Release 附件 `gpt-image-2-studio-lite.html`。
 
 维护者构建单文件 HTML：
 
 ```powershell
 npm install
 npm run build:static
+npm run site:check
 ```
 
-构建产物在 `dist-static/gpt-image-2-studio-lite.html`。
+构建产物在：
+
+```text
+dist-static/index.html
+dist-static/gpt-image-2-studio-lite.html
+```
 
 ## 作者推荐中转站
 
@@ -46,16 +70,30 @@ npm run build:static
 - 支持文生图、图生图、多图参考，参考图最多 8 张，建议不超过 4 张。
 - 支持拖拽上传图片。
 - 支持图片尺寸、质量、格式和压缩质量设置。
-- 支持批量生图：同一提示词多张、多行提示词排队、AI 拆分主任务。
+- 支持批量生图：同一提示词生成多张、自定义多条提示词。
 - 批量任务支持间隔、有限并发、失败重试和成本风险暂停。
 - 支持本地历史记录、搜索、过滤和批量删除。
 - 支持 Windows 桌面安装包。
 
 当前提示词模板功能不是核心能力，后续可能移除后重新设计为独立菜单。
 
+## 静态站限制
+
+静态 HTML 页面能否直接调用模型接口，取决于你的模型供应商是否允许浏览器跨域请求，也就是 CORS。
+
+你可以用下面的命令测试供应商是否支持：
+
+```powershell
+$env:BASE_URL = "https://ruoli.dev/v1"
+$env:SITE_ORIGIN = "https://kdb-wind.github.io"
+npm run cors:check
+```
+
+如果 CORS 不通过，浏览器会拦截请求。这不是本项目页面代码能单方面修复的问题，需要更换支持 CORS 的供应商、使用桌面版，或自行部署代理服务。
+
 ## 项目范围
 
-这个公开仓库只包含本地基础工具版，适合个人本地使用和轻量开源分发。
+这个公开仓库只包含本地基础工具版，适合个人本地使用、静态页使用和轻量开源分发。
 
 本仓库不包含：
 
@@ -83,14 +121,14 @@ npm run dev
 http://localhost:5173/
 ```
 
-如果 5173 端口被占用，可以关闭旧进程，或使用 Vite 提示的新端口。
-
 ## 常用命令
 
 ```powershell
 npm run test:run
 npm run build
 npm run build:static
+npm run site:check
+npm run cors:check
 ```
 
 桌面开发：
@@ -105,37 +143,22 @@ npm run desktop:dev
 npm run desktop:build
 ```
 
-## 发布
-
-本仓库的 Release 链路会生成两类普通用户可用的附件：
-
-- `gpt-image-2-studio-lite.html`：单文件 HTML，下载后双击打开。
-- Windows `setup.exe`：桌面安装包，适合长期使用。
-
-维护者发布前检查：
-
-```powershell
-npm run release:check
-npm run test:run
-npm run build
-npm run build:static
-```
-
-完整流程见 [docs/release.md](./docs/release.md)。
-
 ## 文档
 
-- [单文件 HTML 使用指南（中文）](./docs/user-guide-static-html.zh-CN.md)
-- [Static HTML User Guide (English)](./docs/user-guide-static-html.en-US.md)
-- [基础工具版使用指南（中文）](./docs/user-guide-basic-tool.zh-CN.md)
-- [Basic Tool User Guide (English)](./docs/user-guide-basic-tool.en-US.md)
+- [静态 HTML 使用指南](./docs/user-guide-static-html.zh-CN.md)
+- [Static HTML User Guide](./docs/user-guide-static-html.en-US.md)
+- [静态站发布指南](./docs/static-site-hosting.zh-CN.md)
+- [Static Site Hosting Guide](./docs/static-site-hosting.en-US.md)
+- [基础工具版使用指南](./docs/user-guide-basic-tool.zh-CN.md)
+- [Basic Tool User Guide](./docs/user-guide-basic-tool.en-US.md)
 - [FAQ](./docs/faq.md)
-- [Release 说明](./docs/release.md)
+- [Release 指南](./docs/release.md)
 - [路线图](./docs/roadmap.md)
 
 ## 安全说明
 
 - 不要把真实 `API key` 提交到仓库、Issue、截图或日志里。
-- 单文件 HTML 和网页源码模式会把配置保存在当前浏览器本地存储中。
-- 桌面版会使用本地应用配置和本地目录保存能力。
+- 在线静态页和单文件 HTML 会把配置保存在当前浏览器本地存储中。
+- `file://` 离线 HTML 和 `https://kdb-wind.github.io` 在线页是不同来源，浏览器本地存储不互通。
 - 如果在公共电脑或他人电脑上使用，请不要保存自己的 `API key`。
+- 本项目不引入第三方统计脚本，避免额外读取本地配置的风险。

@@ -1,18 +1,28 @@
-# GPT-Image-2 Studio Single-File HTML Guide
+# GPT-Image-2 Studio Static HTML Guide
 
-This guide is for first-time GitHub users. The single-file HTML edition is designed to run without a development environment: download one HTML file, open it in a browser, configure your own provider, and start generating images.
+This guide is for first-time GitHub users. The static HTML edition runs without a development environment: open the hosted page or download one HTML file, configure your own provider, and start generating images.
 
-## What To Download
+## Two Ways To Use It
 
-Download this file from GitHub Releases:
+### Hosted Static Page
+
+Open:
+
+[https://kdb-wind.github.io/gpt-image-2-studio/](https://kdb-wind.github.io/gpt-image-2-studio/)
+
+The hosted page is best for quick usage. Your settings are stored in your own browser local storage. This project does not receive your `API key`.
+
+### Offline HTML
+
+Download this file from [GitHub Releases](https://github.com/KDB-Wind/gpt-image-2-studio/releases):
 
 ```text
 gpt-image-2-studio-lite.html
 ```
 
-Do not download the repository root `index.html` from the source file list. That file is only the Vite source entry and cannot run by itself.
+Double-click it and open it with Microsoft Edge or Chrome.
 
-Recommended browser: Microsoft Edge or Chrome.
+Do not download the repository root `index.html` from the source file list. That file is only the development entry and cannot run by itself.
 
 ## Who Should Use It
 
@@ -31,11 +41,12 @@ Do not use it if:
 
 ## First Launch
 
-1. Double-click `gpt-image-2-studio-lite.html`.
-2. The local page opens in your browser.
-3. A welcome dialog may appear on first launch. You can close it.
-4. Open Settings first.
-5. Save your configuration, then use Generate or Batch.
+1. Open the hosted page or double-click `gpt-image-2-studio-lite.html`.
+2. A welcome dialog may appear on first launch. You can close it.
+3. Open Settings first.
+4. Save your configuration.
+5. Test the text model and image model.
+6. Use Generate or Batch.
 
 The default language is Simplified Chinese. You can switch to English in the header.
 
@@ -47,7 +58,7 @@ Required fields:
 
 - `API key`: your model provider key. Do not post it in issues, screenshots, or chat logs.
 - `Base URL`: provider endpoint, for example `https://example.com/v1`.
-- Text model: used for prompt optimization, text connectivity testing, and AI batch splitting.
+- Text model: used for prompt optimization, text connectivity testing, and batch planning.
 - Image model: used for text-to-image and image-to-image.
 
 Author recommended relay provider:
@@ -92,31 +103,33 @@ Common errors:
 
 Batch prepares multiple independent image tasks.
 
-Sources:
+Current modes:
 
-- Same prompt: create multiple variants.
-- Multi-line prompts: each line becomes one task.
-- AI split: use the text model to split one master task into N consistent subtasks.
+- Same prompt variants: create multiple images from one prompt.
+- Custom multiple prompts: enter different prompts and run them as one batch.
 
-Example master task:
+Custom multiple prompts:
 
-```text
-Create World Cup promotional posters for France / Japan / Belgium / Korea, using each country's native language.
-```
-
-With task count `4`, AI split should produce four independent prompts for France, Japan, Belgium, and Korea. You can edit each task before generation.
+1. Set task count. The default is 5 and the maximum is 20.
+2. The page creates one prompt input for each task.
+3. Each input represents one image.
+4. Use plus or minus buttons to add or remove tasks.
+5. Click Create task list and review each task.
+6. Click Start batch generation.
 
 Conservative settings:
 
 ```text
-Concurrency: 1
-Interval seconds: 20 to 60
+Concurrency: 1 to 3
+Interval seconds: 10 to 60
 Max retries: 1
 ```
 
+Concurrency means the number of simultaneous API requests sent to the model provider. It is not just local memory usage. Higher concurrency can increase provider pressure, rate-limit risk, and cost risk.
+
 Batch draft state is saved locally when switching menus. Click Clear all to reset the current batch.
 
-Successful batch outputs are added to History and saved with a `manifest.json`.
+Successful batch outputs are added to History and saved with batch metadata.
 
 ## History
 
@@ -131,4 +144,17 @@ The HTML edition may not preview old images after refresh because browsers restr
 - Your `API key` is stored in the current browser's local storage.
 - Image requests are sent directly from your browser to your provider.
 - The author's server does not receive your key, prompts, or images.
+- Hosted `https://kdb-wind.github.io` and offline `file://` HTML use different browser storage.
 - Do not save keys on public computers.
+
+## CORS Test
+
+Developers and maintainers can test whether a provider allows static-page browser access:
+
+```powershell
+$env:BASE_URL = "https://ruoli.dev/v1"
+$env:SITE_ORIGIN = "https://kdb-wind.github.io"
+npm run cors:check
+```
+
+If the check fails, the provider probably cannot be called from a pure static web page.

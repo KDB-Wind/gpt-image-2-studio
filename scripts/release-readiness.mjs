@@ -117,6 +117,30 @@ export function checkReleaseWorkflow(workflowText, releaseVersion) {
     .map(([, message]) => message);
 }
 
+export function checkPagesWorkflow(workflowText) {
+  const checks = [
+    [/push:\s*[\s\S]*branches:\s*[\s\S]*main/, "Pages workflow must deploy from main pushes."],
+    [/workflow_dispatch:/, "Pages workflow must support manual dispatch."],
+    [/permissions:\s*[\s\S]*contents:\s*read/, "Pages workflow must grant contents: read."],
+    [/permissions:\s*[\s\S]*pages:\s*write/, "Pages workflow must grant pages: write."],
+    [/permissions:\s*[\s\S]*id-token:\s*write/, "Pages workflow must grant id-token: write."],
+    [/actions\/checkout@v4/, "Pages workflow must check out the repository."],
+    [/actions\/setup-node@v4/, "Pages workflow must install Node.js."],
+    [/npm ci/, "Pages workflow must install dependencies with npm ci."],
+    [/npm run release:check/, "Pages workflow must run the release readiness check."],
+    [/npm run test:run/, "Pages workflow must run frontend tests."],
+    [/npm run build:static/, "Pages workflow must build the static HTML site."],
+    [/npm run site:check/, "Pages workflow must check static site output."],
+    [/actions\/upload-pages-artifact@v3/, "Pages workflow must upload a Pages artifact."],
+    [/path:\s*dist-static/, "Pages workflow must publish dist-static."],
+    [/actions\/deploy-pages@v4/, "Pages workflow must deploy with actions/deploy-pages."],
+  ];
+
+  return checks
+    .filter(([pattern]) => !pattern.test(workflowText))
+    .map(([, message]) => message);
+}
+
 export function checkTauriWindowsBundleConfig(config) {
   const errors = [];
   const bundle = config?.bundle;
@@ -142,6 +166,8 @@ function checkPublicProjectDocs(rootDir, releaseVersion) {
     join("docs", "release.md"),
     join("docs", "release.en.md"),
     join("docs", "release-checklist.md"),
+    join("docs", "static-site-hosting.zh-CN.md"),
+    join("docs", "static-site-hosting.en-US.md"),
     join("docs", "release-notes", `v${releaseVersion}.md`),
     join("docs", "assets", "app-preview.svg"),
     join(".github", "ISSUE_TEMPLATE", "bug_report.yml"),
@@ -157,6 +183,7 @@ export function runReleaseReadiness(rootDir) {
   const errors = [];
   const releaseWorkflowPath = join(rootDir, ".github", "workflows", "release.yml");
   const ciWorkflowPath = join(rootDir, ".github", "workflows", "ci.yml");
+  const pagesWorkflowPath = join(rootDir, ".github", "workflows", "pages.yml");
   const tauriConfigPath = join(rootDir, "src-tauri", "tauri.conf.json");
   const packageJsonPath = join(rootDir, "package.json");
   const releaseVersion = readJson(packageJsonPath).version;
@@ -169,6 +196,12 @@ export function runReleaseReadiness(rootDir) {
 
   if (!existsSync(ciWorkflowPath)) {
     errors.push(".github/workflows/ci.yml is missing.");
+  }
+
+  if (!existsSync(pagesWorkflowPath)) {
+    errors.push(".github/workflows/pages.yml is missing.");
+  } else {
+    errors.push(...checkPagesWorkflow(readText(pagesWorkflowPath)));
   }
 
   if (!existsSync(tauriConfigPath)) {

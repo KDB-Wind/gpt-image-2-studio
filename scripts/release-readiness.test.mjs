@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   checkReleaseWorkflow,
+  checkPagesWorkflow,
   checkTauriWindowsBundleConfig,
   findSensitivePatterns,
   runReleaseReadiness,
@@ -53,6 +54,39 @@ jobs:
 `;
 
     expect(checkReleaseWorkflow(workflow, "0.1.2")).toEqual([]);
+  });
+
+  it("accepts a GitHub Pages workflow that publishes dist-static", () => {
+    const workflow = `
+name: Pages
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+jobs:
+  build:
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - run: npm ci
+      - run: npm run release:check
+      - run: npm run test:run
+      - run: npm run build:static
+      - run: npm run site:check
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-static
+  deploy:
+    steps:
+      - uses: actions/deploy-pages@v4
+`;
+
+    expect(checkPagesWorkflow(workflow)).toEqual([]);
   });
 
   it("requires checksums and bounded artifact retention for installer releases", () => {
