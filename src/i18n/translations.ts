@@ -104,6 +104,7 @@ type TranslationBundle = {
     close: string;
     enlarge: string;
     openRecommended: string;
+    openGithubProject: string;
     inspect: string;
   };
   panel: {
@@ -187,6 +188,8 @@ type TranslationBundle = {
     supportRecommendation: string;
     supportZoomHint: string;
     referenceImages: string;
+    openSourceTitle: string;
+    openSourceHint: string;
   };
   labels: {
     imageModel: string;
@@ -395,6 +398,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       close: "关闭",
       enlarge: "点击放大",
       openRecommended: "前往推荐中转站",
+      openGithubProject: "在 GitHub 查看",
       inspect: "查看",
     },
     panel: {
@@ -478,6 +482,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       supportRecommendation: "推荐使用微信支付",
       supportZoomHint: "点击二维码可放大查看。",
       referenceImages: "当前参考图",
+      openSourceTitle: "开源与反馈",
+      openSourceHint: "源码托管在 GitHub。如果这个工具帮到了你，欢迎顺手 Star，也可以提交 Issue 反馈问题。",
     },
     labels: {
       imageModel: "生图模型",
@@ -705,6 +711,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       close: "Close",
       enlarge: "Click to enlarge",
       openRecommended: "Open recommended relay",
+      openGithubProject: "View on GitHub",
       inspect: "Inspect",
     },
     panel: {
@@ -788,6 +795,9 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       supportRecommendation: "WeChat Pay is recommended",
       supportZoomHint: "Click the QR code to enlarge it.",
       referenceImages: "Reference images",
+      openSourceTitle: "Open source & feedback",
+      openSourceHint:
+        "The source code is hosted on GitHub. If the tool helps you, a Star or Issue report is appreciated.",
     },
     labels: {
       imageModel: "Image model",

@@ -31,6 +31,7 @@ import type { RuntimeAdapter } from "./runtime/types";
 
 const APP_VERSION = packageJson.version;
 const RECOMMENDED_RELAY_URL = "https://ruoli.dev/register?aff=mR35";
+const GITHUB_PROJECT_URL = "https://github.com/KDB-Wind/gpt-image-2-studio";
 const DEFAULT_CUSTOM_SIZE = { width: "1024", height: "1024" };
 
 type AppTab = "generate" | "batch" | "history" | "settings";
@@ -995,6 +996,10 @@ export default function App() {
                 <span>{formatMode(runtime?.mode ?? null, language)}</span>
               </div>
             </div>
+
+            <a className="github-link" href={GITHUB_PROJECT_URL} target="_blank" rel="noreferrer">
+              {copy.actions.openGithubProject}
+            </a>
           </div>
         </header>
 
@@ -1649,6 +1654,24 @@ export default function App() {
                     >
                       {copy.actions.checkUpdates}
                     </button>
+                  </div>
+                </section>
+
+                <section className="settings-section open-source-card">
+                  <div className="section-heading">
+                    <h3>{copy.cards.openSourceTitle}</h3>
+                    <p>{copy.cards.openSourceHint}</p>
+                  </div>
+
+                  <div className="action-row">
+                    <a
+                      className="secondary-button link-button"
+                      href={GITHUB_PROJECT_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {copy.actions.openGithubProject}
+                    </a>
                   </div>
                 </section>
 

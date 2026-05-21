@@ -54,6 +54,40 @@ describe("App batch workspace", () => {
     expect(getField<HTMLInputElement>(copy.batch.fields.taskCount, 'input[type="number"]').value).toBe("4");
   });
 
+  it("shows a GitHub project link in the header", async () => {
+    const copy = getTranslations("en-US");
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    const githubLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="https://github.com/KDB-Wind/gpt-image-2-studio"]',
+    );
+
+    expect(githubLink).not.toBeNull();
+    expect(githubLink?.textContent).toContain(copy.actions.openGithubProject);
+    expect(githubLink?.textContent).not.toContain("Star");
+    expect(githubLink?.target).toBe("_blank");
+    expect(githubLink?.rel).toContain("noreferrer");
+  });
+
+  it("shows an open-source project card in settings", async () => {
+    const copy = getTranslations("en-US");
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    clickButton(copy.tabs.settings);
+
+    expect(container.textContent).toContain(copy.cards.openSourceTitle);
+    expect(container.textContent).toContain(copy.cards.openSourceHint);
+    expect(container.querySelector('a[href="https://github.com/KDB-Wind/gpt-image-2-studio"]')).not.toBeNull();
+  });
+
   function clickButton(label: string) {
     const button = Array.from(container.querySelectorAll("button")).find(
       (candidate) => candidate.textContent?.trim() === label,

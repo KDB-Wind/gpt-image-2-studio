@@ -20,4 +20,8 @@ describe("responsive shell styles", () => {
     expect(styles).toMatch(/\.preview-frame\s*\{[\s\S]*max-width:\s*100%/);
     expect(styles).toMatch(/\.error-copy[\s\S]*overflow-wrap:\s*anywhere/);
   });
+
+  it("keeps the desktop history list tall enough before scrolling", () => {
+    expect(styles).toMatch(/\.history-body\s*\{[\s\S]*max-height:\s*980px/);
+  });
 });
