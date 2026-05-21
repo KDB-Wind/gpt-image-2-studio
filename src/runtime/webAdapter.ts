@@ -9,9 +9,29 @@ const CONFIG_KEY = "chat-to-image.config.v1";
 const HISTORY_KEY = "chat-to-image.history.v1";
 
 let directoryHandle: FileSystemDirectoryHandle | null = null;
+const memoryStorageFallback = new Map<string, string>();
+
+function getBrowserStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
 
 function readStoredValue<T>(key: string, fallback: T): T {
-  const raw = localStorage.getItem(key);
+  const storage = getBrowserStorage();
+  let raw: string | null = null;
+
+  if (storage) {
+    try {
+      raw = storage.getItem(key);
+    } catch {
+      raw = memoryStorageFallback.get(key) ?? null;
+    }
+  } else {
+    raw = memoryStorageFallback.get(key) ?? null;
+  }
 
   if (!raw) {
     return fallback;
@@ -25,7 +45,19 @@ function readStoredValue<T>(key: string, fallback: T): T {
 }
 
 function writeStoredValue(key: string, value: unknown) {
-  localStorage.setItem(key, JSON.stringify(value));
+  const serializedValue = JSON.stringify(value);
+  const storage = getBrowserStorage();
+
+  if (storage) {
+    try {
+      storage.setItem(key, serializedValue);
+      return;
+    } catch {
+      // Some embedded file:// browsers expose localStorage but deny reads/writes.
+    }
+  }
+
+  memoryStorageFallback.set(key, serializedValue);
 }
 
 function decodeBase64Image(base64: string, format: AppConfig["defaultFormat"]): Blob {

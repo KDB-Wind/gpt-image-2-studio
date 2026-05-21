@@ -7,6 +7,11 @@ import { describe, expect, it } from "vitest";
 const styles = readFileSync(join(process.cwd(), "src", "styles.css"), "utf8");
 
 describe("responsive shell styles", () => {
+  it("styles the vector logo as a compact brand mark", () => {
+    expect(styles).toMatch(/\.brand-lockup\s*\{[\s\S]*display:\s*flex/);
+    expect(styles).toMatch(/\.app-logo\s*\{[\s\S]*drop-shadow/);
+  });
+
   it("keeps the workspace single-column on narrow screens", () => {
     expect(styles).toMatch(/@media\s*\(max-width:\s*860px\)[\s\S]*\.workspace-grid[\s\S]*grid-template-columns:\s*1fr/);
   });

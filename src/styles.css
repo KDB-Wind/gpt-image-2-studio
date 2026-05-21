@@ -85,6 +85,24 @@ img {
   max-width: 54rem;
 }
 
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.app-logo {
+  width: clamp(4.35rem, 7vw, 6.2rem);
+  height: clamp(4.35rem, 7vw, 6.2rem);
+  flex: none;
+  border-radius: 28%;
+  filter: drop-shadow(0 18px 34px rgba(92, 66, 28, 0.18));
+}
+
+.brand-text {
+  min-width: 0;
+}
+
 .eyebrow {
   margin: 0 0 10px;
   color: var(--accent-strong);
@@ -1270,6 +1288,16 @@ img {
 }
 
 @media (max-width: 640px) {
+  .brand-lockup {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .app-logo {
+    width: 4rem;
+    height: 4rem;
+  }
+
   .action-row,
   .history-item-head,
   .history-actions,

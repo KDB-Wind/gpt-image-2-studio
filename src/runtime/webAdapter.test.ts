@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_CONFIG } from "../core/config";
 import { webAdapter } from "./webAdapter";
@@ -10,6 +10,25 @@ describe("webAdapter history deletion", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("falls back to session memory when localStorage is blocked by the browser", async () => {
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("Access is denied for this document.", "SecurityError");
+    });
+
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject(DEFAULT_CONFIG);
+
+    await webAdapter.saveConfig({ ...DEFAULT_CONFIG, apiKey: "test-key", uiLanguage: "en-US" });
+
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      apiKey: "test-key",
+      uiLanguage: "en-US",
+    });
   });
 
   it("deletes selected history records from local storage and returns the remaining records", async () => {

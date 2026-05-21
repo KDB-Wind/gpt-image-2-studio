@@ -74,8 +74,38 @@ function assertSingleFileParity() {
   }
 }
 
+function assertFaviconIsInlined() {
+  const indexHtml = readFileSync(join(distDir, "index.html"), "utf8");
+
+  if (!/rel="icon"/.test(indexHtml)) {
+    throw new Error("Static site output is missing a favicon link.");
+  }
+
+  if (!/href="data:image\/svg\+xml/.test(indexHtml)) {
+    throw new Error("Static favicon must be inlined so the single-file HTML works without extra assets.");
+  }
+}
+
+function assertHeaderLogoIsSelfContained() {
+  const indexHtml = readFileSync(join(distDir, "index.html"), "utf8");
+
+  if (/assets\/app-logo[-\w]*\.svg/.test(indexHtml)) {
+    throw new Error("Header app logo must not reference an external SVG asset in the single-file HTML build.");
+  }
+
+  if (/className:[`'"]app-logo[`'"],src:/.test(indexHtml)) {
+    throw new Error("Header app logo must be an inline SVG, not an img tag with a generated src value.");
+  }
+
+  if (!/viewBox:[`'"]0 0 1024 1024[`'"]/.test(indexHtml)) {
+    throw new Error("Header app logo inline SVG was not found in the single-file HTML build.");
+  }
+}
+
 assertRequiredFiles();
 assertNoSecrets();
 assertSingleFileParity();
+assertFaviconIsInlined();
+assertHeaderLogoIsSelfContained();
 
 console.log("Static site check passed.");

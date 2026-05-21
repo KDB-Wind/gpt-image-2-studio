@@ -2,6 +2,7 @@
 
 import packageJson from "../package.json";
 import paymentQrCode from "./assets/payment-wechat-qr.png";
+import { AppLogo } from "./components/AppLogo";
 import { BatchPanel } from "./components/BatchPanel";
 import {
   generateImages,
@@ -962,8 +963,13 @@ export default function App() {
       <main className={`app-shell ${activeTab === "history" ? "history-focus" : ""}`}>
         <header className="app-header">
           <div className="hero-copy">
-            <p className="eyebrow">{copy.app.eyebrow}</p>
-            <h1>{copy.app.title}</h1>
+            <div className="brand-lockup">
+              <AppLogo className="app-logo" />
+              <div className="brand-text">
+                <p className="eyebrow">{copy.app.eyebrow}</p>
+                <h1>{copy.app.title}</h1>
+              </div>
+            </div>
             <p className="app-subtitle">{copy.app.subtitle}</p>
           </div>
 

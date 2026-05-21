@@ -73,6 +73,20 @@ describe("App batch workspace", () => {
     expect(githubLink?.rel).toContain("noreferrer");
   });
 
+  it("shows the vector app logo in the header", async () => {
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    const logo = container.querySelector<SVGSVGElement>(".app-logo");
+
+    expect(logo).not.toBeNull();
+    expect(logo?.tagName.toLowerCase()).toBe("svg");
+    expect(logo?.getAttribute("viewBox")).toBe("0 0 1024 1024");
+    expect(logo?.getAttribute("aria-hidden")).toBe("true");
+  });
+
   it("shows an open-source project card in settings", async () => {
     const copy = getTranslations("en-US");
 

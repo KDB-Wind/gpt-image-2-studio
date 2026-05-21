@@ -27,9 +27,28 @@ function readDistAsset(assetPath) {
   return readFileSync(absolutePath, "utf8");
 }
 
+function svgToDataUri(svg) {
+  return `data:image/svg+xml,${encodeURIComponent(svg)
+    .replace(/%20/g, " ")
+    .replace(/%3D/g, "=")
+    .replace(/%3A/g, ":")
+    .replace(/%2F/g, "/")}`;
+}
+
 let html = readFileSync(viteHtmlPath, "utf8");
 
 html = html.replace(/\s*<link\b[^>]*rel=["']modulepreload["'][^>]*>/g, "");
+
+html = html.replace(
+  /<link\b(?=[^>]*rel=["']icon["'])(?=[^>]*href=["'])([^>]*href=["'])([^"']+)(["'][^>]*>)/g,
+  (tag, hrefPrefix, href, end) => {
+    if (href.startsWith("data:")) {
+      return tag;
+    }
+
+    return `<link${hrefPrefix}${svgToDataUri(readDistAsset(href))}${end}`;
+  },
+);
 
 html = html.replace(
   /\s*<link\b(?=[^>]*rel=["']stylesheet["'])(?=[^>]*href=["']([^"']+)["'])[^>]*>/g,
