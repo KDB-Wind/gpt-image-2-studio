@@ -1,111 +1,96 @@
 # GPT-Image-2 Studio
 
-[简体中文](./README.md) | English
+A lightweight, ready-to-use image generation tool for `gpt-image-2`.
+
+It is built for people who already have an OpenAI-compatible `API key` and want a simple UI for text-to-image, image-to-image, and batch generation without running a backend service.
+
+[简体中文](./README.md)
 
 [![CI](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/ci.yml)
 [![Pages](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/pages.yml/badge.svg)](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/pages.yml)
 [![Release](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/release.yml/badge.svg)](https://github.com/KDB-Wind/gpt-image-2-studio/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
-GPT-Image-2 Studio is a lightweight, local-first tool for calling `gpt-image-2`. Configure your own `API key`, `Base URL`, text model, and image model, then use text-to-image, image-to-image, multi-image references, and batch generation.
+![GPT-Image-2 Studio preview](./docs/assets/app-preview.svg)
 
-![GPT-Image-2 Studio bright UI preview](./docs/assets/app-preview.svg)
+## Try It First
 
-## Fastest Start: Hosted Static Page
-
-Normal users do not need Node.js and do not need to run `npm run dev`.
-
-Hosted page:
+The fastest way is the hosted static page:
 
 [https://kdb-wind.github.io/gpt-image-2-studio/](https://kdb-wind.github.io/gpt-image-2-studio/)
 
+There is no backend service behind this page. Requests are sent directly from your browser to the `Base URL` you enter, and your settings stay in your own browser.
+
 First use:
 
-1. Open the hosted static page.
-2. Open Settings and fill in your own `API key`, `Base URL`, text model, image model, and timeout.
-3. Save settings.
-4. Test the text model and image model.
-5. Use Generate or Batch.
+1. Open the hosted page.
+2. Go to Settings.
+3. Fill in your own `API key`, `Base URL`, text model, and image model.
+4. Save settings.
+5. Test the text model and image model before generating images.
 
-The hosted page uses BYOK, Bring Your Own Key. Your `API key` is stored in your own browser local storage, and requests are sent directly from your browser to the `Base URL` you enter. This project does not host, collect, or proxy your key.
-
-## Offline Single-File HTML
-
-If you prefer local usage, download the single-file HTML:
-
-1. Open [GitHub Releases](https://github.com/KDB-Wind/gpt-image-2-studio/releases).
-2. Download the latest `gpt-image-2-studio-lite.html` Release asset.
-3. Double-click the HTML file and open it with Edge or Chrome.
-4. Open Settings and fill in your own `API key`, `Base URL`, and model names.
-
-Do not download the repository root `index.html` from the GitHub source file list. That file is only the Vite source entry and cannot run by itself. The directly usable file is the Release asset named `gpt-image-2-studio-lite.html`.
-
-Maintainers can build it with:
-
-```powershell
-npm install
-npm run build:static
-npm run site:check
-```
-
-Outputs:
-
-```text
-dist-static/index.html
-dist-static/gpt-image-2-studio-lite.html
-```
-
-## Recommended Relay
-
-If you need an OpenAI-compatible relay service, you can use the author's recommended link:
+If you do not have a model provider yet, you may check the author's recommended relay:
 
 [https://ruoli.dev/register?aff=mR35](https://ruoli.dev/register?aff=mR35)
 
-Evaluate provider stability, pricing, and compliance yourself. This repository must not contain any real `API key`.
+Please evaluate provider stability, pricing, and compliance yourself. This repository does not include any real `API key`.
 
-## Features
+## Offline Single-File HTML
 
-- Chinese UI by default, with `简体中文 / English` switching.
-- Local settings for `API key`, `Base URL`, model names, timeout, and image defaults.
-- Text-to-image, image-to-image, and multi-image references.
-- Up to 8 reference images, with 4 or fewer recommended.
-- Drag-and-drop image upload.
-- Image size, quality, format, and compression options.
-- Batch generation: same prompt variants and custom multiple prompts.
-- Batch interval, limited concurrency, failed-task retry, and cost-risk pause.
-- Local history with search, filters, and bulk deletion.
-- Windows desktop installer support.
+For local use, download the single-file HTML:
 
-The current prompt-template feature is not a core capability and may be removed and redesigned later.
+1. Open [Releases](https://github.com/KDB-Wind/gpt-image-2-studio/releases).
+2. Download `gpt-image-2-studio-lite.html` from the latest release.
+3. Open it with Edge or Chrome.
+4. Fill in your own API settings.
 
-## Static Site Limitation
+Do not download the root `index.html` from the source file list. That file is only the development entry. The directly usable file is the release asset named `gpt-image-2-studio-lite.html`.
 
-Whether a static HTML page can call a model API directly depends on the provider's browser CORS policy.
+## What It Can Do
 
-You can test a provider with:
+Generate:
 
-```powershell
-$env:BASE_URL = "https://ruoli.dev/v1"
-$env:SITE_ORIGIN = "https://kdb-wind.github.io"
-npm run cors:check
-```
+- Generate images from prompts.
+- Upload 1 to 8 reference images for image-to-image or multi-image reference generation.
+- Drag and drop images.
+- Configure size, quality, format, and compression.
 
-If CORS fails, the browser blocks the request. This cannot be fixed by the static page alone. Use a CORS-compatible provider, the desktop app, or your own proxy service.
+Batch:
 
-## Project Scope
+- Generate multiple variants from the same prompt.
+- Enter multiple different prompts and process them as one batch.
+- Configure concurrency, interval, and retry count.
+- Review completed batch results in local history.
 
-This public repository contains only the standalone local basic tool for personal use, static-page usage, and lightweight open-source distribution.
+History:
 
-It does not include:
+- Keep generated results locally.
+- Search, filter, view, and delete history items.
+- History stays in the current browser and is not uploaded to a project server.
 
-- user registration, login, credits, or redemption codes
-- hosted `API key` routing
-- payment flows
-- admin dashboard
-- server queues, health monitoring, or provider scheduling
-- server-side image storage
+Settings:
 
-Those capabilities belong to a private platform edition and are not included in the current public code tree.
+- Save `API key`, `Base URL`, model names, timeout, and default image options.
+- Test text and image models before using them.
+
+## Notes
+
+Whether the static page can call your model provider depends on the provider's browser CORS policy.
+
+If you see a CORS error, the browser is blocking the request. This usually requires a CORS-compatible provider, the desktop app, or your own proxy.
+
+Image generation can be slow. Some models may need 1 to 3 minutes for one image, so set a long enough timeout.
+
+Failed image requests may still cost money if the provider has already accepted the request. Test with small batches first.
+
+## Privacy And Security
+
+- Do not commit real `API key` values to the repository, issues, screenshots, or logs.
+- The hosted page and offline HTML store settings in your current browser only.
+- Local `file://` HTML and the hosted GitHub Pages site have separate browser storage.
+- Do not save keys on shared computers.
+- This project does not host, collect, or proxy your `API key`.
+- This project does not include third-party analytics scripts.
 
 ## Local Development
 
@@ -122,44 +107,28 @@ Then open the address shown by Vite, usually:
 http://localhost:5173/
 ```
 
-## Common Commands
+Build the single-file HTML:
+
+```powershell
+npm run build:static
+npm run site:check
+```
+
+Common checks:
 
 ```powershell
 npm run test:run
 npm run build
-npm run build:static
-npm run site:check
-npm run cors:check
 ```
 
-Desktop development:
+## Docs
 
-```powershell
-npm run desktop:dev
-```
-
-Desktop packaging:
-
-```powershell
-npm run desktop:build
-```
-
-## Documentation
-
-- [静态 HTML 使用指南](./docs/user-guide-static-html.zh-CN.md)
 - [Static HTML User Guide](./docs/user-guide-static-html.en-US.md)
-- [静态站发布指南](./docs/static-site-hosting.zh-CN.md)
-- [Static Site Hosting Guide](./docs/static-site-hosting.en-US.md)
-- [基础工具版使用指南](./docs/user-guide-basic-tool.zh-CN.md)
 - [Basic Tool User Guide](./docs/user-guide-basic-tool.en-US.md)
+- [Static Site Hosting Guide](./docs/static-site-hosting.en-US.md)
 - [FAQ](./docs/faq.md)
 - [Release Guide](./docs/release.en.md)
-- [Roadmap](./docs/roadmap.md)
 
-## Security
+## License
 
-- Do not commit real `API key` values.
-- The hosted static page and single-file HTML store settings in browser local storage.
-- Offline `file://` HTML and the hosted `https://kdb-wind.github.io` page use different browser origins, so their local storage is separate.
-- Do not save keys on shared computers.
-- This project does not include third-party analytics scripts.
+MIT
