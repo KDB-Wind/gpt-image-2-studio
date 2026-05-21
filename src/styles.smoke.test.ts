@@ -29,4 +29,16 @@ describe("responsive shell styles", () => {
   it("keeps the desktop history list tall enough before scrolling", () => {
     expect(styles).toMatch(/\.history-body\s*\{[\s\S]*max-height:\s*980px/);
   });
+
+  it("keeps long prompt review fields scrollable instead of stretching the form", () => {
+    expect(styles).toMatch(/\.field-readonly\s+\.readonly-value\s*\{[\s\S]*max-height:\s*12rem/);
+    expect(styles).toMatch(/\.field-readonly\s+\.readonly-value\s*\{[\s\S]*overflow:\s*auto/);
+    expect(styles).toMatch(/\.image-name-field\s*\{[\s\S]*align-self:\s*start/);
+  });
+
+  it("uses compact editors for batch task prompts and image names", () => {
+    expect(styles).toMatch(/\.batch-task-prompt-textarea\s*\{[\s\S]*min-height:\s*5\.75rem/);
+    expect(styles).toMatch(/\.batch-task-prompt-textarea\s*\{[\s\S]*max-height:\s*12rem/);
+    expect(styles).toMatch(/\.batch-task-name-field\s*\{[\s\S]*max-width:\s*32rem/);
+  });
 });

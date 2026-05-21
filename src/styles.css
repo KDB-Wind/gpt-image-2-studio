@@ -388,7 +388,32 @@ img {
 
 .field textarea {
   min-height: 8rem;
+  max-height: 22rem;
+  overflow: auto;
+  line-height: 1.6;
   resize: vertical;
+}
+
+.prompt-textarea {
+  white-space: pre-wrap;
+}
+
+.image-name-field,
+.field-readonly {
+  min-width: 0;
+  align-self: start;
+}
+
+.image-name-field {
+  align-self: start;
+  max-width: 32rem;
+}
+
+.image-name-field input,
+.batch-task-name-field input {
+  min-height: 2.75rem;
+  padding: 10px 12px;
+  border-radius: 14px;
 }
 
 .hidden-file-input {
@@ -425,9 +450,13 @@ img {
 }
 
 .field-readonly .readonly-value {
-  display: flex;
-  align-items: center;
-  min-height: 100%;
+  display: block;
+  min-height: 3.05rem;
+  max-height: 12rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   color: var(--text-muted);
   line-height: 1.6;
 }
@@ -721,6 +750,15 @@ img {
   min-width: 0;
   display: grid;
   gap: 12px;
+}
+
+.batch-task-name-field {
+  max-width: 32rem;
+}
+
+.batch-task-prompt-textarea {
+  min-height: 5.75rem;
+  max-height: 12rem;
 }
 
 .batch-task-meta {

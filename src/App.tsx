@@ -1160,6 +1160,7 @@ export default function App() {
                 <label className="field">
                   <span>{copy.fields.prompt}</span>
                   <textarea
+                    className="prompt-textarea"
                     value={prompt}
                     onChange={(event) => handlePromptChange(event.target.value)}
                     rows={8}
@@ -1168,7 +1169,7 @@ export default function App() {
                 </label>
 
                 <div className="field-grid">
-                  <label className="field">
+                  <label className="field image-name-field">
                     <span>{copy.fields.customName}</span>
                     <input
                       value={customName}
@@ -1186,6 +1187,7 @@ export default function App() {
                 <label className="field">
                   <span>{copy.fields.optimizedPrompt}</span>
                   <textarea
+                    className="prompt-textarea"
                     value={optimizedPrompt}
                     onChange={(event) => setOptimizedPrompt(event.target.value)}
                     rows={6}

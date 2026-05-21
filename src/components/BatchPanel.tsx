@@ -370,6 +370,7 @@ export function BatchPanel({
               <label className="field">
                 <span>{copy.batch.fields.customPrompt(index + 1)}</span>
                 <textarea
+                  className="batch-task-prompt-textarea"
                   value={prompt}
                   rows={3}
                   disabled={isRunning}
@@ -391,6 +392,7 @@ export function BatchPanel({
         <label className="field">
           <span>{copy.batch.fields.masterPrompt}</span>
           <textarea
+            className="prompt-textarea"
             value={masterPrompt}
             rows={6}
             disabled={isRunning}
@@ -524,7 +526,7 @@ export function BatchPanel({
             <article key={task.id} className={`batch-task-card ${task.status}`}>
               <div className="batch-task-index">{String(task.index + 1).padStart(2, "0")}</div>
               <div className="batch-task-main">
-                <label className="field">
+                <label className="field batch-task-name-field">
                   <span>{copy.fields.customName}</span>
                   <input
                     value={task.title}
@@ -535,6 +537,7 @@ export function BatchPanel({
                 <label className="field">
                   <span>{copy.fields.prompt}</span>
                   <textarea
+                    className="batch-task-prompt-textarea"
                     value={task.prompt}
                     rows={3}
                     disabled={isRunning}
