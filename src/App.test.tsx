@@ -68,6 +68,28 @@ describe("App batch workspace", () => {
     expect(tabLabels).not.toContain("Generate");
   });
 
+  it("marks the active workspace tab on the app shell for responsive layouts", async () => {
+    const copy = getTranslations("en-US");
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    const appShell = container.querySelector(".app-shell");
+
+    expect(appShell?.classList.contains("tab-generate")).toBe(true);
+
+    clickButton(copy.tabs.batch);
+    expect(appShell?.classList.contains("tab-batch")).toBe(true);
+
+    clickButton(copy.tabs.history);
+    expect(appShell?.classList.contains("tab-history")).toBe(true);
+
+    clickButton(copy.tabs.settings);
+    expect(appShell?.classList.contains("tab-settings")).toBe(true);
+  });
+
   it("shows batch task status in the right preview panel", async () => {
     const copy = getTranslations("en-US");
 
@@ -104,7 +126,9 @@ describe("App batch workspace", () => {
     );
 
     expect(githubLink).not.toBeNull();
-    expect(githubLink?.textContent).toContain(copy.actions.openGithubProject);
+    expect(githubLink?.textContent?.trim()).toBe("GitHub");
+    expect(githubLink?.getAttribute("aria-label")).toBe(copy.actions.openGithubProject);
+    expect(githubLink?.querySelector(".github-icon")).not.toBeNull();
     expect(githubLink?.textContent).not.toContain("Star");
     expect(githubLink?.target).toBe("_blank");
     expect(githubLink?.rel).toContain("noreferrer");

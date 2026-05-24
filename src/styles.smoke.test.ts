@@ -13,17 +13,52 @@ describe("responsive shell styles", () => {
     expect(styles).toMatch(/\.app-logo\s*\{[\s\S]*drop-shadow/);
   });
 
+  it("styles the GitHub project link as an icon label pill", () => {
+    expect(styles).toMatch(/\.github-link\s*\{[\s\S]*gap:\s*8px/);
+    expect(styles).toMatch(/\.github-link\s*\{[\s\S]*border-radius:\s*14px/);
+    expect(styles).toMatch(/\.github-icon\s*\{[\s\S]*width:\s*1\.05rem/);
+    expect(styles).toMatch(/\.github-icon\s*\{[\s\S]*height:\s*1\.05rem/);
+  });
+
   it("keeps the workspace single-column on narrow screens", () => {
     expect(styles).toMatch(/@media\s*\(max-width:\s*860px\)[\s\S]*\.workspace-grid[\s\S]*grid-template-columns:\s*1fr/);
+  });
+
+  it("uses tab-scoped mobile panels instead of stacking the full desktop workspace", () => {
+    expect(styles).toMatch(
+      /@media\s*\(max-width:\s*860px\)[\s\S]*\.tab-generate\s+\.history-panel[\s\S]*display:\s*none/,
+    );
+    expect(styles).toMatch(
+      /@media\s*\(max-width:\s*860px\)[\s\S]*\.tab-batch\s+\.history-panel[\s\S]*display:\s*none/,
+    );
+    expect(styles).toMatch(
+      /@media\s*\(max-width:\s*860px\)[\s\S]*\.tab-history\s+\.control-panel[\s\S]*display:\s*none/,
+    );
+    expect(styles).toMatch(
+      /@media\s*\(max-width:\s*860px\)[\s\S]*\.tab-history\s+\.preview-panel[\s\S]*display:\s*none/,
+    );
+    expect(styles).toMatch(
+      /@media\s*\(max-width:\s*860px\)[\s\S]*\.tab-settings\s+\.preview-panel[\s\S]*display:\s*none/,
+    );
+    expect(styles).toMatch(
+      /@media\s*\(max-width:\s*860px\)[\s\S]*\.tab-settings\s+\.history-panel[\s\S]*display:\s*none/,
+    );
+  });
+
+  it("keeps the mobile tab strip reachable while scrolling long forms", () => {
+    expect(styles).toMatch(/@media\s*\(max-width:\s*860px\)[\s\S]*\.tab-strip[\s\S]*position:\s*sticky/);
+    expect(styles).toMatch(/@media\s*\(max-width:\s*860px\)[\s\S]*\.tab-strip[\s\S]*top:\s*10px/);
   });
 
   it("uses the same desktop workspace columns for history as other tabs", () => {
     expect(desktopStyles).not.toMatch(/\.history-focus\s+\.workspace-grid\s*\{[\s\S]*grid-template-columns/);
   });
 
-  it("keeps the support entry visible without covering the main layout on phones", () => {
-    expect(styles).toMatch(/@media\s*\(max-width:\s*640px\)[\s\S]*\.support-fab[\s\S]*left:\s*16px/);
-    expect(styles).toMatch(/@media\s*\(max-width:\s*640px\)[\s\S]*\.support-fab[\s\S]*bottom:\s*14px/);
+  it("keeps the mobile support entry as a compact bottom-right pill", () => {
+    expect(styles).toMatch(/@media\s*\(max-width:\s*640px\)[\s\S]*\.support-fab[\s\S]*right:\s*14px/);
+    expect(styles).toMatch(/@media\s*\(max-width:\s*640px\)[\s\S]*\.support-fab[\s\S]*left:\s*auto/);
+    expect(styles).toMatch(/@media\s*\(max-width:\s*640px\)[\s\S]*\.support-fab[\s\S]*bottom:\s*calc\(14px \+ env\(safe-area-inset-bottom\)\)/);
+    expect(styles).toMatch(/@media\s*\(max-width:\s*640px\)[\s\S]*\.support-fab[\s\S]*width:\s*fit-content/);
   });
 
   it("prevents long provider errors and image previews from overflowing their cards", () => {

@@ -202,24 +202,36 @@ img {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 13px 16px;
-  border: 1px solid rgba(191, 96, 53, 0.18);
-  border-radius: 22px;
-  background: linear-gradient(135deg, #fffdf8, #f7efe1);
-  color: var(--accent-strong);
+  gap: 8px;
+  width: fit-content;
+  padding: 11px 15px;
+  border: 1px solid rgba(140, 115, 72, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 253, 248, 0.82);
+  color: var(--text-soft);
   font-weight: 800;
   text-decoration: none;
-  box-shadow: var(--shadow);
+  box-shadow: 0 16px 38px rgba(92, 66, 28, 0.1);
   transition:
+    background-color 120ms ease,
     border-color 120ms ease,
+    color 120ms ease,
     transform 120ms ease,
     box-shadow 120ms ease;
 }
 
 .github-link:hover {
-  border-color: rgba(191, 96, 53, 0.34);
-  box-shadow: 0 24px 60px rgba(92, 66, 28, 0.16);
+  border-color: rgba(191, 96, 53, 0.28);
+  background: #fffdf8;
+  color: var(--accent-strong);
+  box-shadow: 0 20px 44px rgba(92, 66, 28, 0.14);
   transform: translateY(-1px);
+}
+
+.github-icon {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: 0 0 auto;
 }
 
 .mode-dot {
@@ -1555,7 +1567,7 @@ img {
   }
 
   .github-link {
-    width: 100%;
+    width: fit-content;
   }
 
   .workspace-grid,
@@ -1566,11 +1578,28 @@ img {
   .tab-strip {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    position: sticky;
+    top: 10px;
+    z-index: 15;
     width: 100%;
+    backdrop-filter: blur(14px);
   }
 
   .tab-button {
     text-align: center;
+  }
+
+  .tab-generate .history-panel,
+  .tab-batch .history-panel,
+  .tab-history .control-panel,
+  .tab-history .preview-panel,
+  .tab-settings .preview-panel,
+  .tab-settings .history-panel {
+    display: none;
+  }
+
+  .tab-history .history-panel {
+    grid-column: auto;
   }
 
   .panel-header,
@@ -1658,9 +1687,14 @@ img {
   }
 
   .support-fab {
-    right: 16px;
-    left: 16px;
-    bottom: 14px;
+    right: 14px;
+    left: auto;
+    bottom: calc(14px + env(safe-area-inset-bottom));
+    width: fit-content;
+    max-width: calc(100vw - 28px);
+    padding: 12px 14px;
     text-align: center;
+    font-size: 0.9rem;
+    box-shadow: 0 18px 42px rgba(166, 93, 47, 0.22);
   }
 }
