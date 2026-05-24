@@ -54,6 +54,43 @@ describe("App batch workspace", () => {
     expect(getField<HTMLInputElement>(copy.batch.fields.taskCount, 'input[type="number"]').value).toBe("4");
   });
 
+  it("labels the single-image workspace separately from batch generation", async () => {
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    const tabLabels = Array.from(container.querySelectorAll('.tab-strip [role="tab"]')).map((tab) =>
+      tab.textContent?.trim(),
+    );
+
+    expect(tabLabels).toContain("Single image");
+    expect(tabLabels).not.toContain("Generate");
+  });
+
+  it("shows batch task status in the right preview panel", async () => {
+    const copy = getTranslations("en-US");
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    clickButton(copy.tabs.batch);
+    setFieldValue(getField<HTMLTextAreaElement>(copy.batch.fields.masterPrompt, "textarea"), "Create football posters.");
+    clickButton(copy.batch.actions.createTasks);
+
+    const previewPanel = container.querySelector(".preview-panel");
+
+    expect(previewPanel?.textContent).toContain("Batch preview");
+    expect(previewPanel?.textContent).toContain("Total");
+    expect(previewPanel?.textContent).toContain("5");
+
+    clickButton(copy.batch.actions.clearDraft);
+
+    expect(previewPanel?.textContent).not.toContain("Batch preview");
+  });
+
   it("shows a GitHub project link in the header", async () => {
     const copy = getTranslations("en-US");
 

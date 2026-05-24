@@ -56,4 +56,74 @@ describe("webAdapter history deletion", () => {
     expect(remaining.map((record) => record.id)).toEqual([second.record.id]);
     expect((await webAdapter.loadHistory()).map((record) => record.id)).toEqual([second.record.id]);
   });
+
+  it("previews old download-mode history from an authorized downloads folder by file name", async () => {
+    const imageFile = new File(["image"], "00-02-36_test.png", { type: "image/png" });
+    const downloadsHandle = createDirectoryHandle({
+      "00-02-36_test.png": imageFile,
+    });
+    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:old-history-preview");
+
+    await webAdapter.chooseOutputDirectory();
+
+    const previewUrl = await webAdapter.prepareHistoryPreview({
+      id: "record-1",
+      status: "success",
+      createdAt: "2026-05-24T00:02:36.000Z",
+      prompt: "test",
+      optimizedPrompt: "",
+      model: "gpt-image-2",
+      size: "auto",
+      outputPath: "outputs/2026-05-24/00-02-36_test.png",
+      durationMs: 1000,
+    });
+
+    expect(previewUrl).toBe("blob:old-history-preview");
+  });
+
+  it("returns null when an authorized folder does not contain the old history image", async () => {
+    const downloadsHandle = createDirectoryHandle({});
+    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
+
+    await webAdapter.chooseOutputDirectory();
+
+    await expect(
+      webAdapter.prepareHistoryPreview({
+        id: "record-1",
+        status: "success",
+        createdAt: "2026-05-24T00:02:36.000Z",
+        prompt: "test",
+        optimizedPrompt: "",
+        model: "gpt-image-2",
+        size: "auto",
+        outputPath: "outputs/2026-05-24/missing.png",
+        durationMs: 1000,
+      }),
+    ).resolves.toBeNull();
+  });
 });
+
+function createDirectoryHandle(entries: Record<string, File>): FileSystemDirectoryHandle {
+  return {
+    name: "Downloads",
+    async getDirectoryHandle(name: string) {
+      throw new DOMException(`Directory not found: ${name}`, "NotFoundError");
+    },
+    async getFileHandle(name: string) {
+      const file = entries[name];
+      if (!file) {
+        throw new DOMException(`File not found: ${name}`, "NotFoundError");
+      }
+
+      return {
+        async getFile() {
+          return file;
+        },
+        async createWritable() {
+          throw new Error("not used");
+        },
+      } as unknown as FileSystemFileHandle;
+    },
+  } as unknown as FileSystemDirectoryHandle;
+}

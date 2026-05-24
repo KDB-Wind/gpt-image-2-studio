@@ -38,6 +38,12 @@ describe("batchManifest", () => {
     );
   });
 
+  it("uses the planner suggested name before falling back to the task title", () => {
+    expect(buildBatchImageFileName({ ...baseTask, suggestedName: "france-2026-poster" }, "png", [])).toBe(
+      "001-france-2026-poster.png",
+    );
+  });
+
   it("summarizes task statuses", () => {
     expect(summarizeBatchTasks([baseTask, { ...baseTask, id: "task-002", status: "failed" }])).toMatchObject({
       total: 2,

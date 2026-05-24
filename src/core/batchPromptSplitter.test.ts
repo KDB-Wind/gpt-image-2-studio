@@ -16,26 +16,89 @@ describe("batchPromptSplitter", () => {
     ]);
   });
 
-  it("builds a user prompt with count and JSON requirements", () => {
+  it("builds a user prompt with count planning and JSON object requirements", () => {
     const prompt = buildBatchSplitUserPrompt("Create 10 World Cup posters", 10);
     expect(prompt).toContain("10");
+    expect(prompt).toContain("recommendedCount");
+    expect(prompt).toContain("countReason");
+    expect(prompt).toContain("items");
     expect(prompt).toContain('"title"');
     expect(prompt).toContain('"prompt"');
+    expect(prompt).toContain('"suggestedName"');
+    expect(prompt).toContain('"notes"');
+  });
+
+  it("includes the batch style lock in the text-model split prompt", async () => {
+    const sendText = vi.fn().mockResolvedValue('[{"title":"Japan","prompt":"Poster for Japan"}]');
+    await splitPromptWithTextModel({
+      config: DEFAULT_CONFIG,
+      masterPrompt: "Create a series of posters.",
+      count: 1,
+      templateId: "basic",
+      customSystemPrompt: "",
+      styleLock: "same camera angle, cream background, warm daylight",
+      sendText,
+    });
+
+    expect(sendText).toHaveBeenCalledWith(
+      DEFAULT_CONFIG,
+      BUILT_IN_BATCH_SPLIT_TEMPLATES[0].systemPrompt,
+      expect.stringContaining("same camera angle, cream background, warm daylight"),
+    );
   });
 
   it("parses a JSON array response", () => {
-    expect(parseBatchSplitResponse('[{"title":"Argentina","prompt":"Poster for Argentina"}]')).toEqual([
-      { title: "Argentina", prompt: "Poster for Argentina" },
-    ]);
+    expect(parseBatchSplitResponse('[{"title":"Argentina","prompt":"Poster for Argentina"}]')).toEqual({
+      items: [{ title: "Argentina", prompt: "Poster for Argentina" }],
+    });
+  });
+
+  it("parses a JSON object response with AI recommended task count", () => {
+    expect(
+      parseBatchSplitResponse(
+        JSON.stringify({
+          recommendedCount: 4,
+          countReason: "The master task asks for four countries.",
+          items: [
+            { title: "France", prompt: "Create a France poster." },
+            { title: "Japan", prompt: "Create a Japan poster." },
+          ],
+        }),
+      ),
+    ).toEqual({
+      recommendedCount: 4,
+      countReason: "The master task asks for four countries.",
+      items: [
+        { title: "France", prompt: "Create a France poster." },
+        { title: "Japan", prompt: "Create a Japan poster." },
+      ],
+    });
+  });
+
+  it("parses planner metadata when the text model returns it", () => {
+    expect(
+      parseBatchSplitResponse(
+        '[{"title":"France poster","prompt":"Create a France poster.","suggestedName":"france-world-cup-poster","notes":"Use French headline text."}]',
+      ),
+    ).toEqual({
+      items: [
+        {
+          title: "France poster",
+          prompt: "Create a France poster.",
+          suggestedName: "france-world-cup-poster",
+          notes: "Use French headline text.",
+        },
+      ],
+    });
   });
 
   it("extracts a JSON array from surrounding text", () => {
     const raw = 'Here is the result:\n[{"title":"Portugal","prompt":"Poster for Portugal"}]\nDone.';
-    expect(parseBatchSplitResponse(raw)).toEqual([{ title: "Portugal", prompt: "Poster for Portugal" }]);
+    expect(parseBatchSplitResponse(raw)).toEqual({ items: [{ title: "Portugal", prompt: "Poster for Portugal" }] });
   });
 
   it("rejects non-array or empty split responses", () => {
-    expect(() => parseBatchSplitResponse("{}")).toThrow("AI split response must be a JSON array.");
+    expect(() => parseBatchSplitResponse("{}")).toThrow("AI split response must contain an items array.");
     expect(() => parseBatchSplitResponse("[]")).toThrow("AI split response must contain at least one item.");
   });
 
@@ -50,7 +113,7 @@ describe("batchPromptSplitter", () => {
       sendText,
     });
 
-    expect(result).toEqual([{ title: "Japan", prompt: "Poster for Japan" }]);
+    expect(result).toEqual({ items: [{ title: "Japan", prompt: "Poster for Japan" }] });
     expect(sendText).toHaveBeenCalledWith(
       DEFAULT_CONFIG,
       BUILT_IN_BATCH_SPLIT_TEMPLATES[0].systemPrompt,

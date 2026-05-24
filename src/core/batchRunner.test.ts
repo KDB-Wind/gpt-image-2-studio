@@ -98,6 +98,38 @@ describe("batchRunner", () => {
     expect(result.status).toBe("completed");
   });
 
+  it("can resolve reference images per task instead of reusing one shared set", async () => {
+    const tasks = createTasksFromMultilinePrompts("one\ntwo");
+    const sharedReference = new File(["shared"], "shared.png", { type: "image/png" });
+    const taskReferences = [
+      new File(["task-a"], "task-a.png", { type: "image/png" }),
+      new File(["task-b"], "task-b.png", { type: "image/png" }),
+    ];
+    const calls: File[][] = [];
+
+    const result = await runBatchTasks({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG,
+      tasks,
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 0 },
+      referenceImages: [sharedReference],
+      getTaskReferenceImages: (task) => [sharedReference, taskReferences[task.index]],
+      generateImages: async (_config, _prompt, options) => {
+        calls.push(options?.referenceImages ?? []);
+        return [{ base64: "ok" }];
+      },
+      saveBatchImage: async (input) => createSaveResult(input),
+    });
+
+    expect(result.status).toBe("completed");
+    expect(calls).toEqual([
+      [sharedReference, taskReferences[0]],
+      [sharedReference, taskReferences[1]],
+    ]);
+  });
+
   it("retries retryable failures", async () => {
     const tasks = createTasksFromMultilinePrompts("one");
     let attempts = 0;

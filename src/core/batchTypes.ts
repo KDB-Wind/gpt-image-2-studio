@@ -25,6 +25,8 @@ export type BatchTask = {
   index: number;
   title: string;
   prompt: string;
+  suggestedName?: string;
+  plannerNotes?: string;
   status: BatchTaskStatus;
   attemptCount: number;
   errorMessage: string;
@@ -66,6 +68,40 @@ export type BatchSplitTemplate = {
 export type BatchSplitResultItem = {
   title: string;
   prompt: string;
+  suggestedName?: string;
+  notes?: string;
+};
+
+export type BatchSplitPlanningResult = {
+  recommendedCount?: number;
+  countReason?: string;
+  items: BatchSplitResultItem[];
+};
+
+export type BatchWorkflowStepId = "draft" | "plan" | "review" | "generate" | "recover";
+
+export type BatchWorkflowStep = {
+  id: BatchWorkflowStepId;
+  label: string;
+};
+
+export type BatchPromptRecipe = {
+  schemaVersion: 1;
+  generatedAt: string;
+  title: string;
+  source: BatchSource;
+  masterPrompt: string;
+  styleLock: string;
+  taskCount: number;
+  splitTemplateId: BatchSplitTemplateId;
+  customSplitSystemPrompt: string;
+  executionConfig: BatchExecutionConfig;
+  workflowSteps: BatchWorkflowStep[];
+  tasks: Array<{
+    title: string;
+    prompt: string;
+    suggestedName?: string;
+  }>;
 };
 
 export type BatchImageSaveInput = {
@@ -91,6 +127,8 @@ export type BatchManifestTask = Pick<
   | "index"
   | "title"
   | "prompt"
+  | "suggestedName"
+  | "plannerNotes"
   | "status"
   | "attemptCount"
   | "errorMessage"

@@ -33,6 +33,7 @@ export type AppConfig = {
   batchDefaultConcurrency: number;
   batchDefaultIntervalSeconds: number;
   batchDefaultMaxRetries: number;
+  batchAutoPlanTaskCount: boolean;
   batchCustomSplitSystemPrompt: string;
   batchLastSplitTemplateId: BatchSplitTemplateId;
 };
@@ -62,6 +63,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   batchDefaultConcurrency: DEFAULT_BATCH_EXECUTION_CONFIG.concurrency,
   batchDefaultIntervalSeconds: DEFAULT_BATCH_EXECUTION_CONFIG.intervalSeconds,
   batchDefaultMaxRetries: DEFAULT_BATCH_EXECUTION_CONFIG.maxRetries,
+  batchAutoPlanTaskCount: true,
   batchCustomSplitSystemPrompt: "",
   batchLastSplitTemplateId: "basic",
 };
@@ -95,6 +97,7 @@ export function mergeConfig(value: Partial<AppConfig> | null | undefined): AppCo
   merged.batchDefaultConcurrency = batchExecutionConfig.concurrency;
   merged.batchDefaultIntervalSeconds = batchExecutionConfig.intervalSeconds;
   merged.batchDefaultMaxRetries = batchExecutionConfig.maxRetries;
+  merged.batchAutoPlanTaskCount = asBoolean(merged.batchAutoPlanTaskCount, DEFAULT_CONFIG.batchAutoPlanTaskCount);
   merged.batchCustomSplitSystemPrompt = asString(merged.batchCustomSplitSystemPrompt);
   merged.batchLastSplitTemplateId = isBatchSplitTemplateId(merged.batchLastSplitTemplateId)
     ? merged.batchLastSplitTemplateId

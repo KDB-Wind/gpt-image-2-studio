@@ -22,6 +22,7 @@ export type RunBatchTasksInput = {
   tasks: BatchTask[];
   executionConfig: BatchExecutionConfig;
   referenceImages: File[];
+  getTaskReferenceImages?: (task: BatchTask) => File[];
   generateImages?: GenerateImagesFn;
   saveBatchImage: SaveBatchImageFn;
   onTaskUpdate?: (tasks: BatchTask[]) => void;
@@ -138,10 +139,11 @@ async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<B
     };
 
     try {
+      const referenceImages = resolveTaskReferenceImages(input, runningTask);
       const images = await generateImages(
         input.config,
         runningTask.prompt,
-        input.referenceImages.length > 0 ? { referenceImages: input.referenceImages } : undefined,
+        referenceImages.length > 0 ? { referenceImages } : undefined,
       );
       const image = images[0];
       if (!image) {
@@ -192,6 +194,10 @@ async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<B
     errorMessage: "Batch task failed after retries.",
     failureCategory: "unknown",
   };
+}
+
+function resolveTaskReferenceImages(input: RunBatchTasksInput, task: BatchTask): File[] {
+  return input.getTaskReferenceImages?.(task) ?? input.referenceImages;
 }
 
 export function classifyBatchFailure(error: unknown): BatchFailureCategory {

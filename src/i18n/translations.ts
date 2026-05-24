@@ -1,4 +1,5 @@
 import type { UiLanguage } from "../core/config";
+import type { BatchSplitTemplateId } from "../core/batchTypes";
 import { classifyErrorForUser } from "../core/errorClassifier";
 
 export type { UiLanguage } from "../core/config";
@@ -28,29 +29,78 @@ type TranslationBundle = {
     description: string;
     emptyTasks: string;
     defaultsNote: string;
+    aiSplit: {
+      title: string;
+      description: string;
+      guideTitle: string;
+    };
+    workflow: {
+      title: string;
+      description: string;
+      styleLockPlaceholder: string;
+      styleLockHint: string;
+      styleLockGeneratedHint: string;
+    };
+    recipe: {
+      advancedTitle: string;
+      title: string;
+      description: string;
+      outputDescription: string;
+    };
     sources: {
       samePrompt: string;
       customPrompts: string;
     };
+    referenceImages: {
+      title: string;
+      description: string;
+      scopeHint: string;
+      summary: (count: number, max: number) => string;
+      taskTitle: string;
+      taskDescription: string;
+      taskScopeHint: string;
+      taskSessionHint: string;
+      taskSummary: (count: number, max: number) => string;
+      taskInputLabel: (index: number) => string;
+      useGlobalLabel: string;
+      useGlobalForTask: (index: number) => string;
+      usesGlobalHint: string;
+      expandAllTaskReferences: string;
+      collapseAllTaskReferences: string;
+    };
+    splitTemplates: Record<BatchSplitTemplateId, { label: string; description: string; useCase: string }>;
     fields: {
       batchTitle: string;
       taskCount: string;
       customPrompt: (index: number) => string;
       masterPrompt: string;
+      styleLock: string;
+      splitTemplate: string;
+      customSplitSystemPrompt: string;
+      suggestedName: string;
+      plannerNotes: string;
       concurrency: string;
       intervalSeconds: string;
       maxRetries: string;
+      autoPlanTaskCount: string;
+      autoPlanTaskCountHint: string;
     };
     actions: {
       createTasks: string;
+      splitWithTextModel: string;
+      splitBusy: string;
       addPrompt: string;
       removePrompt: string;
       start: string;
       pause: string;
       continue: string;
+      continueUnfinished: string;
       cancel: string;
       retryTask: string;
       retryFailed: string;
+      applyStyleLock: string;
+      generateRecipe: string;
+      copyRecipe: string;
       saveDefaults: string;
       clearDraft: string;
     };
@@ -69,8 +119,19 @@ type TranslationBundle = {
       promptRequired: string;
       maxTaskCountWarning: (max: number) => string;
       batchComplete: (success: number, failed: number, skipped: number) => string;
+      splitRunning: string;
+      splitSuccess: (count: number) => string;
+      taskCountAdjustedByAi: (count: number, reason?: string) => string;
+      splitFailed: (detail: string) => string;
       costRiskPaused: string;
       authPaused: string;
+      styleLockRequired: string;
+      styleLockSaved: string;
+      styleLockApplied: (count: number) => string;
+      recipeReady: string;
+      recipeCopied: string;
+      recipeCopyUnavailable: string;
+      recipeCopyFailed: (detail: string) => string;
     };
   };
   modes: {
@@ -164,6 +225,8 @@ type TranslationBundle = {
     formatPng: string;
     formatJpeg: string;
     formatWebp: string;
+    enabled: string;
+    disabled: string;
   };
   sections: {
     connection: string;
@@ -220,6 +283,12 @@ type TranslationBundle = {
     runningHint: string;
     elapsedPrefix: string;
     autoNamed: string;
+    batch: string;
+    batchBody: string;
+    batchLatest: string;
+    batchGallery: string;
+    batchNoImage: string;
+    batchRunning: (title: string) => string;
   };
   empty: {
     noHistorySelected: string;
@@ -233,6 +302,7 @@ type TranslationBundle = {
     webHistoryUnavailable: string;
     defaultsDescription: string;
     outputDescription: string;
+    outputDirectoryPermissionHint: string;
     currentVersionManualUpdate: string;
     referenceImageHint: string;
     imageToImageModeDescription: string;
@@ -290,6 +360,7 @@ type TranslationBundle = {
     imageEditTestFailed: (detail: string) => string;
     openOutputFailed: (detail: string) => string;
     historyPreviewUnavailable: string;
+    historyPreviewFileMissing: string;
     historyPreviewPreparationFailed: (detail: string) => string;
     generatedPreviewLoadFailed: string;
     updateStatus: (version: string) => string;
@@ -312,7 +383,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       environment: "当前运行环境",
     },
     tabs: {
-      generate: "生成",
+      generate: "单图",
       batch: "批量",
       history: "历史",
       settings: "设置",
@@ -322,29 +393,100 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       description: "支持同一提示词生成多张，也支持一次填写多条不同提示词，再按可控节奏逐张生成。",
       emptyTasks: "先生成任务列表，再逐条微调提示词并开始批量生图。",
       defaultsNote: "任务数量、并发、间隔和重试次数会跟随配置保存；修改后请到“设置”页保存配置。",
+      aiSplit: {
+        title: "AI 批量任务规划",
+        description: "把一个创作目标拆成多条可执行生图任务，包括标题、提示词、建议命名和规划说明。",
+        guideTitle: "不知道怎么选？",
+      },
+      workflow: {
+        title: "Prompt 工作流",
+        description: "把主任务整理成任务列表，锁定统一风格，生成可复用的 Prompt Recipe，并在失败后继续执行。",
+        styleLockPlaceholder: "例如：同一套杂志封面构图、暖色自然光、奶油白背景、细腻胶片质感。",
+        styleLockHint: "可选。生成任务列表或 AI 规划任务时，会自动带入每个子任务。",
+        styleLockGeneratedHint: "当前任务列表已生成；如果修改了这里的风格要求，请重新生成或重新规划任务列表。",
+      },
+      recipe: {
+        advancedTitle: "高级：导出批次文本",
+        title: "批次导出文本",
+        description: "把当前批次的任务、提示词、风格要求和执行参数整理成一段文本，方便保存或分享。",
+        outputDescription: "这段文本只用于保存和复用当前批次，不会自动导入或自动执行。",
+      },
       sources: {
         samePrompt: "同一提示词生成多张",
         customPrompts: "自定义多条提示词",
+      },
+      referenceImages: {
+        title: "批量参考图（图生图）",
+        description: "可选。这里上传的参考图会随每一个子任务一起发送给图像模型，适合用同一组参考图生成一整批图片。",
+        scopeHint: "这些图片只作用于批量页，不会读取“单图”里的参考图。",
+        summary: (count, max) => `批量参考图：${count}/${max}`,
+        taskTitle: "专属参考图",
+        taskDescription: "可选。这里上传的图片只随当前子任务发送，适合每张图使用不同人物、商品或构图参考。",
+        taskScopeHint: "默认会同时使用上方的批量参考图；如果当前任务只想用自己的图片，可以取消勾选。",
+        taskSessionHint: "参考图只在当前页面会话中保留，刷新页面后需要重新选择。",
+        taskSummary: (count, max) => `专属参考图：${count}/${max}`,
+        taskInputLabel: (index) => `第 ${index} 个任务的专属参考图`,
+        useGlobalLabel: "使用批量参考图",
+        useGlobalForTask: (index) => `第 ${index} 个任务使用批量参考图`,
+        usesGlobalHint: "同时使用批量参考图",
+        expandAllTaskReferences: "展开全部专属参考图",
+        collapseAllTaskReferences: "收起全部",
+      },
+      splitTemplates: {
+        basic: {
+          label: "推荐：自动拆分",
+          description: "不知道怎么选就用这个。它会按任务数量拆成多条独立提示词。",
+          useCase: "适合国家、人物、商品、地点等一组不同主体。",
+        },
+        "style-consistent": {
+          label: "保持同一画风",
+          description: "更强调构图、光影、色彩、镜头语言一致。",
+          useCase: "适合一组海报、头像、封面或商品图，希望看起来像同一套设计。",
+        },
+        series: {
+          label: "系列组图",
+          description: "更强调每张图有不同主题，但整体属于同一系列。",
+          useCase: "适合按章节、节日、城市、品牌活动等主题拆成一组图。",
+        },
+        custom: {
+          label: "我自己写规则",
+          description: "高级用户可以自己写拆分要求，控制文字模型怎么拆。",
+          useCase: "适合你已经知道想让文字模型遵守哪些固定规则。",
+        },
       },
       fields: {
         batchTitle: "批次名称",
         taskCount: "任务数量",
         customPrompt: (index) => `提示词 ${index}`,
         masterPrompt: "主任务",
+        styleLock: "批次级风格锁定",
+        splitTemplate: "拆分规则",
+        customSplitSystemPrompt: "自定义拆分系统提示词",
+        suggestedName: "建议命名",
+        plannerNotes: "规划说明",
         concurrency: "并发数",
         intervalSeconds: "间隔秒数",
         maxRetries: "失败重试次数",
+        autoPlanTaskCount: "让 AI 自动调整任务数量",
+        autoPlanTaskCountHint:
+          "开启后，规划任务列表时文字模型会返回 recommendedCount，并可把任务数量自动改成更符合主任务的数量。关闭后始终按你填写的任务数量拆分。",
       },
       actions: {
         createTasks: "生成任务列表",
+        splitWithTextModel: "规划任务列表",
+        splitBusy: "正在规划...",
         addPrompt: "添加提示词",
         removePrompt: "删除",
         start: "开始批量生成",
         pause: "暂停",
         continue: "继续",
+        continueUnfinished: "继续未完成",
         cancel: "取消剩余任务",
         retryTask: "重试该任务",
         retryFailed: "重试失败项",
+        applyStyleLock: "应用风格锁定",
+        generateRecipe: "生成导出文本",
+        copyRecipe: "复制导出文本",
         saveDefaults: "保存批量默认值",
         clearDraft: "清空当前批量",
       },
@@ -363,8 +505,22 @@ const translations: Record<UiLanguage, TranslationBundle> = {
         promptRequired: "请先输入提示词或主任务。",
         maxTaskCountWarning: (max) => `一次最多建议 ${max} 个任务，数量过多可能触发供应商限流或失败，已自动限制为 ${max}。`,
         batchComplete: (success, failed, skipped) => `批量完成：成功 ${success}，失败 ${failed}，跳过 ${skipped}。`,
+        splitRunning: "正在调用文字模型规划任务，请稍候。",
+        splitSuccess: (count) => `文字模型已规划出 ${count} 个任务。`,
+        taskCountAdjustedByAi: (count, reason) =>
+          `AI 判断该主任务更适合拆分为 ${count} 个任务，已自动调整任务数量。若不需要某一项，可以在任务列表中删除。${
+            reason ? ` 判断依据：${reason}` : ""
+          }`,
+        splitFailed: (detail) => `文字模型规划失败。${detail}`,
         costRiskPaused: "供应商返回可能已产生费用但没有图片的异常，批次已暂停。确认后再继续。",
         authPaused: "API key 或权限异常，批次已暂停。请先检查设置。",
+        styleLockRequired: "请先填写批次级风格锁定内容。",
+        styleLockSaved: "风格锁定已记录。生成任务列表或 AI 规划时会自动带入。",
+        styleLockApplied: (count) => `已把风格锁定应用到 ${count} 个任务。`,
+        recipeReady: "批次导出文本已生成，可以复制保存或发给别人复用。",
+        recipeCopied: "批次导出文本已复制。",
+        recipeCopyUnavailable: "当前浏览器不允许直接复制。你可以手动选中导出文本复制。",
+        recipeCopyFailed: (detail) => `复制批次导出文本失败。${detail}`,
       },
     },
     modes: {
@@ -379,7 +535,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       generateBusy: "正在生成...",
       reusePrompt: "复用提示词",
       openOutput: "打开输出位置",
-      chooseDirectory: "选择目录",
+      chooseDirectory: "选择并授权目录",
       chooseImage: "选择图片",
       changeImage: "继续添加图片",
       removeImage: "移除",
@@ -458,6 +614,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       formatPng: "PNG",
       formatJpeg: "JPEG",
       formatWebp: "WebP",
+      enabled: "开启",
+      disabled: "关闭",
     },
     sections: {
       connection: "连接配置",
@@ -514,6 +672,12 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       runningHint: "生成完成并保存成功后，图片会出现在这里。",
       elapsedPrefix: "已耗时：",
       autoNamed: "自动命名",
+      batch: "批量预览",
+      batchBody: "这里会显示当前批量任务的进度、最新完成图片和已生成缩略图。",
+      batchLatest: "最新完成图片",
+      batchGallery: "已生成图片",
+      batchNoImage: "批量任务已准备好；开始生成后，成功的图片会出现在这里。",
+      batchRunning: (title) => `正在生成：${title}`,
     },
     empty: {
       noHistorySelected: "还没有选中任何历史记录。",
@@ -527,7 +691,10 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       webHistoryUnavailable: "网页模式无法直接读取旧文件预览，你仍然可以在本地目录中手动查看。",
       defaultsDescription:
         "这里可以设置超时时间、默认图片数量、尺寸、质量、格式和压缩。生成高分辨率图片时，建议把超时时间保持在 180 秒以上。",
-      outputDescription: "你可以指定默认保存目录，也可以在桌面模式中直接调起目录选择器。",
+      outputDescription:
+        "你可以指定默认保存目录。网页静态版需要通过目录选择器授权后，才能把图片直接保存到该目录并恢复历史预览。",
+      outputDirectoryPermissionHint:
+        "注意：手动填写 C:\\Users\\... 只会改变记录里的路径文字，不会授权浏览器读取本地文件。要让历史预览可用，请点击“选择并授权目录”。浏览器可能拒绝授权 Downloads 根目录；如果想放在下载目录，建议先新建 C:\\Users\\你的用户名\\Downloads\\gpt-image-2-studio，再选择并授权这个子目录。更稳定的做法是选择 D:\\gpt-image-outputs 这类普通目录。",
       currentVersionManualUpdate: "本版本只提供手动更新提示，不会自动下载或安装新版本。",
       referenceImageHint: "这些参考图会和提示词一起发送给图像模型，推荐不超过 4 张。",
       imageToImageModeDescription: "图生图会把多张参考图和提示词一起发送到 `/images/edits`。",
@@ -574,8 +741,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       settingsSaved: "配置已保存。",
       settingsSavedWithIssues: (details) => `配置已保存。${details}`,
       settingsSaveFailed: (detail) => `保存配置失败。${detail}`,
-      outputSelected: (directory) => `已选择保存目录：${directory}`,
-      chooseDirectoryUnavailableWeb: "当前浏览器或运行环境不支持目录选择，请手动填写保存目录。",
+      outputSelected: (directory) => `已授权目录：${directory}。浏览器不会暴露完整磁盘路径；历史预览会从这个授权目录中查找图片。`,
+      chooseDirectoryUnavailableWeb: "当前浏览器或运行环境不支持目录授权。手动填写保存目录后仍可下载图片，但不能恢复历史预览。",
       chooseDirectoryCancelled: "未选择任何目录。",
       chooseDirectoryFailed: (detail) => `选择目录失败。${detail}`,
       textTestSuccess: (response) => `文字模型响应成功：${response}`,
@@ -586,6 +753,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       imageEditTestFailed: (detail) => `图生图测试失败。${detail}`,
       openOutputFailed: (detail) => `无法打开输出路径。${detail}`,
       historyPreviewUnavailable: "当前运行环境无法直接预览这张已保存图片。",
+      historyPreviewFileMissing:
+        "无法恢复这张历史图片预览。请先在“设置”里点击“选择并授权目录”，选择保存目录；只手动填写 C:\\ 路径不会授权浏览器读取文件。浏览器可能拒绝授权 Downloads 根目录，如果要用下载目录，建议新建并授权 Downloads\\gpt-image-2-studio 子目录。如果已经授权，图片可能已经被删除、移动，或授权目录不匹配。",
       historyPreviewPreparationFailed: (detail) => `准备历史预览失败。${detail}`,
       generatedPreviewLoadFailed: "图片已保存，但预览加载失败。",
       updateStatus: (version) => `当前版本：${version}。如需更新，请手动下载安装新版本。`,
@@ -624,7 +793,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       environment: "Current runtime",
     },
     tabs: {
-      generate: "Generate",
+      generate: "Single image",
       batch: "Batch",
       history: "History",
       settings: "Settings",
@@ -634,29 +803,109 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       description: "Repeat one prompt or fill multiple different prompts, then generate them at a controlled pace.",
       emptyTasks: "Create tasks first, then review each prompt before starting the batch.",
       defaultsNote: "Task count, concurrency, interval, and retry defaults are saved with Settings. Save settings after changing them.",
+      aiSplit: {
+        title: "AI batch task planner",
+        description:
+          "Turn one creative goal into executable image tasks with titles, prompts, suggested names, and planning notes.",
+        guideTitle: "How to choose",
+      },
+      workflow: {
+        title: "Prompt workflow",
+        description:
+          "Plan tasks, lock a shared visual style, create a reusable Prompt Recipe, and continue after failed runs.",
+        styleLockPlaceholder:
+          "Example: same magazine-cover composition, warm natural light, cream background, fine film-grain texture",
+        styleLockHint:
+          "Optional. This is automatically included when you create or plan the task list.",
+        styleLockGeneratedHint:
+          "The current task list has already been created. Recreate or re-plan the task list to apply changes here.",
+      },
+      recipe: {
+        advancedTitle: "Advanced export",
+        title: "Batch export text",
+        description:
+          "Export the current tasks, prompts, style lock, and execution settings as text for saving or sharing.",
+        outputDescription: "This text is only for saving and reuse. It will not be imported or executed automatically.",
+      },
       sources: {
         samePrompt: "Repeat one prompt",
         customPrompts: "Custom multiple prompts",
+      },
+      referenceImages: {
+        title: "Batch reference images (image-to-image)",
+        description:
+          "Optional. Images uploaded here are sent with every batch task, useful when one shared reference set should guide the whole batch.",
+        scopeHint: "These images only apply to Batch. They do not reuse references from Single image.",
+        summary: (count, max) => `Batch references: ${count}/${max}`,
+        taskTitle: "Task-specific reference images",
+        taskDescription:
+          "Optional. Images uploaded here are sent only with this task, useful when each output needs a different person, product, or composition reference.",
+        taskScopeHint:
+          "By default this task also uses the batch reference images above. Turn it off when this task should use only its own references.",
+        taskSessionHint: "Reference images are kept only in this page session. Re-select them after refreshing.",
+        taskSummary: (count, max) => `Task references: ${count}/${max}`,
+        taskInputLabel: (index) => `Task ${index} reference images`,
+        useGlobalLabel: "Use batch reference images",
+        useGlobalForTask: (index) => `Use batch reference images for task ${index}`,
+        usesGlobalHint: "Also using batch reference images",
+        expandAllTaskReferences: "Expand all task references",
+        collapseAllTaskReferences: "Collapse all",
+      },
+      splitTemplates: {
+        basic: {
+          label: "Recommended auto split",
+          description: "Not sure? Use this. It splits the master task into independent prompts.",
+          useCase: "Best for countries, people, products, places, or any group of different subjects.",
+        },
+        "style-consistent": {
+          label: "Keep one visual style",
+          description: "Emphasizes consistent composition, lighting, color, and camera language.",
+          useCase: "Best for posters, avatars, covers, or product shots that should look like one design set.",
+        },
+        series: {
+          label: "Make a coherent series",
+          description: "Emphasizes different topics while keeping the whole batch in one series.",
+          useCase: "Best for chapters, festivals, cities, campaigns, or themed image sets.",
+        },
+        custom: {
+          label: "Write my own rule",
+          description: "Advanced users can write their own split instruction to control the text model.",
+          useCase: "Best when you already know the exact rules the text model should follow.",
+        },
       },
       fields: {
         batchTitle: "Batch title",
         taskCount: "Task count",
         customPrompt: (index) => `Prompt ${index}`,
         masterPrompt: "Master task",
+        styleLock: "Batch style lock",
+        splitTemplate: "Split rule",
+        customSplitSystemPrompt: "Custom split system prompt",
+        suggestedName: "Suggested name",
+        plannerNotes: "Planning note",
         concurrency: "Concurrency",
         intervalSeconds: "Interval seconds",
         maxRetries: "Max retries",
+        autoPlanTaskCount: "Let AI adjust task count",
+        autoPlanTaskCountHint:
+          "When enabled, the text model returns recommendedCount while planning and can update task count to match the master task. When disabled, your typed task count stays authoritative.",
       },
       actions: {
         createTasks: "Create tasks",
+        splitWithTextModel: "Plan task list",
+        splitBusy: "Planning...",
         addPrompt: "Add prompt",
         removePrompt: "Remove",
         start: "Start batch",
         pause: "Pause",
         continue: "Continue",
+        continueUnfinished: "Continue unfinished",
         cancel: "Cancel remaining",
         retryTask: "Retry this task",
         retryFailed: "Retry failed tasks",
+        applyStyleLock: "Apply style lock",
+        generateRecipe: "Generate export text",
+        copyRecipe: "Copy export text",
         saveDefaults: "Save batch defaults",
         clearDraft: "Clear current batch",
       },
@@ -676,8 +925,22 @@ const translations: Record<UiLanguage, TranslationBundle> = {
         maxTaskCountWarning: (max) =>
           `A batch is capped at ${max} tasks. Larger batches may hit provider rate limits or failures, so the count was capped at ${max}.`,
         batchComplete: (success, failed, skipped) => `Batch complete: ${success} succeeded, ${failed} failed, ${skipped} skipped.`,
+        splitRunning: "Calling the text model to plan this batch. Please wait.",
+        splitSuccess: (count) => `Text model planned ${count} tasks.`,
+        taskCountAdjustedByAi: (count, reason) =>
+          `AI recommended ${count} tasks and adjusted the task count to ${count}. Remove any task you do not need from the task list.${
+            reason ? ` Reason: ${reason}` : ""
+          }`,
+        splitFailed: (detail) => `Text model planning failed. ${detail}`,
         costRiskPaused: "The provider returned an error that may still have incurred cost but no image. The batch is paused until you confirm.",
         authPaused: "API key or permission failed. The batch is paused. Check Settings first.",
+        styleLockRequired: "Enter a batch style lock first.",
+        styleLockSaved: "Style lock saved. It will be applied when you create or plan tasks.",
+        styleLockApplied: (count) => `Style lock applied to ${count} task${count === 1 ? "" : "s"}.`,
+        recipeReady: "Batch export text is ready. You can copy it for reuse.",
+        recipeCopied: "Batch export text copied.",
+        recipeCopyUnavailable: "This browser does not allow direct clipboard copy. Select the export text manually.",
+        recipeCopyFailed: (detail) => `Failed to copy batch export text. ${detail}`,
       },
     },
     modes: {
@@ -692,7 +955,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       generateBusy: "Generating...",
       reusePrompt: "Reuse prompt",
       openOutput: "Open output",
-      chooseDirectory: "Choose directory",
+      chooseDirectory: "Choose and authorize folder",
       chooseImage: "Choose images",
       changeImage: "Add more images",
       removeImage: "Remove",
@@ -771,6 +1034,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       formatPng: "PNG",
       formatJpeg: "JPEG",
       formatWebp: "WebP",
+      enabled: "Enabled",
+      disabled: "Disabled",
     },
     sections: {
       connection: "Connection",
@@ -828,6 +1093,12 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       runningHint: "The image will appear here after it finishes and is saved successfully.",
       elapsedPrefix: "Elapsed: ",
       autoNamed: "Auto-named",
+      batch: "Batch preview",
+      batchBody: "This panel shows the current batch progress, the latest completed image, and generated thumbnails.",
+      batchLatest: "Latest completed image",
+      batchGallery: "Generated images",
+      batchNoImage: "The batch is ready. Successful images will appear here after generation starts.",
+      batchRunning: (title) => `Generating: ${title}`,
     },
     empty: {
       noHistorySelected: "No history item is selected yet.",
@@ -841,7 +1112,10 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       webHistoryUnavailable: "The web runtime cannot preview older local files directly. You can still open them manually from the output directory.",
       defaultsDescription:
         "Set timeout, default image count, size, quality, format, and compression here. For long-running generations, keep the timeout at 180 seconds or more.",
-      outputDescription: "Set a default save location, or open the directory picker directly in desktop mode.",
+      outputDescription:
+        "Set a default save location. In the static web version, folder authorization is required before the app can save directly there or restore history previews.",
+      outputDirectoryPermissionHint:
+        "Note: typing a C:\\Users\\... path only changes the stored path text. It does not authorize the browser to read local files. To enable history previews, click \"Choose and authorize folder\". Browsers may refuse the Downloads root folder; if you want to use Downloads, create C:\\Users\\your-name\\Downloads\\gpt-image-2-studio first and authorize that subfolder. A regular folder such as D:\\gpt-image-outputs is more reliable.",
       currentVersionManualUpdate: "This release only shows manual update guidance. It does not download updates automatically.",
       referenceImageHint: "These images are sent to the image model together with the prompt. Staying at 4 or fewer is recommended.",
       imageToImageModeDescription: "Image-to-image sends multiple reference images and the prompt together to `/images/edits`.",
@@ -890,8 +1164,10 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       settingsSaved: "Settings saved.",
       settingsSavedWithIssues: (details) => `Settings saved. ${details}`,
       settingsSaveFailed: (detail) => `Failed to save settings. ${detail}`,
-      outputSelected: (directory) => `Output directory selected: ${directory}`,
-      chooseDirectoryUnavailableWeb: "Directory picking is unavailable in this browser/runtime. Enter the output directory manually.",
+      outputSelected: (directory) =>
+        `Folder authorized: ${directory}. Browsers do not expose the full disk path; history previews will search inside this authorized folder.`,
+      chooseDirectoryUnavailableWeb:
+        "Folder authorization is unavailable in this browser/runtime. You can still download images after entering a path manually, but history previews cannot be restored.",
       chooseDirectoryCancelled: "No directory was selected.",
       chooseDirectoryFailed: (detail) => `Failed to choose a directory. ${detail}`,
       textTestSuccess: (response) => `Text model responded: ${response}`,
@@ -902,6 +1178,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       imageEditTestFailed: (detail) => `Image-to-image test failed. ${detail}`,
       openOutputFailed: (detail) => `Could not open the output path. ${detail}`,
       historyPreviewUnavailable: "The current runtime cannot preview this saved image directly.",
+      historyPreviewFileMissing:
+        "Could not restore this history preview. In Settings, click \"Choose and authorize folder\" and select the output folder. Typing a C:\\ path manually does not authorize browser file access. Browsers may refuse the Downloads root folder; if you want to use Downloads, create and authorize a Downloads\\gpt-image-2-studio subfolder. If it is already authorized, the image may have been deleted, moved, or the authorized folder does not match.",
       historyPreviewPreparationFailed: (detail) => `Could not prepare a preview for this saved output. ${detail}`,
       generatedPreviewLoadFailed: "The image was saved, but the preview failed to load afterward.",
       updateStatus: (version) => `Current version: ${version}. To update, download and install a newer release manually.`,

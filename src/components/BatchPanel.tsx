@@ -1,13 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 
 import { buildBatchManifest, summarizeBatchTasks } from "../core/batchManifest";
 import { notifyBatchComplete, restoreDocumentTitle, updateBatchDocumentTitle } from "../core/batchNotifications";
+import { buildBatchPreview, type BatchPreviewState } from "../core/batchPreview";
 import {
+  createTasksFromSplitResults,
   createTasksFromPromptList,
   createTasksFromRepeatedPrompt,
   renumberBatchTasks,
 } from "../core/batchPlanner";
+import {
+  BUILT_IN_BATCH_SPLIT_TEMPLATES,
+  splitPromptWithTextModel,
+} from "../core/batchPromptSplitter";
 import { retrySingleBatchTask, runBatchTasks } from "../core/batchRunner";
+import {
+  buildBatchPromptRecipe,
+  countRecoverableBatchTasks,
+  formatBatchPromptRecipe,
+  hasFailedBatchTasks,
+  resetFailedBatchTasks,
+} from "../core/batchWorkflow";
 import {
   MAX_BATCH_CONCURRENCY,
   MAX_BATCH_TASK_COUNT,
@@ -16,11 +29,18 @@ import {
   clampBatchTaskCount,
   createBatchId,
   type BatchExecutionConfig,
+  type BatchSplitTemplateId,
   type BatchSource,
   type BatchStatus,
   type BatchTask,
 } from "../core/batchTypes";
 import type { AppConfig } from "../core/config";
+import {
+  MAX_REFERENCE_IMAGES,
+  addReferenceImages,
+  type AddReferenceImagesResult,
+  type ReferenceImageItem,
+} from "../core/referenceImages";
 import { getTranslations, type UiLanguage } from "../i18n/translations";
 import type { RuntimeAdapter } from "../runtime/types";
 
@@ -28,22 +48,23 @@ type BatchPanelProps = {
   config: AppConfig;
   runtime: RuntimeAdapter | null;
   language: UiLanguage;
-  referenceImages: File[];
+  referenceImages?: File[];
   onConfigChange: <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => void;
   onHistoryChanged: () => Promise<void>;
   requireValidConfig: (actionLabel: string) => boolean;
   setAppMessage: (message: string) => void;
+  onBatchPreviewChange?: (preview: BatchPreviewState | null) => void;
 };
 
 export function BatchPanel({
   config,
   runtime,
   language,
-  referenceImages,
   onConfigChange,
   onHistoryChanged,
   requireValidConfig,
   setAppMessage,
+  onBatchPreviewChange,
 }: BatchPanelProps) {
   const copy = getTranslations(language);
   const [source, setSource] = useState<BatchSource>("same-prompt");
@@ -54,14 +75,31 @@ export function BatchPanel({
   const [completedAt, setCompletedAt] = useState("");
   const [batchTitle, setBatchTitle] = useState("");
   const [masterPrompt, setMasterPrompt] = useState("");
+  const [styleLock, setStyleLock] = useState("");
   const [customPromptDrafts, setCustomPromptDrafts] = useState<string[]>(() =>
     createEmptyPromptDrafts(config.batchDefaultTaskCount),
   );
+  const [splitTemplateId, setSplitTemplateId] = useState<BatchSplitTemplateId>("basic");
+  const [customSplitSystemPrompt, setCustomSplitSystemPrompt] = useState("");
+  const [isSplitting, setIsSplitting] = useState(false);
   const [taskCount, setTaskCount] = useState(() => clampBatchTaskCount(config.batchDefaultTaskCount));
   const [tasks, setTasks] = useState<BatchTask[]>([]);
   const [pauseMessage, setPauseMessage] = useState("");
+  const [promptRecipeText, setPromptRecipeText] = useState("");
+  const [batchReferenceImages, setBatchReferenceImages] = useState<ReferenceImageItem[]>([]);
+  const [isBatchReferenceDragOver, setIsBatchReferenceDragOver] = useState(false);
+  const [taskReferenceImagesById, setTaskReferenceImagesById] = useState<Record<string, ReferenceImageItem[]>>({});
+  const [taskUsesGlobalReferencesById, setTaskUsesGlobalReferencesById] = useState<Record<string, boolean>>({});
+  const [expandedTaskReferenceIds, setExpandedTaskReferenceIds] = useState<Set<string>>(() => new Set());
+  const [taskReferenceDragOverId, setTaskReferenceDragOverId] = useState<string | null>(null);
   const cancelRef = useRef(false);
   const pauseRef = useRef(false);
+  const batchReferenceInputRef = useRef<HTMLInputElement | null>(null);
+  const batchReferenceDragDepthRef = useRef(0);
+  const batchReferenceImagesRef = useRef<ReferenceImageItem[]>([]);
+  const taskReferenceInputRefs = useRef(new Map<string, HTMLInputElement>());
+  const taskReferenceDragDepthRef = useRef<Record<string, number>>({});
+  const taskReferenceImagesByIdRef = useRef<Record<string, ReferenceImageItem[]>>({});
 
   const executionConfig: BatchExecutionConfig = useMemo(
     () =>
@@ -76,6 +114,34 @@ export function BatchPanel({
   const summary = useMemo(() => summarizeBatchTasks(tasks), [tasks]);
   const isRunning = status === "running";
   const batchDisplayTitle = batchTitle.trim() || "batch-images";
+  const recoverableTaskCount = useMemo(() => countRecoverableBatchTasks(tasks), [tasks]);
+  const hasFailedTasks = useMemo(() => hasFailedBatchTasks(tasks), [tasks]);
+  const hasExecutedTasks = Boolean(startedAt) || summary.succeeded > 0 || summary.failed > 0 || summary.skipped > 0;
+  const primaryBatchActionLabel =
+    hasExecutedTasks && recoverableTaskCount > 0
+      ? copy.batch.actions.continueUnfinished
+      : status === "paused"
+        ? copy.batch.actions.continue
+        : copy.batch.actions.start;
+
+  useEffect(() => {
+    onBatchPreviewChange?.(buildBatchPreview({ status, tasks }));
+  }, [onBatchPreviewChange, status, tasks]);
+
+  useEffect(() => {
+    batchReferenceImagesRef.current = batchReferenceImages;
+  }, [batchReferenceImages]);
+
+  useEffect(() => {
+    taskReferenceImagesByIdRef.current = taskReferenceImagesById;
+  }, [taskReferenceImagesById]);
+
+  useEffect(() => {
+    return () => {
+      revokeReferenceImages(batchReferenceImagesRef.current);
+      revokeTaskReferenceImages(taskReferenceImagesByIdRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (isRunning || tasks.length > 0) {
@@ -108,10 +174,304 @@ export function BatchPanel({
     setStatus("draft");
     setBatchTitle("");
     setMasterPrompt("");
+    setStyleLock("");
     setCustomPromptDrafts(createEmptyPromptDrafts(nextCount));
     setTaskCount(nextCount);
     setTasks([]);
+    setPromptRecipeText("");
+    setBatchReferenceImagesWithCleanup([]);
+    clearAllTaskReferenceState();
+    clearBatchReferenceInput();
     setAppMessage("");
+  }
+
+  function clearAllTaskReferenceState() {
+    setTaskReferenceImagesById((currentImagesById) => {
+      revokeTaskReferenceImages(currentImagesById);
+      return {};
+    });
+    setTaskUsesGlobalReferencesById({});
+    setExpandedTaskReferenceIds(new Set());
+    taskReferenceDragDepthRef.current = {};
+    setTaskReferenceDragOverId(null);
+    clearTaskReferenceInputs();
+  }
+
+  function clearTaskReferenceInputs(taskIds?: string[]) {
+    const ids = taskIds ?? Array.from(taskReferenceInputRefs.current.keys());
+    for (const taskId of ids) {
+      const input = taskReferenceInputRefs.current.get(taskId);
+      if (input) {
+        input.value = "";
+      }
+    }
+  }
+
+  function replaceTasksAndClearTaskReferences(nextTasks: BatchTask[]) {
+    clearAllTaskReferenceState();
+    setTasks(nextTasks);
+  }
+
+  function setBatchReferenceImagesWithCleanup(nextImages: ReferenceImageItem[]) {
+    setBatchReferenceImages((currentImages) => {
+      const nextIds = new Set(nextImages.map((item) => item.id));
+      const removedImages = currentImages.filter((item) => !nextIds.has(item.id));
+
+      if (removedImages.length > 0) {
+        revokeReferenceImages(removedImages);
+      }
+
+      return nextImages;
+    });
+  }
+
+  function buildReferenceImagesMessage(result: AddReferenceImagesResult): string {
+    const parts: string[] = [];
+
+    if (result.addedCount > 0) {
+      parts.push(copy.messages.referenceImagesAdded(result.addedCount, result.images.length));
+    }
+
+    if (result.invalidCount > 0) {
+      parts.push(copy.messages.referenceImagesInvalidSkipped(result.invalidCount));
+    }
+
+    if (result.overflowCount > 0) {
+      parts.push(copy.messages.referenceImagesOverflowSkipped(result.overflowCount, MAX_REFERENCE_IMAGES));
+    }
+
+    return parts.join(" ").trim();
+  }
+
+  function clearBatchReferenceInput() {
+    if (batchReferenceInputRef.current) {
+      batchReferenceInputRef.current.value = "";
+    }
+  }
+
+  function addBatchReferenceFiles(files: Iterable<File>) {
+    const result = addReferenceImages(batchReferenceImages, files);
+    setBatchReferenceImagesWithCleanup(result.images);
+
+    const message = buildReferenceImagesMessage(result);
+    if (message) {
+      setAppMessage(message);
+    }
+  }
+
+  function handleBatchReferenceImageChange(event: ChangeEvent<HTMLInputElement>) {
+    addBatchReferenceFiles(Array.from(event.currentTarget.files ?? []));
+    event.currentTarget.value = "";
+  }
+
+  function handleRemoveBatchReferenceImage(id: string) {
+    const removedImage = batchReferenceImages.find((image) => image.id === id);
+    if (!removedImage) {
+      return;
+    }
+
+    setBatchReferenceImagesWithCleanup(batchReferenceImages.filter((image) => image.id !== id));
+    setAppMessage(copy.messages.referenceImageRemoved(removedImage.file.name));
+  }
+
+  function handleClearBatchReferenceImages() {
+    if (batchReferenceImages.length === 0) {
+      return;
+    }
+
+    setBatchReferenceImagesWithCleanup([]);
+    clearBatchReferenceInput();
+    setAppMessage(copy.messages.referenceImagesCleared);
+  }
+
+  function setTaskReferenceImagesWithCleanup(taskId: string, nextImages: ReferenceImageItem[]) {
+    setTaskReferenceImagesById((currentImagesById) => {
+      const currentImages = currentImagesById[taskId] ?? [];
+      const nextIds = new Set(nextImages.map((item) => item.id));
+      const removedImages = currentImages.filter((item) => !nextIds.has(item.id));
+
+      if (removedImages.length > 0) {
+        revokeReferenceImages(removedImages);
+      }
+
+      return {
+        ...currentImagesById,
+        [taskId]: nextImages,
+      };
+    });
+  }
+
+  function addTaskReferenceFiles(taskId: string, files: Iterable<File>) {
+    const currentImages = taskReferenceImagesById[taskId] ?? [];
+    const result = addReferenceImages(currentImages, files);
+    setTaskReferenceImagesWithCleanup(taskId, result.images);
+
+    const message = buildReferenceImagesMessage(result);
+    if (message) {
+      setAppMessage(message);
+    }
+  }
+
+  function handleTaskReferenceImageChange(taskId: string, event: ChangeEvent<HTMLInputElement>) {
+    addTaskReferenceFiles(taskId, Array.from(event.currentTarget.files ?? []));
+    event.currentTarget.value = "";
+  }
+
+  function handleRemoveTaskReferenceImage(taskId: string, imageId: string) {
+    const currentImages = taskReferenceImagesById[taskId] ?? [];
+    const removedImage = currentImages.find((image) => image.id === imageId);
+    if (!removedImage) {
+      return;
+    }
+
+    setTaskReferenceImagesWithCleanup(
+      taskId,
+      currentImages.filter((image) => image.id !== imageId),
+    );
+    setAppMessage(copy.messages.referenceImageRemoved(removedImage.file.name));
+  }
+
+  function handleClearTaskReferenceImages(taskId: string) {
+    if ((taskReferenceImagesById[taskId] ?? []).length === 0) {
+      return;
+    }
+
+    setTaskReferenceImagesWithCleanup(taskId, []);
+    clearTaskReferenceInputs([taskId]);
+    setAppMessage(copy.messages.referenceImagesCleared);
+  }
+
+  function handleTaskReferenceToggle(taskId: string, open: boolean) {
+    setExpandedTaskReferenceIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+      if (open) {
+        nextIds.add(taskId);
+      } else {
+        nextIds.delete(taskId);
+      }
+      return nextIds;
+    });
+  }
+
+  function handleExpandAllTaskReferences() {
+    setExpandedTaskReferenceIds(new Set(tasks.map((task) => task.id)));
+  }
+
+  function handleCollapseAllTaskReferences() {
+    setExpandedTaskReferenceIds(new Set());
+  }
+
+  function handleToggleTaskUsesGlobalReferences(taskId: string, checked: boolean) {
+    setTaskUsesGlobalReferencesById((currentValues) => ({
+      ...currentValues,
+      [taskId]: checked,
+    }));
+  }
+
+  function taskUsesGlobalReferences(taskId: string) {
+    return taskUsesGlobalReferencesById[taskId] !== false;
+  }
+
+  function getReferenceImagesForTask(task: BatchTask): File[] {
+    const globalReferences = taskUsesGlobalReferences(task.id) ? batchReferenceImages.map((image) => image.file) : [];
+    const taskReferences = (taskReferenceImagesById[task.id] ?? []).map((image) => image.file);
+    return [...globalReferences, ...taskReferences];
+  }
+
+  function setTaskReferenceInputRef(taskId: string, node: HTMLInputElement | null) {
+    if (node) {
+      taskReferenceInputRefs.current.set(taskId, node);
+    } else {
+      taskReferenceInputRefs.current.delete(taskId);
+    }
+  }
+
+  function hasDraggedFiles(event: DragEvent<HTMLElement>) {
+    return Array.from(event.dataTransfer.types).includes("Files");
+  }
+
+  function handleBatchReferenceDragEnter(event: DragEvent<HTMLElement>) {
+    if (isRunning || !hasDraggedFiles(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    batchReferenceDragDepthRef.current += 1;
+    setIsBatchReferenceDragOver(true);
+  }
+
+  function handleBatchReferenceDragOver(event: DragEvent<HTMLElement>) {
+    if (isRunning || !hasDraggedFiles(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleBatchReferenceDragLeave(event: DragEvent<HTMLElement>) {
+    if (isRunning || !hasDraggedFiles(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    batchReferenceDragDepthRef.current = Math.max(0, batchReferenceDragDepthRef.current - 1);
+    if (batchReferenceDragDepthRef.current === 0) {
+      setIsBatchReferenceDragOver(false);
+    }
+  }
+
+  function handleBatchReferenceDrop(event: DragEvent<HTMLElement>) {
+    if (isRunning || !hasDraggedFiles(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    batchReferenceDragDepthRef.current = 0;
+    setIsBatchReferenceDragOver(false);
+    addBatchReferenceFiles(Array.from(event.dataTransfer.files));
+  }
+
+  function handleTaskReferenceDragEnter(taskId: string, event: DragEvent<HTMLElement>) {
+    if (isRunning || !hasDraggedFiles(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    taskReferenceDragDepthRef.current[taskId] = (taskReferenceDragDepthRef.current[taskId] ?? 0) + 1;
+    setTaskReferenceDragOverId(taskId);
+  }
+
+  function handleTaskReferenceDragOver(event: DragEvent<HTMLElement>) {
+    if (isRunning || !hasDraggedFiles(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleTaskReferenceDragLeave(taskId: string, event: DragEvent<HTMLElement>) {
+    if (isRunning || !hasDraggedFiles(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    taskReferenceDragDepthRef.current[taskId] = Math.max(0, (taskReferenceDragDepthRef.current[taskId] ?? 0) - 1);
+    if (taskReferenceDragDepthRef.current[taskId] === 0) {
+      setTaskReferenceDragOverId((currentTaskId) => (currentTaskId === taskId ? null : currentTaskId));
+    }
+  }
+
+  function handleTaskReferenceDrop(taskId: string, event: DragEvent<HTMLElement>) {
+    if (isRunning || !hasDraggedFiles(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    taskReferenceDragDepthRef.current[taskId] = 0;
+    setTaskReferenceDragOverId(null);
+    addTaskReferenceFiles(taskId, Array.from(event.dataTransfer.files));
   }
 
   function handleCreateTasks() {
@@ -127,8 +487,8 @@ export function BatchPanel({
 
     const nextTasks =
       source === "custom-prompts"
-        ? createTasksFromPromptList(customPromptDrafts)
-        : createTasksFromRepeatedPrompt(masterPrompt, taskCount);
+        ? createTasksFromPromptList(customPromptDrafts, { styleLock })
+        : createTasksFromRepeatedPrompt(masterPrompt, taskCount, { styleLock });
 
     if (nextTasks.length === 0) {
       setAppMessage(copy.batch.messages.promptRequired);
@@ -136,9 +496,72 @@ export function BatchPanel({
     }
 
     resetBatchIdentity();
-    setTasks(nextTasks);
+    replaceTasksAndClearTaskReferences(nextTasks);
     setStatus("draft");
+    setPromptRecipeText("");
     setAppMessage("");
+  }
+
+  async function handleSplitWithTextModel() {
+    if (isRunning || isSplitting) {
+      return;
+    }
+
+    if (!masterPrompt.trim()) {
+      setAppMessage(copy.batch.messages.promptRequired);
+      return;
+    }
+
+    if (!requireValidConfig(copy.batch.actions.splitWithTextModel)) {
+      return;
+    }
+
+    setIsSplitting(true);
+    setAppMessage(copy.batch.messages.splitRunning);
+
+    try {
+      const planning = await splitPromptWithTextModel({
+        config,
+        masterPrompt,
+        count: taskCount,
+        templateId: splitTemplateId,
+        customSystemPrompt: customSplitSystemPrompt,
+        styleLock,
+        allowAiTaskCountPlanning: config.batchAutoPlanTaskCount,
+      });
+      const recommendedCount =
+        config.batchAutoPlanTaskCount && isUsableRecommendedCount(planning.recommendedCount)
+          ? clampBatchTaskCount(planning.recommendedCount)
+          : taskCount;
+      const didAdjustTaskCount = recommendedCount !== taskCount;
+
+      if (didAdjustTaskCount) {
+        setTaskCount(recommendedCount);
+        onConfigChange("batchDefaultTaskCount", recommendedCount);
+        setCustomPromptDrafts((current) => resizePromptDrafts(current, recommendedCount));
+      }
+
+      const nextTasks = createTasksFromSplitResults(planning.items, { styleLock }).slice(0, recommendedCount);
+
+      if (nextTasks.length === 0) {
+        setAppMessage(copy.batch.messages.splitFailed("The text model did not return usable tasks."));
+        return;
+      }
+
+      resetBatchIdentity();
+      replaceTasksAndClearTaskReferences(nextTasks);
+      setStatus("draft");
+      setPromptRecipeText("");
+      setAppMessage(
+        didAdjustTaskCount
+          ? copy.batch.messages.taskCountAdjustedByAi(recommendedCount, planning.countReason)
+          : copy.batch.messages.splitSuccess(nextTasks.length),
+      );
+    } catch (error) {
+      setAppMessage(copy.batch.messages.splitFailed(error instanceof Error ? error.message : "Unknown error."));
+    } finally {
+      setIsSplitting(false);
+    }
   }
 
   function updateTaskCount(rawValue: number) {
@@ -184,9 +607,11 @@ export function BatchPanel({
         }
 
         const promptChanged = patch.prompt !== undefined && patch.prompt !== task.prompt;
+        const titleChanged = patch.title !== undefined && patch.title !== task.title;
         return {
           ...task,
           ...patch,
+          ...(titleChanged ? { suggestedName: undefined } : null),
           ...(promptChanged
             ? {
                 status: "pending" as const,
@@ -203,10 +628,63 @@ export function BatchPanel({
         };
       }),
     );
+    setPromptRecipeText("");
   }
 
   function handleDeleteTask(id: string) {
     setTasks((current) => renumberBatchTasks(current.filter((task) => task.id !== id)));
+    setTaskReferenceImagesById((currentImagesById) => {
+      const removedImages = currentImagesById[id] ?? [];
+      if (removedImages.length > 0) {
+        revokeReferenceImages(removedImages);
+      }
+      const { [id]: _removed, ...remainingImagesById } = currentImagesById;
+      return remainingImagesById;
+    });
+    setTaskUsesGlobalReferencesById((currentValues) => {
+      const { [id]: _removed, ...remainingValues } = currentValues;
+      return remainingValues;
+    });
+    setExpandedTaskReferenceIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+      nextIds.delete(id);
+      return nextIds;
+    });
+    clearTaskReferenceInputs([id]);
+    setPromptRecipeText("");
+  }
+
+  function createPromptRecipeText(): string {
+    const recipe = buildBatchPromptRecipe({
+      title: batchDisplayTitle,
+      source,
+      masterPrompt: source === "custom-prompts" ? customPromptDrafts.filter(Boolean).join("\n") : masterPrompt,
+      styleLock,
+      taskCount,
+      splitTemplateId,
+      customSplitSystemPrompt,
+      executionConfig,
+      tasks,
+    });
+    const text = formatBatchPromptRecipe(recipe);
+    setPromptRecipeText(text);
+    setAppMessage(copy.batch.messages.recipeReady);
+    return text;
+  }
+
+  async function handleCopyPromptRecipe() {
+    const text = promptRecipeText || createPromptRecipeText();
+    if (!navigator.clipboard?.writeText) {
+      setAppMessage(copy.batch.messages.recipeCopyUnavailable);
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setAppMessage(copy.batch.messages.recipeCopied);
+    } catch (error) {
+      setAppMessage(copy.batch.messages.recipeCopyFailed(error instanceof Error ? error.message : "Unknown error."));
+    }
   }
 
   async function persistManifest(nextStatus: BatchStatus, nextTasks: BatchTask[], manifestStartedAt: string) {
@@ -232,8 +710,9 @@ export function BatchPanel({
     setStatus(nextStatus);
   }
 
-  async function handleStartBatch() {
-    if (!runtime || tasks.length === 0 || isRunning) {
+  async function handleStartBatch(tasksOverride?: BatchTask[]) {
+    const targetTasks = tasksOverride ?? tasks;
+    if (!runtime || targetTasks.length === 0 || isRunning) {
       return;
     }
 
@@ -256,9 +735,10 @@ export function BatchPanel({
         batchTitle: batchDisplayTitle,
         batchCreatedAt,
         config,
-        tasks,
+        tasks: targetTasks,
         executionConfig,
-        referenceImages,
+        referenceImages: batchReferenceImages.map((image) => image.file),
+        getTaskReferenceImages: getReferenceImagesForTask,
         saveBatchImage: runtime.saveBatchImage.bind(runtime),
         onTaskUpdate: (nextTasks) => {
           setTasks([...nextTasks]);
@@ -304,6 +784,19 @@ export function BatchPanel({
     cancelRef.current = true;
   }
 
+  async function handleRetryFailedTasks() {
+    if (!hasFailedTasks || isRunning) {
+      return;
+    }
+
+    const nextTasks = resetFailedBatchTasks(tasks);
+    setTasks(nextTasks);
+    setStatus("draft");
+    setPauseMessage("");
+    setPromptRecipeText("");
+    await handleStartBatch(nextTasks);
+  }
+
   async function handleRetryTask(task: BatchTask) {
     if (!runtime || isRunning) {
       return;
@@ -330,7 +823,7 @@ export function BatchPanel({
       batchCreatedAt,
       config,
       task,
-      referenceImages,
+      referenceImages: getReferenceImagesForTask(task),
       saveBatchImage: runtime.saveBatchImage.bind(runtime),
     });
     const nextTasks = tasks.map((item) => (item.id === task.id ? retried : item));
@@ -358,9 +851,114 @@ export function BatchPanel({
         ))}
       </div>
 
+      <details className="batch-advanced-export batch-reference-section">
+        <summary>
+          <span>{copy.batch.referenceImages.title}</span>
+          <small>{copy.batch.referenceImages.summary(batchReferenceImages.length, MAX_REFERENCE_IMAGES)}</small>
+        </summary>
+        <div className="batch-advanced-export-body batch-reference-section-body">
+          <div
+            className={`reference-dropzone ${isBatchReferenceDragOver ? "drag-over" : ""}`}
+            onDragEnter={handleBatchReferenceDragEnter}
+            onDragOver={handleBatchReferenceDragOver}
+            onDragLeave={handleBatchReferenceDragLeave}
+            onDrop={handleBatchReferenceDrop}
+          >
+            <div className="reference-dropzone-copy">
+              <strong>{copy.batch.referenceImages.title}</strong>
+              <p>{copy.batch.referenceImages.description}</p>
+              <p>
+                {copy.fields.referenceImagePlaceholder} {copy.notes.dragAndDropHint}
+              </p>
+              <p>{copy.notes.referenceImageLimitHint}</p>
+            </div>
+            <input
+              ref={batchReferenceInputRef}
+              className="hidden-file-input"
+              type="file"
+              accept="image/*"
+              multiple
+              aria-label={copy.batch.referenceImages.title}
+              disabled={isRunning}
+              onChange={handleBatchReferenceImageChange}
+            />
+            <div className="action-row">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => batchReferenceInputRef.current?.click()}
+                disabled={isRunning}
+              >
+                {batchReferenceImages.length > 0 ? copy.actions.changeImage : copy.actions.chooseImage}
+              </button>
+              {batchReferenceImages.length > 0 ? (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={handleClearBatchReferenceImages}
+                  disabled={isRunning}
+                >
+                  {copy.actions.clearImages}
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="reference-summary">
+            <span>{copy.batch.referenceImages.scopeHint}</span>
+          </div>
+
+          {batchReferenceImages.length > 0 ? (
+            <div className="reference-grid">
+              {batchReferenceImages.map((image) => (
+                <article key={image.id} className="reference-card">
+                  <div className="reference-preview">
+                    <img src={image.previewUrl} alt={image.file.name} />
+                  </div>
+                  <div className="reference-details">
+                    <strong>{image.file.name}</strong>
+                    <span>{formatFileSize(image.file.size, language)}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost-button reference-remove-button"
+                    onClick={() => handleRemoveBatchReferenceImage(image.id)}
+                    disabled={isRunning}
+                  >
+                    {copy.actions.removeImage}
+                  </button>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="reference-empty">
+              <p>{copy.empty.noReferenceImages}</p>
+            </div>
+          )}
+        </div>
+      </details>
+
       <label className="field">
         <span>{copy.batch.fields.batchTitle}</span>
         <input value={batchTitle} disabled={isRunning} onChange={(event) => setBatchTitle(event.target.value)} />
+      </label>
+
+      <label className="field batch-style-lock-field">
+        <span>{copy.batch.fields.styleLock}</span>
+        <textarea
+          className="batch-style-lock-textarea"
+          value={styleLock}
+          rows={3}
+          disabled={isRunning}
+          placeholder={copy.batch.workflow.styleLockPlaceholder}
+          onChange={(event) => {
+            setStyleLock(event.target.value);
+            setPromptRecipeText("");
+          }}
+        />
+        <small className="inline-note">
+          {tasks.length > 0 && !isRunning ? copy.batch.workflow.styleLockGeneratedHint : copy.batch.workflow.styleLockHint}
+        </small>
       </label>
 
       {source === "custom-prompts" ? (
@@ -389,16 +987,78 @@ export function BatchPanel({
           ))}
         </div>
       ) : (
-        <label className="field">
-          <span>{copy.batch.fields.masterPrompt}</span>
-          <textarea
-            className="prompt-textarea"
-            value={masterPrompt}
-            rows={6}
-            disabled={isRunning}
-            onChange={(event) => setMasterPrompt(event.target.value)}
-          />
-        </label>
+        <>
+          <label className="field">
+            <span>{copy.batch.fields.masterPrompt}</span>
+            <textarea
+              className="prompt-textarea"
+              value={masterPrompt}
+              rows={6}
+              disabled={isRunning}
+              onChange={(event) => setMasterPrompt(event.target.value)}
+            />
+          </label>
+          <section className="batch-split-card" aria-label={copy.batch.aiSplit.title}>
+            <div>
+              <h3>{copy.batch.aiSplit.title}</h3>
+              <p>{copy.batch.aiSplit.description}</p>
+            </div>
+            <label className="field">
+              <span>{copy.batch.fields.splitTemplate}</span>
+              <select
+                value={splitTemplateId}
+                disabled={isRunning || isSplitting}
+                onChange={(event) => setSplitTemplateId(event.target.value as BatchSplitTemplateId)}
+              >
+                {BUILT_IN_BATCH_SPLIT_TEMPLATES.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {copy.batch.splitTemplates[template.id].label}
+                  </option>
+                ))}
+                <option value="custom">{copy.batch.splitTemplates.custom.label}</option>
+              </select>
+            </label>
+            {splitTemplateId === "custom" ? (
+              <label className="field">
+                <span>{copy.batch.fields.customSplitSystemPrompt}</span>
+                <textarea
+                  className="batch-task-prompt-textarea"
+                  value={customSplitSystemPrompt}
+                  rows={4}
+                  disabled={isRunning || isSplitting}
+                  onChange={(event) => setCustomSplitSystemPrompt(event.target.value)}
+                />
+              </label>
+            ) : (
+              <p className="panel-note">{copy.batch.splitTemplates[splitTemplateId].description}</p>
+            )}
+            <div className="split-template-guide">
+              <strong>{copy.batch.aiSplit.guideTitle}</strong>
+              <div className="split-template-guide-grid">
+                {(["basic", "style-consistent", "series", "custom"] as const).map((templateId) => (
+                  <button
+                    key={templateId}
+                    type="button"
+                    className={`split-template-guide-item ${splitTemplateId === templateId ? "active" : ""}`}
+                    onClick={() => setSplitTemplateId(templateId)}
+                    disabled={isRunning || isSplitting}
+                  >
+                    <span>{copy.batch.splitTemplates[templateId].label}</span>
+                    <small>{copy.batch.splitTemplates[templateId].useCase}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => void handleSplitWithTextModel()}
+              disabled={isRunning || isSplitting}
+            >
+              {isSplitting ? copy.batch.actions.splitBusy : copy.batch.actions.splitWithTextModel}
+            </button>
+          </section>
+        </>
       )}
 
       <div className="field-grid">
@@ -451,6 +1111,31 @@ export function BatchPanel({
       </div>
 
       <p className="panel-note">{copy.batch.defaultsNote}</p>
+
+      <details className="batch-advanced-export">
+        <summary>{copy.batch.recipe.advancedTitle}</summary>
+        <div className="batch-advanced-export-body">
+          <p>{copy.batch.recipe.description}</p>
+          <div className="action-row">
+            <button type="button" className="secondary-button" onClick={createPromptRecipeText} disabled={isRunning}>
+              {copy.batch.actions.generateRecipe}
+            </button>
+            <button type="button" className="secondary-button" onClick={() => void handleCopyPromptRecipe()} disabled={isRunning}>
+              {copy.batch.actions.copyRecipe}
+            </button>
+          </div>
+        </div>
+      </details>
+
+      {promptRecipeText ? (
+        <section className="batch-export-card">
+          <div>
+            <h3>{copy.batch.recipe.title}</h3>
+            <p>{copy.batch.recipe.outputDescription}</p>
+          </div>
+          <textarea readOnly value={promptRecipeText} rows={8} aria-label={copy.batch.recipe.title} />
+        </section>
+      ) : null}
 
       <div className="action-row">
         {source === "custom-prompts" ? (
@@ -505,13 +1190,21 @@ export function BatchPanel({
           onClick={() => void handleStartBatch()}
           disabled={!runtime || tasks.length === 0 || isRunning}
         >
-          {status === "paused" ? copy.batch.actions.continue : copy.batch.actions.start}
+          {primaryBatchActionLabel}
         </button>
         <button type="button" className="secondary-button" onClick={handlePauseBatch} disabled={!isRunning}>
           {copy.batch.actions.pause}
         </button>
         <button type="button" className="secondary-button" onClick={handleCancelBatch} disabled={!isRunning}>
           {copy.batch.actions.cancel}
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => void handleRetryFailedTasks()}
+          disabled={!runtime || isRunning || !hasFailedTasks}
+        >
+          {copy.batch.actions.retryFailed}
         </button>
         <button type="button" className="secondary-button" onClick={handleClearBatch} disabled={isRunning}>
           {copy.batch.actions.clearDraft}
@@ -521,53 +1214,201 @@ export function BatchPanel({
       {tasks.length === 0 ? (
         <div className="empty-state">{copy.batch.emptyTasks}</div>
       ) : (
-        <div className="batch-task-list">
-          {tasks.map((task) => (
-            <article key={task.id} className={`batch-task-card ${task.status}`}>
-              <div className="batch-task-index">{String(task.index + 1).padStart(2, "0")}</div>
-              <div className="batch-task-main">
-                <label className="field batch-task-name-field">
-                  <span>{copy.fields.customName}</span>
-                  <input
-                    value={task.title}
-                    disabled={isRunning}
-                    onChange={(event) => handleUpdateTask(task.id, { title: event.target.value })}
-                  />
-                </label>
-                <label className="field">
-                  <span>{copy.fields.prompt}</span>
-                  <textarea
-                    className="batch-task-prompt-textarea"
-                    value={task.prompt}
-                    rows={3}
-                    disabled={isRunning}
-                    onChange={(event) => handleUpdateTask(task.id, { prompt: event.target.value })}
-                  />
-                </label>
-                <div className="batch-task-meta">
-                  <span className={`status-pill ${task.status}`}>{copy.batch.status[task.status]}</span>
-                  <span>
-                    {task.attemptCount} / {executionConfig.maxRetries + 1}
-                  </span>
-                  {task.durationMs > 0 ? <span>{Math.round(task.durationMs / 1000)}s</span> : null}
-                  {task.outputPath ? <span>{task.outputPath}</span> : null}
-                </div>
-                {task.errorMessage ? <p className="error-copy">{task.errorMessage}</p> : null}
-                <div className="action-row batch-task-actions">
-                  {task.previewUrl ? <img className="batch-task-thumb" src={task.previewUrl} alt={task.title} /> : null}
-                  <button type="button" className="ghost-button" onClick={() => handleDeleteTask(task.id)} disabled={isRunning}>
-                    {copy.actions.removeImage}
-                  </button>
-                  {task.status === "failed" ? (
-                    <button type="button" className="ghost-button" onClick={() => void handleRetryTask(task)} disabled={isRunning}>
-                      {copy.batch.actions.retryTask}
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
+        <>
+          <div className="action-row task-reference-bulk-row">
+            <button type="button" className="secondary-button" onClick={handleExpandAllTaskReferences}>
+              {copy.batch.referenceImages.expandAllTaskReferences}
+            </button>
+            <button type="button" className="secondary-button" onClick={handleCollapseAllTaskReferences}>
+              {copy.batch.referenceImages.collapseAllTaskReferences}
+            </button>
+          </div>
+          <div className="batch-task-list">
+            {tasks.map((task) => {
+              const taskReferenceImages = taskReferenceImagesById[task.id] ?? [];
+              const useGlobalReferences = taskUsesGlobalReferences(task.id);
+              const taskNumber = task.index + 1;
+
+              return (
+                <article key={task.id} className={`batch-task-card ${task.status}`}>
+                  <div className="batch-task-index">{String(taskNumber).padStart(2, "0")}</div>
+                  <div className="batch-task-main">
+                    <label className="field batch-task-name-field">
+                      <span>{copy.fields.customName}</span>
+                      <input
+                        value={task.title}
+                        disabled={isRunning}
+                        onChange={(event) => handleUpdateTask(task.id, { title: event.target.value })}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>{copy.fields.prompt}</span>
+                      <textarea
+                        className="batch-task-prompt-textarea"
+                        value={task.prompt}
+                        rows={3}
+                        disabled={isRunning}
+                        onChange={(event) => handleUpdateTask(task.id, { prompt: event.target.value })}
+                      />
+                    </label>
+                    {task.suggestedName || task.plannerNotes ? (
+                      <div className="batch-task-planner-note">
+                        {task.suggestedName ? (
+                          <p>
+                            <strong>{copy.batch.fields.suggestedName}</strong>
+                            <span>{task.suggestedName}</span>
+                          </p>
+                        ) : null}
+                        {task.plannerNotes ? (
+                          <p>
+                            <strong>{copy.batch.fields.plannerNotes}</strong>
+                            <span>{task.plannerNotes}</span>
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    <details
+                      className="batch-advanced-export task-reference-section"
+                      open={expandedTaskReferenceIds.has(task.id)}
+                      onToggle={(event) => handleTaskReferenceToggle(task.id, event.currentTarget.open)}
+                    >
+                      <summary>
+                        <span>{copy.batch.referenceImages.taskTitle}</span>
+                        <small>
+                          {copy.batch.referenceImages.taskSummary(taskReferenceImages.length, MAX_REFERENCE_IMAGES)}
+                          {useGlobalReferences && batchReferenceImages.length > 0
+                            ? ` · ${copy.batch.referenceImages.usesGlobalHint}`
+                            : ""}
+                        </small>
+                      </summary>
+                      <div className="batch-advanced-export-body task-reference-section-body">
+                        <label className="toggle-row task-reference-global-toggle">
+                          <input
+                            type="checkbox"
+                            checked={useGlobalReferences}
+                            disabled={isRunning}
+                            aria-label={copy.batch.referenceImages.useGlobalForTask(taskNumber)}
+                            onChange={(event) => handleToggleTaskUsesGlobalReferences(task.id, event.currentTarget.checked)}
+                          />
+                          <span>{copy.batch.referenceImages.useGlobalLabel}</span>
+                        </label>
+                        <div
+                          className={`reference-dropzone task-reference-dropzone ${
+                            taskReferenceDragOverId === task.id ? "drag-over" : ""
+                          }`}
+                          onDragEnter={(event) => handleTaskReferenceDragEnter(task.id, event)}
+                          onDragOver={handleTaskReferenceDragOver}
+                          onDragLeave={(event) => handleTaskReferenceDragLeave(task.id, event)}
+                          onDrop={(event) => handleTaskReferenceDrop(task.id, event)}
+                        >
+                          <div className="reference-dropzone-copy">
+                            <strong>{copy.batch.referenceImages.taskTitle}</strong>
+                            <p>{copy.batch.referenceImages.taskDescription}</p>
+                            <p>
+                              {copy.fields.referenceImagePlaceholder} {copy.notes.dragAndDropHint}
+                            </p>
+                            <p>{copy.notes.referenceImageLimitHint}</p>
+                          </div>
+                          <input
+                            ref={(node) => setTaskReferenceInputRef(task.id, node)}
+                            className="hidden-file-input"
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            aria-label={copy.batch.referenceImages.taskInputLabel(taskNumber)}
+                            disabled={isRunning}
+                            onChange={(event) => handleTaskReferenceImageChange(task.id, event)}
+                          />
+                          <div className="action-row">
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() => taskReferenceInputRefs.current.get(task.id)?.click()}
+                              disabled={isRunning}
+                            >
+                              {taskReferenceImages.length > 0 ? copy.actions.changeImage : copy.actions.chooseImage}
+                            </button>
+                            {taskReferenceImages.length > 0 ? (
+                              <button
+                                type="button"
+                                className="secondary-button"
+                                onClick={() => handleClearTaskReferenceImages(task.id)}
+                                disabled={isRunning}
+                              >
+                                {copy.actions.clearImages}
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="reference-summary task-reference-summary">
+                          <span>{copy.batch.referenceImages.taskScopeHint}</span>
+                          <span>{copy.batch.referenceImages.taskSessionHint}</span>
+                        </div>
+                        {taskReferenceImages.length > 0 ? (
+                          <div className="reference-grid task-reference-grid">
+                            {taskReferenceImages.map((image) => (
+                              <article key={image.id} className="reference-card">
+                                <div className="reference-preview">
+                                  <img src={image.previewUrl} alt={image.file.name} />
+                                </div>
+                                <div className="reference-details">
+                                  <strong>{image.file.name}</strong>
+                                  <span>{formatFileSize(image.file.size, language)}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  className="ghost-button reference-remove-button"
+                                  onClick={() => handleRemoveTaskReferenceImage(task.id, image.id)}
+                                  disabled={isRunning}
+                                >
+                                  {copy.actions.removeImage}
+                                </button>
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="reference-empty">
+                            <p>{copy.empty.noReferenceImages}</p>
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                    <div className="batch-task-meta">
+                      <span className={`status-pill ${task.status}`}>{copy.batch.status[task.status]}</span>
+                      <span>
+                        {task.attemptCount} / {executionConfig.maxRetries + 1}
+                      </span>
+                      {task.durationMs > 0 ? <span>{Math.round(task.durationMs / 1000)}s</span> : null}
+                      {task.outputPath ? <span>{task.outputPath}</span> : null}
+                    </div>
+                    {task.errorMessage ? <p className="error-copy">{task.errorMessage}</p> : null}
+                    <div className="action-row batch-task-actions">
+                      {task.previewUrl ? <img className="batch-task-thumb" src={task.previewUrl} alt={task.title} /> : null}
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => handleDeleteTask(task.id)}
+                        disabled={isRunning}
+                      >
+                        {copy.actions.removeImage}
+                      </button>
+                      {task.status === "failed" ? (
+                        <button
+                          type="button"
+                          className="ghost-button"
+                          onClick={() => void handleRetryTask(task)}
+                          disabled={isRunning}
+                        >
+                          {copy.batch.actions.retryTask}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );
@@ -588,4 +1429,34 @@ function resizePromptDrafts(current: string[], count: number): string[] {
   }
 
   return [...current, ...Array.from({ length: nextCount - current.length }, () => "")];
+}
+
+function isUsableRecommendedCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 1;
+}
+
+function revokeReferenceImages(images: ReferenceImageItem[]) {
+  for (const image of images) {
+    URL.revokeObjectURL(image.previewUrl);
+  }
+}
+
+function revokeTaskReferenceImages(imagesById: Record<string, ReferenceImageItem[]>) {
+  for (const images of Object.values(imagesById)) {
+    revokeReferenceImages(images);
+  }
+}
+
+function formatFileSize(bytes: number, language: UiLanguage): string {
+  if (bytes < 1024) {
+    return new Intl.NumberFormat(language).format(bytes) + " B";
+  }
+
+  const kilobytes = bytes / 1024;
+  if (kilobytes < 1024) {
+    return `${new Intl.NumberFormat(language, { maximumFractionDigits: 1 }).format(kilobytes)} KB`;
+  }
+
+  const megabytes = kilobytes / 1024;
+  return `${new Intl.NumberFormat(language, { maximumFractionDigits: 1 }).format(megabytes)} MB`;
 }

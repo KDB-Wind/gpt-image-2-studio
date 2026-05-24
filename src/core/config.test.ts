@@ -153,6 +153,7 @@ describe("mergeConfig", () => {
     expect(DEFAULT_CONFIG.batchDefaultMaxRetries).toBe(1);
     expect(DEFAULT_CONFIG.batchLastSplitTemplateId).toBe("basic");
     expect(DEFAULT_CONFIG.batchCustomSplitSystemPrompt).toBe("");
+    expect(DEFAULT_CONFIG.batchAutoPlanTaskCount).toBe(true);
   });
 
   it("normalizes invalid batch settings while merging config", () => {
@@ -163,6 +164,7 @@ describe("mergeConfig", () => {
       batchDefaultMaxRetries: 6,
       batchLastSplitTemplateId: 123 as never,
       batchCustomSplitSystemPrompt: 100 as never,
+      batchAutoPlanTaskCount: "yes" as never,
     });
 
     expect(merged.batchDefaultTaskCount).toBe(20);
@@ -171,9 +173,14 @@ describe("mergeConfig", () => {
     expect(merged.batchDefaultMaxRetries).toBe(3);
     expect(merged.batchLastSplitTemplateId).toBe("basic");
     expect(merged.batchCustomSplitSystemPrompt).toBe("");
+    expect(merged.batchAutoPlanTaskCount).toBe(true);
   });
 
   it("allows five as a saved batch concurrency value", () => {
     expect(mergeConfig({ batchDefaultConcurrency: 5 }).batchDefaultConcurrency).toBe(5);
+  });
+
+  it("keeps an explicit disabled AI task count planning setting", () => {
+    expect(mergeConfig({ batchAutoPlanTaskCount: false }).batchAutoPlanTaskCount).toBe(false);
   });
 });

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const styles = readFileSync(join(process.cwd(), "src", "styles.css"), "utf8");
+const desktopStyles = styles.split("@media")[0] ?? styles;
 
 describe("responsive shell styles", () => {
   it("styles the vector logo as a compact brand mark", () => {
@@ -14,6 +15,10 @@ describe("responsive shell styles", () => {
 
   it("keeps the workspace single-column on narrow screens", () => {
     expect(styles).toMatch(/@media\s*\(max-width:\s*860px\)[\s\S]*\.workspace-grid[\s\S]*grid-template-columns:\s*1fr/);
+  });
+
+  it("uses the same desktop workspace columns for history as other tabs", () => {
+    expect(desktopStyles).not.toMatch(/\.history-focus\s+\.workspace-grid\s*\{[\s\S]*grid-template-columns/);
   });
 
   it("keeps the support entry visible without covering the main layout on phones", () => {

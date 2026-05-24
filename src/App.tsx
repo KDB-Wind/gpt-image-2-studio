@@ -11,6 +11,7 @@ import {
   testImageModel,
   testTextModel,
 } from "./core/apiClient";
+import type { BatchPreviewState } from "./core/batchPreview";
 import { DEFAULT_CONFIG, mergeConfig, type AppConfig, validateConfig } from "./core/config";
 import { MAX_BATCH_TASK_COUNT, clampBatchTaskCount } from "./core/batchTypes";
 import { groupHistoryByDate, type ImageRecord } from "./core/history";
@@ -195,6 +196,7 @@ export default function App() {
   const [customName, setCustomName] = useState("");
   const [referenceImages, setReferenceImages] = useState<ReferenceImageItem[]>([]);
   const [previewState, setPreviewState] = useState<PreviewState>({ status: "idle" });
+  const [batchPreviewState, setBatchPreviewState] = useState<BatchPreviewState | null>(null);
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [appMessage, setAppMessage] = useState("");
@@ -243,6 +245,7 @@ export default function App() {
   const selectedSizeOption = sizeMode === "custom" ? "custom" : getImageSizePresetValue(config.defaultSize);
   const showCompressionControls = isCompressionFormat(config.defaultFormat);
   const showWelcome = !isLoadingApp && !config.hasDismissedWelcome;
+  const activeBatchPreview = activeTab === "batch" ? batchPreviewState : null;
   const qualityLabels: Record<AppConfig["defaultQuality"], string> = {
     auto: copy.options.qualityAuto,
     low: copy.options.qualityLow,
@@ -909,13 +912,14 @@ export default function App() {
     }
 
     try {
-      if (runtime.mode === "desktop") {
-        const { convertFileSrc } = await import("@tauri-apps/api/core");
+      const imageUrl = await runtime.prepareHistoryPreview(record);
+
+      if (imageUrl) {
         setPreviewState({
           status: "success",
           prompt: record.prompt,
           optimizedPrompt: record.optimizedPrompt,
-          imageUrl: convertFileSrc(record.outputPath),
+          imageUrl,
           record,
           customName: "",
           source: "history",
@@ -926,7 +930,7 @@ export default function App() {
       setPreviewState({
         status: "history-unavailable",
         record,
-        message: copy.notes.webHistoryUnavailable,
+        message: copy.messages.historyPreviewFileMissing,
       });
     } catch (error) {
       setPreviewState({
@@ -1279,7 +1283,6 @@ export default function App() {
                 config={config}
                 runtime={runtime}
                 language={language}
-                referenceImages={referenceImages.map((item) => item.file)}
                 onConfigChange={updateConfig}
                 onHistoryChanged={async () => {
                   if (runtime) {
@@ -1288,6 +1291,7 @@ export default function App() {
                 }}
                 requireValidConfig={requireValidConfig}
                 setAppMessage={setAppMessage}
+                onBatchPreviewChange={setBatchPreviewState}
               />
             </div>
 
@@ -1442,7 +1446,20 @@ export default function App() {
                         }
                       />
                     </label>
+
+                    <label className="field">
+                      <span>{copy.batch.fields.autoPlanTaskCount}</span>
+                      <select
+                        value={config.batchAutoPlanTaskCount ? "true" : "false"}
+                        onChange={(event) => updateConfig("batchAutoPlanTaskCount", event.target.value === "true")}
+                      >
+                        <option value="true">{copy.options.enabled}</option>
+                        <option value="false">{copy.options.disabled}</option>
+                      </select>
+                    </label>
                   </div>
+
+                  <p className="panel-note">{copy.batch.fields.autoPlanTaskCountHint}</p>
 
                   <div className="field-grid">
                     <label className="field">
@@ -1569,6 +1586,8 @@ export default function App() {
                     </label>
                   </div>
 
+                  <p className="panel-note highlight-note">{copy.notes.outputDirectoryPermissionHint}</p>
+
                   <div className="action-row">
                     <button
                       type="button"
@@ -1633,6 +1652,10 @@ export default function App() {
                     <div>
                       <dt>{copy.batch.fields.taskCount}</dt>
                       <dd>{config.batchDefaultTaskCount}</dd>
+                    </div>
+                    <div>
+                      <dt>{copy.batch.fields.autoPlanTaskCount}</dt>
+                      <dd>{config.batchAutoPlanTaskCount ? copy.options.enabled : copy.options.disabled}</dd>
                     </div>
                     <div>
                       <dt>{copy.batch.fields.concurrency}</dt>
@@ -1717,18 +1740,87 @@ export default function App() {
               <div>
                 <h2>{copy.panel.previewTitle}</h2>
                 <p>
-                  {previewState.status === "running"
+                  {activeBatchPreview
+                    ? copy.preview.batchBody
+                    : previewState.status === "running"
                     ? copy.panel.previewRunningDescription
                     : copy.panel.previewIdleDescription}
                 </p>
               </div>
-              {previewState.status === "running" ? <div className="timer-pill">{formatDuration(elapsedMs)}</div> : null}
+              {!activeBatchPreview && previewState.status === "running" ? (
+                <div className="timer-pill">{formatDuration(elapsedMs)}</div>
+              ) : null}
             </header>
 
             <div className="panel-body preview-body">
               {isLoadingApp ? <p className="empty-state">{copy.empty.loadingRuntime}</p> : null}
 
-              {!isLoadingApp && previewState.status === "idle" ? (
+              {!isLoadingApp && activeBatchPreview ? (
+                <div className="preview-success batch-preview">
+                  {activeBatchPreview.latestImage ? (
+                    <div className="preview-frame">
+                      <img src={activeBatchPreview.latestImage.previewUrl} alt={activeBatchPreview.latestImage.title} />
+                    </div>
+                  ) : (
+                    <div className="preview-placeholder running">{copy.preview.batch}</div>
+                  )}
+
+                  <div className="info-card preview-details">
+                    <h3>{copy.preview.batch}</h3>
+                    <dl>
+                      <div>
+                        <dt>{copy.labels.status}</dt>
+                        <dd>{copy.batch.status[activeBatchPreview.status]}</dd>
+                      </div>
+                      <div>
+                        <dt>{copy.labels.totalRecords}</dt>
+                        <dd>{activeBatchPreview.summary.total}</dd>
+                      </div>
+                      <div>
+                        <dt>{copy.batch.status.succeeded}</dt>
+                        <dd>{activeBatchPreview.summary.succeeded}</dd>
+                      </div>
+                      <div>
+                        <dt>{copy.batch.status.failed}</dt>
+                        <dd>{activeBatchPreview.summary.failed}</dd>
+                      </div>
+                      <div>
+                        <dt>{copy.batch.status.skipped}</dt>
+                        <dd>{activeBatchPreview.summary.skipped}</dd>
+                      </div>
+                    </dl>
+                    {activeBatchPreview.latestImage ? (
+                      <>
+                        <p className="panel-note">{copy.preview.batchLatest}</p>
+                        <p>{activeBatchPreview.latestImage.prompt}</p>
+                      </>
+                    ) : activeBatchPreview.runningTask ? (
+                      <>
+                        <p className="panel-note">{copy.preview.batchRunning(activeBatchPreview.runningTask.title)}</p>
+                        <p>{activeBatchPreview.runningTask.prompt}</p>
+                      </>
+                    ) : (
+                      <p>{copy.preview.batchNoImage}</p>
+                    )}
+                  </div>
+
+                  {activeBatchPreview.images.length > 0 ? (
+                    <div className="info-card preview-details batch-preview-gallery">
+                      <h3>{copy.preview.batchGallery}</h3>
+                      <div className="batch-preview-grid">
+                        {activeBatchPreview.images.map((image) => (
+                          <figure key={image.id} className="batch-preview-thumb">
+                            <img src={image.previewUrl} alt={image.title} />
+                            <figcaption>{image.title}</figcaption>
+                          </figure>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {!isLoadingApp && !activeBatchPreview && previewState.status === "idle" ? (
                 <div className="preview-state">
                   <div className="preview-placeholder">{copy.preview.idle}</div>
                   <p>{copy.preview.idleBody}</p>
@@ -1751,7 +1843,7 @@ export default function App() {
                 </div>
               ) : null}
 
-              {previewState.status === "running" ? (
+              {!activeBatchPreview && previewState.status === "running" ? (
                 <div className="preview-state">
                   <div className="preview-placeholder running">{copy.preview.running}</div>
                   <p>{previewState.prompt}</p>
@@ -1759,7 +1851,7 @@ export default function App() {
                 </div>
               ) : null}
 
-              {previewState.status === "failed" ? (
+              {!activeBatchPreview && previewState.status === "failed" ? (
                 <div className="preview-state">
                   <div className="preview-placeholder failed">{copy.preview.failed}</div>
                   <p>{previewState.prompt}</p>
@@ -1771,7 +1863,7 @@ export default function App() {
                 </div>
               ) : null}
 
-              {previewState.status === "history-unavailable" ? (
+              {!activeBatchPreview && previewState.status === "history-unavailable" ? (
                 <div className="preview-state">
                   <div className="preview-placeholder">{copy.preview.history}</div>
                   <div className="info-card preview-details">
@@ -1792,7 +1884,7 @@ export default function App() {
                 </div>
               ) : null}
 
-              {previewState.status === "success" ? (
+              {!activeBatchPreview && previewState.status === "success" ? (
                 <div className="preview-success">
                   <div className="preview-frame">
                     <img

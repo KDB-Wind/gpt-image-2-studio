@@ -39,7 +39,9 @@ export function buildBatchImageFileName(
   existingFileNames: string[],
 ): string {
   const extension = format === "jpeg" ? "jpg" : format;
-  const baseName = `${String(task.index + 1).padStart(3, "0")}-${sanitizeFileBaseName(task.title || task.prompt)}`;
+  const baseName = `${String(task.index + 1).padStart(3, "0")}-${sanitizeFileBaseName(
+    task.suggestedName || task.title || task.prompt,
+  )}`;
   const existing = new Set(existingFileNames.map((fileName) => fileName.toLowerCase()));
   let fileName = `${baseName}.${extension}`;
   let suffix = 2;

@@ -41,6 +41,7 @@ function createMockRuntime(config: Partial<AppConfig> = {}): RuntimeAdapter {
     },
     saveBatchManifest: async () => "manifest.json",
     chooseOutputDirectory: async () => null,
+    prepareHistoryPreview: async () => null,
     openOutputPath: async () => undefined,
   };
 }
