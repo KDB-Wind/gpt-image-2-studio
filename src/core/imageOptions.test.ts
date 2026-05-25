@@ -73,16 +73,23 @@ describe("validateImageSize", () => {
 
 describe("image size presets", () => {
   it("includes bundled 1K, 2K, and 4K options", () => {
-    expect(IMAGE_SIZE_PRESETS.map((preset) => preset.value)).toEqual([
-      "auto",
-      "1024x1024",
-      "1536x1024",
-      "1024x1536",
-      "2048x2048",
-      "2048x1152",
-      "3840x2160",
-      "2160x3840",
-    ]);
+    const values = IMAGE_SIZE_PRESETS.map((preset) => preset.value);
+
+    expect(values[0]).toBe("auto");
+    expect(values).toEqual(
+      expect.arrayContaining([
+        "864x1536",
+        "1024x1024",
+        "1536x864",
+        "1152x2048",
+        "2048x2048",
+        "2048x1360",
+        "2160x3840",
+        "2880x2880",
+        "3840x2160",
+      ]),
+    );
+    expect(new Set(values).size).toBe(values.length);
   });
 
   it("classifies preset categories for UI labels", () => {

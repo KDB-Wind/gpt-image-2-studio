@@ -134,6 +134,50 @@ describe("App batch workspace", () => {
     expect(githubLink?.rel).toContain("noreferrer");
   });
 
+  it("exposes visual image ratio, resolution, and quality controls inside the generation workspace", async () => {
+    const copy = getTranslations("en-US");
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    const visibleQuickOptions = getVisibleQuickOptions();
+
+    expect(visibleQuickOptions.textContent).toContain(copy.quickOptions.title);
+    expect(visibleQuickOptions.textContent).toContain(copy.quickOptions.aspect);
+    expect(visibleQuickOptions.textContent).toContain(copy.quickOptions.resolution);
+    expect(visibleQuickOptions.textContent).toContain(copy.quickOptions.ratioSquare);
+    expect(visibleQuickOptions.textContent).toContain(copy.quickOptions.resolution4k);
+    expect(visibleQuickOptions.textContent).toContain(copy.options.qualityAuto);
+
+    clickButton(copy.quickOptions.ratioPortrait);
+    clickButton(copy.quickOptions.resolution4k);
+    clickButton(copy.options.qualityHigh);
+
+    expect(visibleQuickOptions.textContent).toContain(copy.quickOptions.ratioPortrait);
+    expect(visibleQuickOptions.textContent).toContain(copy.quickOptions.resolution4k);
+    expect(visibleQuickOptions.textContent).toContain(copy.options.qualityHigh);
+
+    clickButton(copy.tabs.batch);
+
+    const batchQuickOptions = getVisibleQuickOptions();
+
+    expect(batchQuickOptions.textContent).toContain(copy.quickOptions.ratioPortrait);
+    expect(batchQuickOptions.textContent).toContain(copy.quickOptions.resolution4k);
+    expect(batchQuickOptions.textContent).toContain(copy.options.qualityHigh);
+  });
+
+  it("does not expose the author support payment entry in the public tool", async () => {
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    expect(container.querySelector(".support-fab")).toBeNull();
+    expect(container.textContent).not.toContain("Buy the author a cola");
+  });
+
   it("shows the vector app logo in the header", async () => {
     await act(async () => {
       root.render(<App />);
@@ -189,6 +233,18 @@ describe("App batch workspace", () => {
 
     return field as T;
   }
+
+  function getVisibleQuickOptions(): HTMLElement {
+    const control = Array.from(container.querySelectorAll<HTMLElement>(".quick-output-options")).find(
+      (candidate) => !candidate.closest("[hidden]"),
+    );
+
+    if (!control) {
+      throw new Error("Visible quick output options not found");
+    }
+
+    return control;
+  }
 });
 
 async function flushEffects() {
@@ -202,5 +258,17 @@ function setFieldValue(element: HTMLInputElement | HTMLTextAreaElement, value: s
   act(() => {
     setter?.call(element, value);
     element.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function setSelectValue(element: HTMLSelectElement | undefined, value: string) {
+  if (!element) {
+    throw new Error("Select not found");
+  }
+
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+  act(() => {
+    setter?.call(element, value);
+    element.dispatchEvent(new Event("change", { bubbles: true }));
   });
 }

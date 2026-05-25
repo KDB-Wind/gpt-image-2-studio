@@ -3,13 +3,21 @@ export type ImageOutputFormat = "png" | "jpeg" | "webp";
 export type ImageSizePresetCategory = "auto" | "1K" | "2K" | "4K" | "custom";
 export type ImageSizePresetValue =
   | "auto"
+  | "864x1536"
   | "1024x1024"
   | "1536x1024"
+  | "1536x864"
   | "1024x1536"
+  | "1152x2048"
   | "2048x2048"
   | "2048x1152"
+  | "1360x2048"
+  | "2048x1360"
   | "3840x2160"
-  | "2160x3840";
+  | "2160x3840"
+  | "2304x3456"
+  | "3456x2304"
+  | "2880x2880";
 
 export type ImageSizePreset = {
   value: ImageSizePresetValue;
@@ -35,13 +43,21 @@ const HIGH_RESOLUTION_PIXELS = 2_560 * 1_440;
 
 export const IMAGE_SIZE_PRESETS: ImageSizePreset[] = [
   { value: "auto", category: "auto" },
+  { value: "864x1536", category: "1K" },
   { value: "1024x1024", category: "1K" },
-  { value: "1536x1024", category: "1K" },
   { value: "1024x1536", category: "1K" },
+  { value: "1536x1024", category: "1K" },
+  { value: "1536x864", category: "1K" },
+  { value: "1152x2048", category: "2K" },
+  { value: "1360x2048", category: "2K" },
   { value: "2048x2048", category: "2K" },
   { value: "2048x1152", category: "2K" },
-  { value: "3840x2160", category: "4K" },
+  { value: "2048x1360", category: "2K" },
   { value: "2160x3840", category: "4K" },
+  { value: "2304x3456", category: "4K" },
+  { value: "2880x2880", category: "4K" },
+  { value: "3840x2160", category: "4K" },
+  { value: "3456x2304", category: "4K" },
 ];
 
 const PRESET_VALUES = new Set<string>(IMAGE_SIZE_PRESETS.map((preset) => preset.value));

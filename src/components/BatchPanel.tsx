@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 
 import { buildBatchManifest, summarizeBatchTasks } from "../core/batchManifest";
 import { notifyBatchComplete, restoreDocumentTitle, updateBatchDocumentTitle } from "../core/batchNotifications";
@@ -54,6 +54,7 @@ type BatchPanelProps = {
   requireValidConfig: (actionLabel: string) => boolean;
   setAppMessage: (message: string) => void;
   onBatchPreviewChange?: (preview: BatchPreviewState | null) => void;
+  renderOutputOptions?: (disabled: boolean) => ReactNode;
 };
 
 export function BatchPanel({
@@ -65,6 +66,7 @@ export function BatchPanel({
   requireValidConfig,
   setAppMessage,
   onBatchPreviewChange,
+  renderOutputOptions,
 }: BatchPanelProps) {
   const copy = getTranslations(language);
   const [source, setSource] = useState<BatchSource>("same-prompt");
@@ -850,6 +852,8 @@ export function BatchPanel({
           </button>
         ))}
       </div>
+
+      {renderOutputOptions?.(isRunning)}
 
       <details className="batch-advanced-export batch-reference-section">
         <summary>

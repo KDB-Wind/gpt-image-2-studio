@@ -89,7 +89,7 @@ describe("App smoke", () => {
     expect(container.querySelector(".modal-card.wide")).not.toBeNull();
   });
 
-  it("persists language changes and opens the fixed support QR dialog", async () => {
+  it("persists language changes and keeps the public page free of support payment UI", async () => {
     await act(async () => {
       root.render(<App />);
     });
@@ -115,21 +115,7 @@ describe("App smoke", () => {
     });
     await flushAppEffects();
 
-    const supportButton = container.querySelector(".support-fab") as HTMLButtonElement | null;
-    expect(supportButton).not.toBeNull();
-
-    await act(async () => {
-      supportButton?.click();
-    });
-
-    const supportQr = container.querySelector(".support-qr") as HTMLImageElement | null;
-    expect(supportQr).not.toBeNull();
-    expect(supportQr?.getAttribute("src")).toBeTruthy();
-
-    await act(async () => {
-      supportQr?.click();
-    });
-
-    expect(container.querySelector(".zoom-image")).not.toBeNull();
+    expect(container.querySelector(".support-fab")).toBeNull();
+    expect(container.textContent).not.toContain("Buy the author a cola");
   });
 });

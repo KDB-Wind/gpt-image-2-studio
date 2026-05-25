@@ -1,7 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 
 import packageJson from "../package.json";
-import paymentQrCode from "./assets/payment-wechat-qr.png";
 import { AppLogo } from "./components/AppLogo";
 import { BatchPanel } from "./components/BatchPanel";
 import {
@@ -22,6 +21,8 @@ import {
   type ReferenceImageItem,
 } from "./core/referenceImages";
 import {
+  IMAGE_SIZE_PRESETS,
+  getImageSizePresetCategory,
   getImageSizePresetValue,
   isCompressionFormat,
   parseImageSize,
@@ -38,6 +39,38 @@ const DEFAULT_CUSTOM_SIZE = { width: "1024", height: "1024" };
 
 type AppTab = "generate" | "batch" | "history" | "settings";
 type GenerationMode = "text-to-image" | "image-to-image";
+type QuickAspect = "auto" | "9:16" | "2:3" | "1:1" | "3:2" | "16:9";
+type QuickResolution = "1K" | "2K" | "4K";
+
+const QUICK_ASPECTS: QuickAspect[] = ["auto", "9:16", "2:3", "1:1", "3:2", "16:9"];
+const QUICK_RESOLUTIONS: QuickResolution[] = ["1K", "2K", "4K"];
+const QUICK_SIZE_BY_ASPECT: Record<Exclude<QuickAspect, "auto">, Record<QuickResolution, string>> = {
+  "9:16": {
+    "1K": "864x1536",
+    "2K": "1152x2048",
+    "4K": "2160x3840",
+  },
+  "2:3": {
+    "1K": "1024x1536",
+    "2K": "1360x2048",
+    "4K": "2304x3456",
+  },
+  "1:1": {
+    "1K": "1024x1024",
+    "2K": "2048x2048",
+    "4K": "2880x2880",
+  },
+  "3:2": {
+    "1K": "1536x1024",
+    "2K": "2048x1360",
+    "4K": "3456x2304",
+  },
+  "16:9": {
+    "1K": "1536x864",
+    "2K": "2048x1152",
+    "4K": "3840x2160",
+  },
+};
 
 type SettingsMessage = {
   tone: "neutral" | "success" | "error";
@@ -164,6 +197,65 @@ function buildCustomSizeValue(width: string, height: string): string {
   return `${width}x${height}`;
 }
 
+function getAspectForSize(value: string): QuickAspect | "custom" {
+  const normalized = value.trim();
+  if (normalized === "auto") {
+    return "auto";
+  }
+
+  for (const [aspect, sizes] of Object.entries(QUICK_SIZE_BY_ASPECT) as Array<
+    [Exclude<QuickAspect, "auto">, Record<QuickResolution, string>]
+  >) {
+    if (Object.values(sizes).includes(normalized)) {
+      return aspect;
+    }
+  }
+
+  const parsed = parseImageSize(normalized);
+  if (!parsed) {
+    return "custom";
+  }
+
+  const ratio = parsed.width / parsed.height;
+  const aspectRatios: Array<[Exclude<QuickAspect, "auto">, number]> = [
+    ["9:16", 9 / 16],
+    ["2:3", 2 / 3],
+    ["1:1", 1],
+    ["3:2", 3 / 2],
+    ["16:9", 16 / 9],
+  ];
+  const closest = aspectRatios.reduce((best, current) =>
+    Math.abs(current[1] - ratio) < Math.abs(best[1] - ratio) ? current : best,
+  );
+
+  return Math.abs(closest[1] - ratio) <= 0.025 ? closest[0] : "custom";
+}
+
+function getResolutionForSize(value: string): QuickResolution | "auto" | "custom" {
+  const normalized = value.trim();
+  if (normalized === "auto") {
+    return "auto";
+  }
+
+  for (const sizes of Object.values(QUICK_SIZE_BY_ASPECT)) {
+    for (const [resolution, sizeValue] of Object.entries(sizes) as Array<[QuickResolution, string]>) {
+      if (sizeValue === normalized) {
+        return resolution;
+      }
+    }
+  }
+
+  return getImageSizePresetCategory(normalized) === "custom" ? "custom" : getImageSizePresetCategory(normalized);
+}
+
+function getQuickSize(aspect: Exclude<QuickAspect, "auto">, resolution: QuickResolution): string {
+  return QUICK_SIZE_BY_ASPECT[aspect][resolution];
+}
+
+function getRatioGlyphClass(aspect: QuickAspect): string {
+  return `ratio-glyph ratio-${aspect.replace(":", "-")}`;
+}
+
 function clampCompression(value: number): number {
   return Math.min(100, Math.max(0, Math.round(value)));
 }
@@ -219,8 +311,6 @@ export default function App() {
   const [isTestingText, setIsTestingText] = useState(false);
   const [isTestingImage, setIsTestingImage] = useState(false);
   const [isTestingImageEdit, setIsTestingImageEdit] = useState(false);
-  const [isSupportOpen, setIsSupportOpen] = useState(false);
-  const [isQrZoomed, setIsQrZoomed] = useState(false);
   const [isUpdateOpen, setIsUpdateOpen] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [sizeMode, setSizeMode] = useState<"preset" | "custom">(
@@ -263,6 +353,21 @@ export default function App() {
     medium: copy.options.qualityMedium,
     high: copy.options.qualityHigh,
   };
+  const aspectLabels: Record<QuickAspect, string> = {
+    auto: copy.quickOptions.ratioAuto,
+    "9:16": copy.quickOptions.ratioTall,
+    "2:3": copy.quickOptions.ratioPortrait,
+    "1:1": copy.quickOptions.ratioSquare,
+    "3:2": copy.quickOptions.ratioLandscape,
+    "16:9": copy.quickOptions.ratioWide,
+  };
+  const resolutionLabels: Record<QuickResolution | "auto" | "custom", string> = {
+    auto: copy.quickOptions.resolutionAuto,
+    "1K": copy.quickOptions.resolution1k,
+    "2K": copy.quickOptions.resolution2k,
+    "4K": copy.quickOptions.resolution4k,
+    custom: copy.quickOptions.customResolution,
+  };
   const formatLabels: Record<AppConfig["defaultFormat"], string> = {
     png: copy.options.formatPng,
     jpeg: copy.options.formatJpeg,
@@ -270,18 +375,35 @@ export default function App() {
   };
   const imageSizeOptions = useMemo(
     () => [
-      { value: "auto", label: copy.options.sizeAuto },
-      { value: "1024x1024", label: copy.options.size1kSquare },
-      { value: "1536x1024", label: copy.options.size1kLandscape },
-      { value: "1024x1536", label: copy.options.size1kPortrait },
-      { value: "2048x2048", label: copy.options.size2kSquare },
-      { value: "2048x1152", label: copy.options.size2kLandscape },
-      { value: "3840x2160", label: copy.options.size4kLandscape },
-      { value: "2160x3840", label: copy.options.size4kPortrait },
+      ...IMAGE_SIZE_PRESETS.map((preset) => {
+        if (preset.value === "auto") {
+          return { value: preset.value, label: copy.options.sizeAuto };
+        }
+
+        const aspect = getAspectForSize(preset.value);
+        const resolution = getResolutionForSize(preset.value);
+        const aspectLabel = aspect === "custom" ? copy.options.sizeCustom : aspectLabels[aspect];
+        const resolutionLabel = resolutionLabels[resolution];
+
+        return {
+          value: preset.value,
+          label: `${resolutionLabel} ${aspectLabel} · ${preset.value}`,
+        };
+      }),
       { value: "custom", label: copy.options.sizeCustom },
     ],
-    [copy],
+    [aspectLabels, copy.options.sizeAuto, copy.options.sizeCustom, resolutionLabels],
   );
+  const selectedAspect = getAspectForSize(config.defaultSize);
+  const selectedResolution = getResolutionForSize(config.defaultSize);
+  const selectedSizeLabel =
+    selectedSizeOption === "custom"
+      ? `${copy.options.sizeCustom}: ${config.defaultSize}`
+      : imageSizeOptions.find((option) => option.value === selectedSizeOption)?.label ?? config.defaultSize;
+  const selectedQualityLabel = qualityLabels[config.defaultQuality] ?? config.defaultQuality;
+  const selectedAspectLabel =
+    selectedAspect === "custom" ? copy.options.sizeCustom : aspectLabels[selectedAspect];
+  const selectedResolutionLabel = resolutionLabels[selectedResolution];
 
   useEffect(() => {
     promptRef.current = prompt;
@@ -512,8 +634,111 @@ export default function App() {
     updateConfig("defaultQuality", nextValue);
   }
 
+  function handleQuickAspectChange(nextAspect: QuickAspect) {
+    if (nextAspect === "auto") {
+      setSizeMode("preset");
+      updateConfig("defaultSize", "auto");
+      return;
+    }
+
+    const nextResolution = selectedResolution === "auto" || selectedResolution === "custom" ? "1K" : selectedResolution;
+    setSizeMode("preset");
+    updateConfig("defaultSize", getQuickSize(nextAspect, nextResolution));
+  }
+
+  function handleQuickResolutionChange(nextResolution: QuickResolution) {
+    const nextAspect = selectedAspect === "auto" || selectedAspect === "custom" ? "1:1" : selectedAspect;
+    setSizeMode("preset");
+    updateConfig("defaultSize", getQuickSize(nextAspect, nextResolution));
+  }
+
   function handleFormatChange(nextValue: AppConfig["defaultFormat"]) {
     updateConfig("defaultFormat", nextValue);
+  }
+
+  function renderQuickOutputOptions(disabled = false) {
+    const controlsDisabled = disabled || isLoadingApp || isGenerating;
+
+    return (
+      <details className="quick-output-options">
+        <summary>
+          <span>{copy.quickOptions.title}</span>
+          <strong>
+            {selectedAspectLabel} · {selectedResolutionLabel} · {selectedQualityLabel}
+          </strong>
+        </summary>
+        <div className="quick-output-options-body">
+          <section className="quick-option-section" aria-label={copy.quickOptions.aspect}>
+            <div className="quick-option-section-title">{copy.quickOptions.aspect}</div>
+            <div className="quick-option-group ratio-option-group">
+              {QUICK_ASPECTS.map((aspect) => (
+                <button
+                  key={aspect}
+                  type="button"
+                  className={`quick-option-chip ${selectedAspect === aspect ? "active" : ""}`}
+                  disabled={controlsDisabled}
+                  onClick={() => handleQuickAspectChange(aspect)}
+                  aria-pressed={selectedAspect === aspect}
+                >
+                  <span className={getRatioGlyphClass(aspect)} aria-hidden="true" />
+                  <span>{aspectLabels[aspect]}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="quick-option-section" aria-label={copy.quickOptions.resolution}>
+            <div className="quick-option-section-title">{copy.quickOptions.resolution}</div>
+            <div className="quick-option-group">
+              {QUICK_RESOLUTIONS.map((resolution) => (
+                <button
+                  key={resolution}
+                  type="button"
+                  className={`quick-option-chip ${selectedResolution === resolution ? "active" : ""}`}
+                  disabled={controlsDisabled}
+                  onClick={() => handleQuickResolutionChange(resolution)}
+                  aria-pressed={selectedResolution === resolution}
+                >
+                  {resolutionLabels[resolution]}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="quick-option-section" aria-label={copy.quickOptions.quality}>
+            <div className="quick-option-section-title">{copy.quickOptions.quality}</div>
+            <div className="quick-option-group">
+              {(["auto", "low", "medium", "high"] as AppConfig["defaultQuality"][]).map((quality) => (
+                <button
+                  key={quality}
+                  type="button"
+                  className={`quick-option-chip ${config.defaultQuality === quality ? "active" : ""}`}
+                  disabled={controlsDisabled}
+                  onClick={() => handleQualityChange(quality)}
+                  aria-pressed={config.defaultQuality === quality}
+                >
+                  {qualityLabels[quality]}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <p className="panel-note">
+            {copy.quickOptions.hint} {copy.quickOptions.providerHint}
+          </p>
+          {selectedSizeOption === "custom" ? (
+            <p className="panel-note highlight-note">
+              {copy.options.sizeCustom}: {selectedSizeLabel}
+            </p>
+          ) : null}
+          {sizeValidation.warning ? (
+            <p className="panel-note highlight-note">
+              {copy.validation[sizeValidation.warning] ?? sizeValidation.warning}
+            </p>
+          ) : null}
+        </div>
+      </details>
+    );
   }
 
   function handleCompressionChange(nextValue: string) {
@@ -1099,6 +1324,8 @@ export default function App() {
                   </button>
                 </div>
 
+                {renderQuickOutputOptions()}
+
                 {generationMode === "image-to-image" ? (
                   <section className="reference-section">
                     <div className="section-heading">
@@ -1310,6 +1537,7 @@ export default function App() {
                 requireValidConfig={requireValidConfig}
                 setAppMessage={setAppMessage}
                 onBatchPreviewChange={setBatchPreviewState}
+                renderOutputOptions={renderQuickOutputOptions}
               />
             </div>
 
@@ -1649,6 +1877,10 @@ export default function App() {
                     </button>
                   </div>
 
+                  {settingsMessage.text ? (
+                    <div className={`message-card inline-message ${settingsMessage.tone}`}>{settingsMessage.text}</div>
+                  ) : null}
+
                   <p className="panel-note">{copy.notes.imageEditTestDescription}</p>
                 </section>
 
@@ -1723,10 +1955,6 @@ export default function App() {
                     </a>
                   </div>
                 </section>
-
-                {settingsMessage.text ? (
-                  <div className={`message-card ${settingsMessage.tone}`}>{settingsMessage.text}</div>
-                ) : null}
 
                 {translatedValidationErrors.length > 0 ? (
                   <div className="validation-list error">
@@ -2033,10 +2261,6 @@ export default function App() {
             </div>
           </section>
         </section>
-
-        <button type="button" className="support-fab" onClick={() => setIsSupportOpen(true)}>
-          {copy.support.trigger}
-        </button>
       </main>
 
       <Dialog
@@ -2084,33 +2308,6 @@ export default function App() {
       </Dialog>
 
       <Dialog
-        open={isSupportOpen}
-        title={copy.support.modalTitle}
-        onClose={() => setIsSupportOpen(false)}
-        footer={
-          <button type="button" className="primary-button" onClick={() => setIsSupportOpen(false)}>
-            {copy.actions.close}
-          </button>
-        }
-      >
-        <div className="support-modal">
-          <p className="support-copy">{copy.support.body}</p>
-          <div className="support-qr-card">
-            <img
-              src={paymentQrCode}
-              alt={copy.support.zoomTitle}
-              className="support-qr"
-              onClick={() => setIsQrZoomed(true)}
-            />
-            <div>
-              <strong>{copy.cards.supportRecommendation}</strong>
-              <p>{copy.cards.supportZoomHint}</p>
-            </div>
-          </div>
-        </div>
-      </Dialog>
-
-      <Dialog
         open={isUpdateOpen}
         title={copy.sections.version}
         onClose={() => setIsUpdateOpen(false)}
@@ -2129,16 +2326,6 @@ export default function App() {
         </div>
       </Dialog>
 
-      <Dialog
-        open={isQrZoomed}
-        title={copy.support.zoomTitle}
-        onClose={() => setIsQrZoomed(false)}
-        className="zoom-dialog"
-      >
-        <div className="zoom-view">
-          <img src={paymentQrCode} alt={copy.support.zoomTitle} className="zoom-image" />
-        </div>
-      </Dialog>
     </>
   );
 }

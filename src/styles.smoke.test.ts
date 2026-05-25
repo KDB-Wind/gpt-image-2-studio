@@ -54,11 +54,15 @@ describe("responsive shell styles", () => {
     expect(desktopStyles).not.toMatch(/\.history-focus\s+\.workspace-grid\s*\{[\s\S]*grid-template-columns/);
   });
 
-  it("keeps the mobile support entry as a compact bottom-right pill", () => {
-    expect(styles).toMatch(/@media\s*\(max-width:\s*640px\)[\s\S]*\.support-fab[\s\S]*right:\s*14px/);
-    expect(styles).toMatch(/@media\s*\(max-width:\s*640px\)[\s\S]*\.support-fab[\s\S]*left:\s*auto/);
-    expect(styles).toMatch(/@media\s*\(max-width:\s*640px\)[\s\S]*\.support-fab[\s\S]*bottom:\s*calc\(14px \+ env\(safe-area-inset-bottom\)\)/);
-    expect(styles).toMatch(/@media\s*\(max-width:\s*640px\)[\s\S]*\.support-fab[\s\S]*width:\s*fit-content/);
+  it("styles the generation image options as a compact visual picker", () => {
+    expect(styles).toMatch(/\.quick-output-options\s*\{[\s\S]*width:\s*100%/);
+    expect(styles).toMatch(/\.quick-output-options\s*\{[\s\S]*box-sizing:\s*border-box/);
+    expect(styles).toMatch(/\.quick-output-options\s+summary\s*\{[\s\S]*display:\s*flex/);
+    expect(styles).toMatch(/\.quick-output-options-body\s*\{[\s\S]*min-width:\s*0/);
+    expect(styles).toMatch(/\.quick-option-group\s*\{[\s\S]*display:\s*grid/);
+    expect(styles).toMatch(/\.quick-option-chip\s*\{[\s\S]*border-radius:\s*16px/);
+    expect(styles).toMatch(/\.quick-option-chip\.active\s*\{[\s\S]*background:\s*linear-gradient/);
+    expect(styles).toMatch(/@media\s*\(max-width:\s*860px\)[\s\S]*\.quick-option-group[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
   });
 
   it("prevents long provider errors and image previews from overflowing their cards", () => {

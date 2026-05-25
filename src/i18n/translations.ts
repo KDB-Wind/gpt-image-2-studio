@@ -228,6 +228,26 @@ type TranslationBundle = {
     enabled: string;
     disabled: string;
   };
+  quickOptions: {
+    title: string;
+    size: string;
+    aspect: string;
+    resolution: string;
+    quality: string;
+    ratioAuto: string;
+    ratioTall: string;
+    ratioPortrait: string;
+    ratioSquare: string;
+    ratioLandscape: string;
+    ratioWide: string;
+    resolutionAuto: string;
+    resolution1k: string;
+    resolution2k: string;
+    resolution4k: string;
+    customResolution: string;
+    hint: string;
+    providerHint: string;
+  };
   sections: {
     connection: string;
     defaults: string;
@@ -246,10 +266,6 @@ type TranslationBundle = {
     welcomeIntro: string;
     welcomeRecommended: string;
     welcomeQuickStart: string;
-    supportTitle: string;
-    supportHint: string;
-    supportRecommendation: string;
-    supportZoomHint: string;
     referenceImages: string;
     openSourceTitle: string;
     openSourceHint: string;
@@ -321,12 +337,6 @@ type TranslationBundle = {
     recommendedBody: string;
     quickStartTitle: string;
     quickStartBody: string;
-  };
-  support: {
-    trigger: string;
-    modalTitle: string;
-    body: string;
-    zoomTitle: string;
   };
   messages: {
     runtimeLoaded: (mode: string) => string;
@@ -617,6 +627,26 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       enabled: "开启",
       disabled: "关闭",
     },
+    quickOptions: {
+      title: "图片参数",
+      size: "图片尺寸",
+      aspect: "图片比例",
+      resolution: "清晰度",
+      quality: "图片质量",
+      ratioAuto: "智能",
+      ratioTall: "9:16",
+      ratioPortrait: "2:3",
+      ratioSquare: "1:1",
+      ratioLandscape: "3:2",
+      ratioWide: "16:9",
+      resolutionAuto: "自动",
+      resolution1k: "1K",
+      resolution2k: "2K",
+      resolution4k: "4K",
+      customResolution: "自定义",
+      hint: "这里会直接影响本次单图或批量生成；如需长期保存为默认值，请到设置页保存。",
+      providerHint: "2K/4K 属于高分辨率请求，是否可用取决于当前模型供应商。",
+    },
     sections: {
       connection: "连接配置",
       defaults: "生成默认值",
@@ -635,10 +665,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       welcomeIntro: "欢迎使用",
       welcomeRecommended: "作者推荐中转站",
       welcomeQuickStart: "快速开始",
-      supportTitle: "请作者喝杯可乐",
-      supportHint: "如果这个工具帮你省了时间，可以支持作者继续维护。",
-      supportRecommendation: "推荐使用微信支付",
-      supportZoomHint: "点击二维码可放大查看。",
       referenceImages: "当前参考图",
       openSourceTitle: "开源与反馈",
       openSourceHint: "源码托管在 GitHub。如果这个工具帮到了你，欢迎顺手 Star，也可以提交 Issue 反馈问题。",
@@ -702,7 +728,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       referenceImageLimitHint: "最多支持 8 张参考图，推荐不超过 4 张。",
       dragAndDropHint: "支持多选上传，也支持从文件夹中直接拖拽图片到上传区。",
       sizeConstraintsHint:
-        "官方文档说明 gpt-image-2 支持任意满足约束的分辨率，常见尺寸包括 1024x1024、1536x1024、1024x1536、2048x2048、2048x1152、3840x2160 和 2160x3840。总像素高于 2560x1440 时属于实验区，兼容服务商的实际支持仍可能不同。",
+        "OpenAI 官方文档当前列出的 GPT Image 常规尺寸是 auto、1024x1024、1536x1024 和 1024x1536。这里额外提供 2K/4K 选项，是为了兼容部分中转站或供应商扩展能力；实际是否可用取决于当前供应商。",
       customSizeHint: "自定义尺寸适合高级用法；只要满足约束就可以尝试，但兼容服务商不支持时仍会返回接口错误。",
       compressionHint: "output_compression 仅对 JPEG / WebP 生效；数值越高通常画质越高、文件也越大。",
       compressionUnavailable: "PNG 不使用压缩参数。",
@@ -714,12 +740,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       recommendedBody: "如果你还没有可用接口，可以先看看作者常用的中转站。",
       quickStartTitle: "先做这 4 步",
       quickStartBody: "去“设置”页填写 API key、Base URL、文字模型、生图模型和保存目录。你也可以先做最小连通性测试，再决定是否保存。",
-    },
-    support: {
-      trigger: "请作者喝杯可乐",
-      modalTitle: "请作者喝杯可乐",
-      body: "如果这个工具对你有帮助，欢迎支持作者继续优化体验。",
-      zoomTitle: "微信收款码",
     },
     messages: {
       runtimeLoaded: (mode) => `${mode} 已加载。修改后记得保存配置。`,
@@ -1037,6 +1057,26 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       enabled: "Enabled",
       disabled: "Disabled",
     },
+    quickOptions: {
+      title: "Image options",
+      size: "Image size",
+      aspect: "Aspect ratio",
+      resolution: "Resolution",
+      quality: "Image quality",
+      ratioAuto: "Smart",
+      ratioTall: "9:16",
+      ratioPortrait: "2:3",
+      ratioSquare: "1:1",
+      ratioLandscape: "3:2",
+      ratioWide: "16:9",
+      resolutionAuto: "Auto",
+      resolution1k: "1K",
+      resolution2k: "2K",
+      resolution4k: "4K",
+      customResolution: "Custom",
+      hint: "These options affect the current single-image or batch run. Save them in Settings if you want to keep them as defaults.",
+      providerHint: "2K/4K are high-resolution requests; actual support depends on your current provider.",
+    },
     sections: {
       connection: "Connection",
       defaults: "Generation defaults",
@@ -1055,10 +1095,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       welcomeIntro: "Welcome",
       welcomeRecommended: "Author-recommended relay",
       welcomeQuickStart: "Quick start",
-      supportTitle: "Buy the author a cola",
-      supportHint: "If this tool saves you time, you can support the author to keep maintaining it.",
-      supportRecommendation: "WeChat Pay is recommended",
-      supportZoomHint: "Click the QR code to enlarge it.",
       referenceImages: "Reference images",
       openSourceTitle: "Open source & feedback",
       openSourceHint:
@@ -1123,7 +1159,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       referenceImageLimitHint: "Up to 8 reference images are supported. 4 or fewer is recommended.",
       dragAndDropHint: "You can select multiple images or drag them directly from a folder into the drop zone.",
       sizeConstraintsHint:
-        "The official docs say gpt-image-2 supports any resolution that meets the limits. Common sizes include 1024x1024, 1536x1024, 1024x1536, 2048x2048, 2048x1152, 3840x2160, and 2160x3840. Outputs above 2560x1440 total pixels are experimental, and provider compatibility can still vary.",
+        "OpenAI's official GPT Image docs currently list auto, 1024x1024, 1536x1024, and 1024x1536 as regular size options. The extra 2K/4K choices here are for compatible relays or providers that expose extended resolutions; actual support depends on your current provider.",
       customSizeHint: "Custom sizes are for advanced use. Any size that meets the limits can be tried, but a compatible provider may still reject unsupported values.",
       compressionHint: "output_compression only applies to JPEG and WebP. Higher values usually mean higher quality and larger files.",
       compressionUnavailable: "PNG does not use a compression parameter.",
@@ -1135,12 +1171,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       recommendedBody: "If you do not have an available endpoint yet, you can start with the relay the author uses most often.",
       quickStartTitle: "Start with these 4 steps",
       quickStartBody: "Go to Settings and fill in API key, Base URL, text model, image model, and output directory. You can run minimal connectivity tests before saving, but saving is still allowed even if tests fail.",
-    },
-    support: {
-      trigger: "Buy the author a cola",
-      modalTitle: "Buy the author a cola",
-      body: "If this tool is useful to you, you can support the author to keep improving it.",
-      zoomTitle: "WeChat payment QR",
     },
     messages: {
       runtimeLoaded: (mode) => `${mode} loaded. Save after changing settings.`,
