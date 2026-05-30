@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import App from "./App";
 import { DEFAULT_CONFIG } from "./core/config";
+import type { ImageRecord } from "./core/history";
 import { getTranslations } from "./i18n/translations";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -207,6 +208,72 @@ describe("App batch workspace", () => {
     expect(container.querySelector('a[href="https://github.com/KDB-Wind/gpt-image-2-studio"]')).not.toBeNull();
   });
 
+  it("groups batch history records into an expandable batch card", async () => {
+    const copy = getTranslations("en-US");
+    window.localStorage.setItem(
+      "chat-to-image.history.v1",
+      JSON.stringify([
+        createHistoryRecord({
+          id: "record-france",
+          prompt: "Create a France poster.",
+          outputPath: "outputs/2026-05-24/batch/france.png",
+          batch: {
+            id: "batch-world-cup",
+            title: "World Cup posters",
+            createdAt: "2026-05-24T00:00:00.000Z",
+            taskId: "task-1",
+            taskIndex: 0,
+            taskTitle: "France poster",
+            totalTasks: 2,
+          },
+        }),
+        createHistoryRecord({
+          id: "record-japan",
+          prompt: "Create a Japan poster.",
+          outputPath: "outputs/2026-05-24/batch/japan.png",
+          batch: {
+            id: "batch-world-cup",
+            title: "World Cup posters",
+            createdAt: "2026-05-24T00:00:00.000Z",
+            taskId: "task-2",
+            taskIndex: 1,
+            taskTitle: "Japan poster",
+            totalTasks: 2,
+          },
+        }),
+      ]),
+    );
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    const batchCard = container.querySelector(".history-batch-card");
+
+    expect(batchCard?.textContent).toContain("World Cup posters");
+    expect(batchCard?.textContent).toContain("2 / 2");
+    expect(batchCard?.textContent).not.toContain("Create a France poster.");
+
+    clickButton(copy.actions.expandBatch);
+
+    expect(batchCard?.textContent).toContain("Create a France poster.");
+    expect(batchCard?.textContent).toContain("Create a Japan poster.");
+  });
+
+  it("shows an output directory verification action in settings", async () => {
+    const copy = getTranslations("en-US");
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    clickButton(copy.tabs.settings);
+
+    expect(container.textContent).toContain(copy.actions.testOutputDirectory);
+  });
+
   function clickButton(label: string) {
     const button = Array.from(container.querySelectorAll("button")).find(
       (candidate) => candidate.textContent?.trim() === label,
@@ -259,6 +326,21 @@ function setFieldValue(element: HTMLInputElement | HTMLTextAreaElement, value: s
     setter?.call(element, value);
     element.dispatchEvent(new Event("input", { bubbles: true }));
   });
+}
+
+function createHistoryRecord(overrides: Partial<ImageRecord>): ImageRecord {
+  return {
+    id: "record",
+    status: "success",
+    createdAt: "2026-05-24T00:01:00.000Z",
+    prompt: "Create poster.",
+    optimizedPrompt: "",
+    model: "gpt-image-2",
+    size: "1024x1024",
+    outputPath: "outputs/2026-05-24/poster.png",
+    durationMs: 1000,
+    ...overrides,
+  };
 }
 
 function setSelectValue(element: HTMLSelectElement | undefined, value: string) {

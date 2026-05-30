@@ -1,7 +1,7 @@
 import { DEFAULT_CONFIG, mergeConfig, type AppConfig } from "../core/config";
 import { buildBatchDirectoryName, buildBatchImageFileName } from "../core/batchManifest";
 import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest } from "../core/batchTypes";
-import { buildImageFileName, buildOutputPath, formatDateFolder } from "../core/fileNames";
+import { buildImageFileName, formatDateFolder } from "../core/fileNames";
 import { sortHistoryNewestFirst, type ImageRecord } from "../core/history";
 import type { RuntimeAdapter, SaveImageInput, SaveImageResult } from "./types";
 
@@ -10,6 +10,9 @@ const HISTORY_KEY = "chat-to-image.history.v1";
 const FILE_HANDLE_DB_NAME = "chat-to-image.file-handles.v1";
 const FILE_HANDLE_STORE_NAME = "handles";
 const OUTPUT_DIRECTORY_HANDLE_KEY = "output-directory";
+const OUTPUT_DIRECTORY_TEST_FILE_NAME = "gpt-image-2-studio-folder-test.png";
+const OUTPUT_DIRECTORY_TEST_PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lwP8NwAAAABJRU5ErkJggg==";
 
 let directoryHandle: FileSystemDirectoryHandle | null = null;
 const memoryStorageFallback = new Map<string, string>();
@@ -235,6 +238,13 @@ function downloadBlob(blob: Blob, fileName: string): string {
   return previewUrl;
 }
 
+function buildFileSystemAccessOutputPath(rootName: string, childDirectory: string, fileName: string): string {
+  return [rootName, childDirectory, fileName]
+    .map((segment) => segment.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, ""))
+    .filter(Boolean)
+    .join("/");
+}
+
 function getPathSegments(outputPath: string): string[] {
   return outputPath
     .replace(/\\/g, "/")
@@ -330,25 +340,67 @@ export const webAdapter: RuntimeAdapter = {
       return null;
     }
 
-    directoryHandle = await window.showDirectoryPicker();
+    const showDirectoryPicker = window.showDirectoryPicker as unknown as (
+      options?: { mode: "read" | "readwrite" },
+    ) => Promise<FileSystemDirectoryHandle>;
+    directoryHandle = await showDirectoryPicker({ mode: "readwrite" });
+
+    if (!(await ensureDirectoryPermission(directoryHandle, "readwrite"))) {
+      directoryHandle = null;
+      throw new Error("Output folder write permission was not granted.");
+    }
+
     await persistDirectoryHandle(directoryHandle);
     return directoryHandle.name;
   },
 
   async prepareHistoryPreview(record: ImageRecord) {
-    const rootHandle = await resolveDirectoryHandle("read");
-
-    if (!rootHandle) {
-      return null;
-    }
-
-    const file = await findHistoryFile(rootHandle, record.outputPath);
+    const file = await this.prepareHistoryFile(record);
 
     if (!file) {
       return null;
     }
 
     return URL.createObjectURL(file);
+  },
+
+  async prepareHistoryFile(record: ImageRecord) {
+    const rootHandle = await resolveDirectoryHandle("read");
+
+    if (!rootHandle) {
+      return null;
+    }
+
+    return findHistoryFile(rootHandle, record.outputPath);
+  },
+
+  async testOutputDirectory() {
+    const rootHandle = await resolveDirectoryHandle("readwrite");
+
+    if (!rootHandle) {
+      return {
+        ok: false,
+        message: "Output folder is not authorized.",
+      };
+    }
+
+    try {
+      const blob = decodeBase64Image(OUTPUT_DIRECTORY_TEST_PNG, "png");
+      await saveWithFileSystemAccess(rootHandle, "", OUTPUT_DIRECTORY_TEST_FILE_NAME, blob);
+      const savedFile = await rootHandle.getFileHandle(OUTPUT_DIRECTORY_TEST_FILE_NAME).then((handle) => handle.getFile());
+
+      return {
+        ok: savedFile.size > 0,
+        fileName: OUTPUT_DIRECTORY_TEST_FILE_NAME,
+        bytes: savedFile.size,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        fileName: OUTPUT_DIRECTORY_TEST_FILE_NAME,
+        message: getRuntimeErrorMessage(error),
+      };
+    }
   },
 
   async saveImage(input: SaveImageInput): Promise<SaveImageResult> {
@@ -364,12 +416,22 @@ export const webAdapter: RuntimeAdapter = {
       format: input.config.defaultFormat,
       existingFileNames,
     });
-    const outputPath = buildOutputPath(input.config.outputDirectory, input.generatedAt, fileName);
     const blob = await imageToBlob(input);
     const outputDirectoryHandle = await resolveDirectoryHandle("readwrite");
-    const previewUrl = outputDirectoryHandle
-      ? await saveWithFileSystemAccess(outputDirectoryHandle, dateFolder, fileName, blob)
-      : downloadBlob(blob, fileName);
+    let outputPath = fileName;
+    let previewUrl: string;
+
+    if (outputDirectoryHandle) {
+      try {
+        previewUrl = await saveWithFileSystemAccess(outputDirectoryHandle, dateFolder, fileName, blob);
+        outputPath = buildFileSystemAccessOutputPath(outputDirectoryHandle.name, dateFolder, fileName);
+      } catch {
+        previewUrl = downloadBlob(blob, fileName);
+      }
+    } else {
+      previewUrl = downloadBlob(blob, fileName);
+    }
+
     const record = buildRecord(input, outputPath);
 
     writeStoredValue(HISTORY_KEY, sortHistoryNewestFirst([record, ...history]));
@@ -384,13 +446,27 @@ export const webAdapter: RuntimeAdapter = {
       .filter((record) => record.outputPath.includes(`/${batchFolder}/`) || record.outputPath.includes(`\\${batchFolder}\\`))
       .map((record) => record.outputPath.split(/[\\/]/).pop() ?? "");
     const fileName = buildBatchImageFileName(input.task, input.config.defaultFormat, existingFileNames);
-    const outputRoot = input.config.outputDirectory.replace(/\\/g, "/").replace(/\/+$/g, "") || "outputs";
-    const outputPath = `${outputRoot}/${batchFolder}/${fileName}`;
     const blob = await batchImageToBlob(input);
     const outputDirectoryHandle = await resolveDirectoryHandle("readwrite");
-    const previewUrl = outputDirectoryHandle
-      ? await saveWithFileSystemAccess(await outputDirectoryHandle.getDirectoryHandle(batchFolder, { create: true }), "", fileName, blob)
-      : downloadBlob(blob, fileName);
+    let outputPath = fileName;
+    let previewUrl: string;
+
+    if (outputDirectoryHandle) {
+      try {
+        previewUrl = await saveWithFileSystemAccess(
+          await outputDirectoryHandle.getDirectoryHandle(batchFolder, { create: true }),
+          "",
+          fileName,
+          blob,
+        );
+        outputPath = buildFileSystemAccessOutputPath(outputDirectoryHandle.name, batchFolder, fileName);
+      } catch {
+        previewUrl = downloadBlob(blob, fileName);
+      }
+    } else {
+      previewUrl = downloadBlob(blob, fileName);
+    }
+
     const record: ImageRecord = {
       id: crypto.randomUUID(),
       status: "success",
@@ -401,6 +477,15 @@ export const webAdapter: RuntimeAdapter = {
       size: input.config.defaultSize,
       outputPath,
       durationMs: input.durationMs,
+      batch: {
+        id: input.batchId,
+        title: input.batchTitle,
+        createdAt: input.batchCreatedAt,
+        taskId: input.task.id,
+        taskIndex: input.task.index,
+        taskTitle: input.task.title,
+        totalTasks: undefined,
+      },
     };
 
     writeStoredValue(HISTORY_KEY, sortHistoryNewestFirst([record, ...history]));
@@ -416,16 +501,26 @@ export const webAdapter: RuntimeAdapter = {
     const outputDirectoryHandle = await resolveDirectoryHandle("readwrite");
 
     if (outputDirectoryHandle) {
-      const batchHandle = await outputDirectoryHandle.getDirectoryHandle(batchFolder, { create: true });
-      await saveWithFileSystemAccess(batchHandle, "", fileName, blob);
+      try {
+        const batchHandle = await outputDirectoryHandle.getDirectoryHandle(batchFolder, { create: true });
+        await saveWithFileSystemAccess(batchHandle, "", fileName, blob);
+        return buildFileSystemAccessOutputPath(outputDirectoryHandle.name, batchFolder, fileName);
+      } catch {
+        downloadBlob(blob, fileName);
+        return fileName;
+      }
     } else {
       downloadBlob(blob, fileName);
     }
 
-    return `${batchFolder}/${fileName}`;
+    return fileName;
   },
 
   async openOutputPath(_path: string) {
     return;
   },
 };
+
+function getRuntimeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown runtime error.";
+}

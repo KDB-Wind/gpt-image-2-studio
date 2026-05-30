@@ -151,8 +151,11 @@ type TranslationBundle = {
     changeImage: string;
     removeImage: string;
     clearImages: string;
+    editFromImage: string;
     save: string;
     saveBusy: string;
+    testOutputDirectory: string;
+    testOutputDirectoryBusy: string;
     testText: string;
     testTextBusy: string;
     testImage: string;
@@ -167,6 +170,10 @@ type TranslationBundle = {
     openRecommended: string;
     openGithubProject: string;
     inspect: string;
+    viewLarge: string;
+    inspectBatch: string;
+    expandBatch: string;
+    collapseBatch: string;
   };
   panel: {
     generateTitle: string;
@@ -207,6 +214,8 @@ type TranslationBundle = {
     defaultCompression: string;
     customWidth: string;
     customHeight: string;
+    editInstructions: string;
+    editInstructionsPlaceholder: string;
   };
   options: {
     sizeAuto: string;
@@ -269,6 +278,7 @@ type TranslationBundle = {
     referenceImages: string;
     openSourceTitle: string;
     openSourceHint: string;
+    editFromImageTitle: string;
   };
   labels: {
     imageModel: string;
@@ -289,6 +299,8 @@ type TranslationBundle = {
     quality: string;
     format: string;
     compression: string;
+    batch: string;
+    tasks: string;
   };
   preview: {
     idle: string;
@@ -305,6 +317,7 @@ type TranslationBundle = {
     batchGallery: string;
     batchNoImage: string;
     batchRunning: (title: string) => string;
+    batchHistoryBody: string;
   };
   empty: {
     noHistorySelected: string;
@@ -362,6 +375,8 @@ type TranslationBundle = {
     chooseDirectoryUnavailableWeb: string;
     chooseDirectoryCancelled: string;
     chooseDirectoryFailed: (detail: string) => string;
+    outputDirectoryTestSuccess: (fileName: string, bytes: number) => string;
+    outputDirectoryTestFailed: (detail?: string) => string;
     textTestSuccess: (response: string) => string;
     textTestFailed: (detail: string) => string;
     imageTestSuccess: (count: number) => string;
@@ -372,6 +387,8 @@ type TranslationBundle = {
     historyPreviewUnavailable: string;
     historyPreviewFileMissing: string;
     historyPreviewPreparationFailed: (detail: string) => string;
+    editFromImageReady: string;
+    editFromImageUnavailable: string;
     generatedPreviewLoadFailed: string;
     updateStatus: (version: string) => string;
   };
@@ -550,8 +567,11 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       changeImage: "继续添加图片",
       removeImage: "移除",
       clearImages: "清空全部",
+      editFromImage: "基于此图修改",
       save: "保存配置",
       saveBusy: "正在保存...",
+      testOutputDirectory: "测试保存目录",
+      testOutputDirectoryBusy: "测试中...",
       testText: "测试文字模型",
       testTextBusy: "测试中...",
       testImage: "测试文生图",
@@ -566,6 +586,10 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       openRecommended: "前往推荐中转站",
       openGithubProject: "在 GitHub 查看",
       inspect: "查看",
+      viewLarge: "放大查看",
+      inspectBatch: "查看批次",
+      expandBatch: "展开批次",
+      collapseBatch: "收起批次",
     },
     panel: {
       generateTitle: "生成工作区",
@@ -606,6 +630,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       defaultCompression: "默认压缩",
       customWidth: "自定义宽度",
       customHeight: "自定义高度",
+      editInstructions: "修改要求",
+      editInstructionsPlaceholder: "例如：保留主体和构图，把背景改成傍晚街景，文字更简洁。",
     },
     options: {
       sizeAuto: "自动（由模型决定）",
@@ -668,6 +694,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       referenceImages: "当前参考图",
       openSourceTitle: "开源与反馈",
       openSourceHint: "源码托管在 GitHub。如果这个工具帮到了你，欢迎顺手 Star，也可以提交 Issue 反馈问题。",
+      editFromImageTitle: "基于此图继续修改",
     },
     labels: {
       imageModel: "生图模型",
@@ -688,6 +715,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       quality: "质量",
       format: "格式",
       compression: "压缩",
+      batch: "批次",
+      tasks: "任务",
     },
     preview: {
       idle: "待生成",
@@ -704,6 +733,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       batchGallery: "已生成图片",
       batchNoImage: "批量任务已准备好；开始生成后，成功的图片会出现在这里。",
       batchRunning: (title) => `正在生成：${title}`,
+      batchHistoryBody: "这是历史批次的预览。能否恢复缩略图，取决于你是否已授权正确的保存目录。",
     },
     empty: {
       noHistorySelected: "还没有选中任何历史记录。",
@@ -765,6 +795,10 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       chooseDirectoryUnavailableWeb: "当前浏览器或运行环境不支持目录授权。手动填写保存目录后仍可下载图片，但不能恢复历史预览。",
       chooseDirectoryCancelled: "未选择任何目录。",
       chooseDirectoryFailed: (detail) => `选择目录失败。${detail}`,
+      outputDirectoryTestSuccess: (fileName, bytes) =>
+        `保存目录测试通过：已写入并读回 ${fileName}（${bytes} 字节）。之后历史预览会优先从这个授权目录恢复图片。`,
+      outputDirectoryTestFailed: (detail) =>
+        `保存目录测试失败。请确认浏览器已授权一个普通子目录，而不是 Downloads 根目录。${detail ?? ""}`.trim(),
       textTestSuccess: (response) => `文字模型响应成功：${response}`,
       textTestFailed: (detail) => `文字模型测试失败。${detail}`,
       imageTestSuccess: (count) => `文生图响应成功，共返回 ${count} 张图片。`,
@@ -776,6 +810,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       historyPreviewFileMissing:
         "无法恢复这张历史图片预览。请先在“设置”里点击“选择并授权目录”，选择保存目录；只手动填写 C:\\ 路径不会授权浏览器读取文件。浏览器可能拒绝授权 Downloads 根目录，如果要用下载目录，建议新建并授权 Downloads\\gpt-image-2-studio 子目录。如果已经授权，图片可能已经被删除、移动，或授权目录不匹配。",
       historyPreviewPreparationFailed: (detail) => `准备历史预览失败。${detail}`,
+      editFromImageReady: "已把这张历史图片作为参考图带入单图工作区。你可以补充修改要求后重新生成。",
+      editFromImageUnavailable: "无法读取这张图片作为参考图。请先授权正确的保存目录，或确认文件仍然存在。",
       generatedPreviewLoadFailed: "图片已保存，但预览加载失败。",
       updateStatus: (version) => `当前版本：${version}。如需更新，请手动下载安装新版本。`,
     },
@@ -980,8 +1016,11 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       changeImage: "Add more images",
       removeImage: "Remove",
       clearImages: "Clear all",
+      editFromImage: "Edit from this image",
       save: "Save settings",
       saveBusy: "Saving...",
+      testOutputDirectory: "Test output folder",
+      testOutputDirectoryBusy: "Testing folder...",
       testText: "Test text model",
       testTextBusy: "Testing...",
       testImage: "Test text-to-image",
@@ -996,6 +1035,10 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       openRecommended: "Open recommended relay",
       openGithubProject: "View on GitHub",
       inspect: "Inspect",
+      viewLarge: "View large",
+      inspectBatch: "Inspect batch",
+      expandBatch: "Expand batch",
+      collapseBatch: "Collapse batch",
     },
     panel: {
       generateTitle: "Generation workspace",
@@ -1036,6 +1079,9 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       defaultCompression: "Default compression",
       customWidth: "Custom width",
       customHeight: "Custom height",
+      editInstructions: "Edit instructions",
+      editInstructionsPlaceholder:
+        "Example: keep the subject and composition, change the background to an evening street scene, and simplify the text.",
     },
     options: {
       sizeAuto: "Auto (model decides)",
@@ -1099,6 +1145,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       openSourceTitle: "Open source & feedback",
       openSourceHint:
         "The source code is hosted on GitHub. If the tool helps you, a Star or Issue report is appreciated.",
+      editFromImageTitle: "Continue editing from this image",
     },
     labels: {
       imageModel: "Image model",
@@ -1119,6 +1166,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       quality: "Quality",
       format: "Format",
       compression: "Compression",
+      batch: "Batch",
+      tasks: "Tasks",
     },
     preview: {
       idle: "Idle",
@@ -1135,6 +1184,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       batchGallery: "Generated images",
       batchNoImage: "The batch is ready. Successful images will appear here after generation starts.",
       batchRunning: (title) => `Generating: ${title}`,
+      batchHistoryBody:
+        "This is a saved batch preview. Thumbnail recovery depends on whether the correct output folder is authorized.",
     },
     empty: {
       noHistorySelected: "No history item is selected yet.",
@@ -1200,6 +1251,12 @@ const translations: Record<UiLanguage, TranslationBundle> = {
         "Folder authorization is unavailable in this browser/runtime. You can still download images after entering a path manually, but history previews cannot be restored.",
       chooseDirectoryCancelled: "No directory was selected.",
       chooseDirectoryFailed: (detail) => `Failed to choose a directory. ${detail}`,
+      outputDirectoryTestSuccess: (fileName, bytes) =>
+        `Output folder test passed: wrote and read ${fileName} (${bytes} bytes). History previews will try to restore images from this authorized folder.`,
+      outputDirectoryTestFailed: (detail) =>
+        `Output folder test failed. Make sure the browser has been authorized for a normal subfolder, not the Downloads root folder. ${
+          detail ?? ""
+        }`.trim(),
       textTestSuccess: (response) => `Text model responded: ${response}`,
       textTestFailed: (detail) => `Text model test failed. ${detail}`,
       imageTestSuccess: (count) => `Text-to-image responded with ${count} image${count === 1 ? "" : "s"}.`,
@@ -1211,6 +1268,10 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       historyPreviewFileMissing:
         "Could not restore this history preview. In Settings, click \"Choose and authorize folder\" and select the output folder. Typing a C:\\ path manually does not authorize browser file access. Browsers may refuse the Downloads root folder; if you want to use Downloads, create and authorize a Downloads\\gpt-image-2-studio subfolder. If it is already authorized, the image may have been deleted, moved, or the authorized folder does not match.",
       historyPreviewPreparationFailed: (detail) => `Could not prepare a preview for this saved output. ${detail}`,
+      editFromImageReady:
+        "This image has been added as a reference in the Single image workspace. Add edit instructions, then generate again.",
+      editFromImageUnavailable:
+        "Could not read this image as a reference. Authorize the correct output folder first, or confirm the file still exists.",
       generatedPreviewLoadFailed: "The image was saved, but the preview failed to load afterward.",
       updateStatus: (version) => `Current version: ${version}. To update, download and install a newer release manually.`,
     },

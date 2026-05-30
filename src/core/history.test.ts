@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  groupHistoryRecordsForDisplay,
   groupHistoryByDate,
   sortHistoryNewestFirst,
   type ImageRecord,
@@ -77,6 +78,63 @@ describe("groupHistoryByDate", () => {
       {
         date: "2026-04-20",
         records: [outputPathWins],
+      },
+    ]);
+  });
+});
+
+describe("groupHistoryRecordsForDisplay", () => {
+  it("keeps standalone records while grouping batch records under one batch card", () => {
+    const batchRecordA = createRecord({
+      id: "batch-record-a",
+      createdAt: "2026-05-02T08:00:00.000Z",
+      prompt: "Create a France poster.",
+      outputPath: "outputs/2026-05-02/batch/france.png",
+      batch: {
+        id: "batch-1",
+        title: "World Cup posters",
+        createdAt: "2026-05-02T07:59:00.000Z",
+        taskId: "task-1",
+        taskIndex: 0,
+        taskTitle: "France poster",
+        totalTasks: 2,
+      },
+    });
+    const batchRecordB = createRecord({
+      id: "batch-record-b",
+      createdAt: "2026-05-02T08:01:00.000Z",
+      prompt: "Create a Japan poster.",
+      outputPath: "outputs/2026-05-02/batch/japan.png",
+      batch: {
+        id: "batch-1",
+        title: "World Cup posters",
+        createdAt: "2026-05-02T07:59:00.000Z",
+        taskId: "task-2",
+        taskIndex: 1,
+        taskTitle: "Japan poster",
+        totalTasks: 2,
+      },
+    });
+    const standaloneRecord = createRecord({
+      id: "standalone",
+      createdAt: "2026-05-02T09:00:00.000Z",
+      outputPath: "outputs/2026-05-02/standalone.png",
+    });
+
+    const result = groupHistoryRecordsForDisplay([batchRecordA, standaloneRecord, batchRecordB]);
+
+    expect(result).toEqual([
+      {
+        type: "record",
+        record: standaloneRecord,
+      },
+      {
+        type: "batch",
+        id: "batch-1",
+        title: "World Cup posters",
+        createdAt: "2026-05-02T07:59:00.000Z",
+        records: [batchRecordA, batchRecordB],
+        totalTasks: 2,
       },
     ]);
   });

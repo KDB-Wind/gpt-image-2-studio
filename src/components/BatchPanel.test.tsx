@@ -779,6 +779,8 @@ function createRuntime(): RuntimeAdapter {
     saveBatchManifest: vi.fn().mockResolvedValue("batch.json"),
     chooseOutputDirectory: vi.fn().mockResolvedValue(null),
     prepareHistoryPreview: vi.fn().mockResolvedValue(null),
+    prepareHistoryFile: vi.fn().mockResolvedValue(null),
+    testOutputDirectory: vi.fn().mockResolvedValue({ ok: true }),
     openOutputPath: vi.fn().mockResolvedValue(undefined),
   };
 }

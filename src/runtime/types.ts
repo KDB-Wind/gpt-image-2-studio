@@ -18,6 +18,13 @@ export type SaveImageResult = {
   previewUrl: string;
 };
 
+export type OutputDirectoryTestResult = {
+  ok: boolean;
+  fileName?: string;
+  bytes?: number;
+  message?: string;
+};
+
 export type RuntimeAdapter = {
   mode: "web" | "desktop";
   loadConfig(): Promise<AppConfig>;
@@ -25,6 +32,8 @@ export type RuntimeAdapter = {
   loadHistory(): Promise<ImageRecord[]>;
   deleteHistoryRecords(recordIds: string[]): Promise<ImageRecord[]>;
   prepareHistoryPreview(record: ImageRecord): Promise<string | null>;
+  prepareHistoryFile(record: ImageRecord): Promise<File | null>;
+  testOutputDirectory(): Promise<OutputDirectoryTestResult>;
   saveImage(input: SaveImageInput): Promise<SaveImageResult>;
   saveBatchImage(input: BatchImageSaveInput): Promise<BatchImageSaveResult>;
   saveBatchManifest(manifest: BatchManifest): Promise<string>;

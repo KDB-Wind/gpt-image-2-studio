@@ -10,10 +10,15 @@ import {
   testImageModel,
   testTextModel,
 } from "./core/apiClient";
-import type { BatchPreviewState } from "./core/batchPreview";
+import type { BatchPreviewImage, BatchPreviewState } from "./core/batchPreview";
 import { DEFAULT_CONFIG, mergeConfig, type AppConfig, validateConfig } from "./core/config";
 import { MAX_BATCH_TASK_COUNT, clampBatchTaskCount } from "./core/batchTypes";
-import { groupHistoryByDate, type ImageRecord } from "./core/history";
+import {
+  groupHistoryByDate,
+  groupHistoryRecordsForDisplay,
+  type HistoryDisplayItem,
+  type ImageRecord,
+} from "./core/history";
 import {
   MAX_REFERENCE_IMAGES,
   addReferenceImages,
@@ -75,6 +80,17 @@ const QUICK_SIZE_BY_ASPECT: Record<Exclude<QuickAspect, "auto">, Record<QuickRes
 type SettingsMessage = {
   tone: "neutral" | "success" | "error";
   text: string;
+};
+
+type EditFromImageDraft = {
+  record: ImageRecord;
+  file: File;
+};
+
+type LightboxImage = {
+  src: string;
+  title: string;
+  prompt?: string;
 };
 
 type PreviewState =
@@ -176,6 +192,14 @@ function translateValidationMessages(messages: string[], language: UiLanguage): 
 function revokeReferenceImages(images: ReferenceImageItem[]) {
   for (const image of images) {
     URL.revokeObjectURL(image.previewUrl);
+  }
+}
+
+function revokeBatchPreviewImages(preview: BatchPreviewState | null) {
+  for (const image of preview?.images ?? []) {
+    if (image.previewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(image.previewUrl);
+    }
   }
 }
 
@@ -300,7 +324,10 @@ export default function App() {
   const [referenceImages, setReferenceImages] = useState<ReferenceImageItem[]>([]);
   const [previewState, setPreviewState] = useState<PreviewState>({ status: "idle" });
   const [batchPreviewState, setBatchPreviewState] = useState<BatchPreviewState | null>(null);
+  const [historyBatchPreviewState, setHistoryBatchPreviewState] = useState<BatchPreviewState | null>(null);
+  const [historyBatchPreviewTitle, setHistoryBatchPreviewTitle] = useState("");
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
+  const [expandedBatchIds, setExpandedBatchIds] = useState<Set<string>>(() => new Set());
   const [elapsedMs, setElapsedMs] = useState(0);
   const [appMessage, setAppMessage] = useState("");
   const [settingsMessage, setSettingsMessage] = useState<SettingsMessage>({ tone: "neutral", text: "" });
@@ -311,7 +338,11 @@ export default function App() {
   const [isTestingText, setIsTestingText] = useState(false);
   const [isTestingImage, setIsTestingImage] = useState(false);
   const [isTestingImageEdit, setIsTestingImageEdit] = useState(false);
+  const [isTestingOutputDirectory, setIsTestingOutputDirectory] = useState(false);
   const [isUpdateOpen, setIsUpdateOpen] = useState(false);
+  const [editFromImageDraft, setEditFromImageDraft] = useState<EditFromImageDraft | null>(null);
+  const [editInstructions, setEditInstructions] = useState("");
+  const [lightboxImage, setLightboxImage] = useState<LightboxImage | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [sizeMode, setSizeMode] = useState<"preset" | "custom">(
     getImageSizePresetValue(DEFAULT_CONFIG.defaultSize) === "custom" ? "custom" : "preset",
@@ -323,6 +354,7 @@ export default function App() {
   const referenceInputRef = useRef<HTMLInputElement | null>(null);
   const dragDepthRef = useRef(0);
   const referenceImagesRef = useRef<ReferenceImageItem[]>([]);
+  const historyBatchPreviewRef = useRef<BatchPreviewState | null>(null);
 
   const language = resolveLanguage(config.uiLanguage);
   const copy = getTranslations(language);
@@ -337,6 +369,14 @@ export default function App() {
     [language, validation.warnings],
   );
   const historyGroups = useMemo(() => groupHistoryByDate(history), [history]);
+  const historyDisplayGroups = useMemo(
+    () =>
+      historyGroups.map((group) => ({
+        ...group,
+        items: groupHistoryRecordsForDisplay(group.records),
+      })),
+    [historyGroups],
+  );
   const effectivePrompt = optimizedPrompt.trim() || prompt.trim();
   const canOpenOutput = runtime?.mode === "desktop";
   const selectedRecord = useMemo(
@@ -346,7 +386,8 @@ export default function App() {
   const selectedSizeOption = sizeMode === "custom" ? "custom" : getImageSizePresetValue(config.defaultSize);
   const showCompressionControls = isCompressionFormat(config.defaultFormat);
   const showWelcome = !isLoadingApp && !config.hasDismissedWelcome;
-  const activeBatchPreview = activeTab === "batch" ? batchPreviewState : null;
+  const activeBatchPreview = activeTab === "batch" ? batchPreviewState : historyBatchPreviewState;
+  const isHistoryBatchPreviewActive = activeTab !== "batch" && Boolean(historyBatchPreviewState);
   const qualityLabels: Record<AppConfig["defaultQuality"], string> = {
     auto: copy.options.qualityAuto,
     low: copy.options.qualityLow,
@@ -414,8 +455,13 @@ export default function App() {
   }, [referenceImages]);
 
   useEffect(() => {
+    historyBatchPreviewRef.current = historyBatchPreviewState;
+  }, [historyBatchPreviewState]);
+
+  useEffect(() => {
     return () => {
       revokeReferenceImages(referenceImagesRef.current);
+      revokeBatchPreviewImages(historyBatchPreviewRef.current);
     };
   }, []);
 
@@ -514,6 +560,14 @@ export default function App() {
 
       return nextImages;
     });
+  }
+
+  function setHistoryBatchPreviewWithCleanup(nextPreview: BatchPreviewState | null, title = "") {
+    setHistoryBatchPreviewState((currentPreview) => {
+      revokeBatchPreviewImages(currentPreview);
+      return nextPreview;
+    });
+    setHistoryBatchPreviewTitle(title);
   }
 
   function buildReferenceImagesMessage(result: AddReferenceImagesResult): string {
@@ -1026,9 +1080,12 @@ export default function App() {
       const selectedDirectory = await runtime.chooseOutputDirectory();
 
       if (selectedDirectory) {
-        updateConfig("outputDirectory", selectedDirectory);
+        const nextConfig = { ...config, outputDirectory: selectedDirectory };
+        setConfig(nextConfig);
+        await runtime.saveConfig(nextConfig);
+        setPersistedConfig(nextConfig);
         setSettingsMessage({
-          tone: "neutral",
+          tone: "success",
           text: copy.messages.outputSelected(selectedDirectory),
         });
       } else {
@@ -1125,6 +1182,7 @@ export default function App() {
     setReferenceImagesWithCleanup([]);
     clearReferenceInput();
     setSelectedHistoryId(record.id);
+    setHistoryBatchPreviewWithCleanup(null);
     setActiveTab("generate");
   }
 
@@ -1142,6 +1200,8 @@ export default function App() {
 
   async function handleInspectHistory(record: ImageRecord) {
     setSelectedHistoryId(record.id);
+    setHistoryBatchPreviewWithCleanup(null);
+    setActiveTab("history");
 
     if (!runtime) {
       return;
@@ -1175,6 +1235,179 @@ export default function App() {
         message: copy.messages.historyPreviewPreparationFailed(getErrorMessage(error)),
       });
     }
+  }
+
+  async function handleTestOutputDirectory() {
+    if (!runtime) {
+      return;
+    }
+
+    setIsTestingOutputDirectory(true);
+
+    try {
+      const result = await runtime.testOutputDirectory();
+
+      setSettingsMessage({
+        tone: result.ok ? "success" : "error",
+        text:
+          result.ok && result.fileName && result.bytes
+            ? copy.messages.outputDirectoryTestSuccess(result.fileName, result.bytes)
+            : copy.messages.outputDirectoryTestFailed(result.message),
+      });
+    } catch (error) {
+      setSettingsMessage({
+        tone: "error",
+        text: copy.messages.outputDirectoryTestFailed(getErrorMessage(error)),
+      });
+    } finally {
+      setIsTestingOutputDirectory(false);
+    }
+  }
+
+  function toggleHistoryBatch(batchId: string) {
+    setExpandedBatchIds((current) => {
+      const next = new Set(current);
+      if (next.has(batchId)) {
+        next.delete(batchId);
+      } else {
+        next.add(batchId);
+      }
+      return next;
+    });
+  }
+
+  async function handleInspectHistoryBatch(item: Extract<HistoryDisplayItem, { type: "batch" }>) {
+    setSelectedHistoryId(item.records[0]?.id ?? null);
+    setActiveTab("history");
+
+    if (!runtime) {
+      return;
+    }
+
+    const restoredImages: BatchPreviewImage[] = [];
+
+    for (const [index, record] of item.records.entries()) {
+      const previewUrl = await runtime.prepareHistoryPreview(record);
+
+      if (!previewUrl) {
+        continue;
+      }
+
+      restoredImages.push({
+        id: record.id,
+        index: record.batch?.taskIndex ?? index,
+        title: record.batch?.taskTitle ?? record.outputPath.split(/[\\/]/).pop() ?? record.prompt,
+        prompt: record.optimizedPrompt || record.prompt,
+        previewUrl,
+        outputPath: record.outputPath,
+        durationMs: record.durationMs,
+        completedAt: record.createdAt,
+      });
+    }
+
+    if (restoredImages.length === 0) {
+      setHistoryBatchPreviewWithCleanup(null);
+      const fallbackRecord = item.records[0];
+      if (fallbackRecord) {
+        setPreviewState({
+          status: "history-unavailable",
+          record: fallbackRecord,
+          message: copy.messages.historyPreviewFileMissing,
+        });
+      }
+      return;
+    }
+
+    const latestImage = restoredImages.reduce<BatchPreviewImage | null>((latest, image) => {
+      if (!latest) {
+        return image;
+      }
+
+      return Date.parse(image.completedAt) >= Date.parse(latest.completedAt) ? image : latest;
+    }, null);
+    const succeeded = item.records.filter((record) => record.status === "success").length;
+    const failed = item.records.filter((record) => record.status === "failed").length;
+    const skipped = item.records.filter((record) => record.status === "cancelled").length;
+    const total = item.totalTasks ?? item.records.length;
+
+    setHistoryBatchPreviewWithCleanup(
+      {
+        status: "completed",
+        summary: {
+          total,
+          pending: Math.max(0, total - succeeded - failed - skipped),
+          running: 0,
+          succeeded,
+          failed,
+          skipped,
+          durationMs: item.records.reduce((sum, record) => sum + record.durationMs, 0),
+        },
+        latestImage,
+        images: restoredImages,
+        runningTask: null,
+      },
+      item.title,
+    );
+  }
+
+  async function fileFromPreviewUrl(previewUrl: string, fallbackName: string): Promise<File | null> {
+    try {
+      const response = await fetch(previewUrl);
+      if (!response.ok) {
+        return null;
+      }
+
+      const blob = await response.blob();
+      return new File([blob], fallbackName, { type: blob.type || "image/png" });
+    } catch {
+      return null;
+    }
+  }
+
+  async function handleStartEditFromImage(record: ImageRecord, previewUrl?: string) {
+    const fallbackFileName = record.outputPath.split(/[\\/]/).pop() || "history-image.png";
+    const file = previewUrl
+      ? await fileFromPreviewUrl(previewUrl, fallbackFileName)
+      : runtime
+        ? await runtime.prepareHistoryFile(record)
+        : null;
+
+    if (!file) {
+      setAppMessage(copy.messages.editFromImageUnavailable);
+      return;
+    }
+
+    setEditFromImageDraft({ record, file });
+    setEditInstructions("");
+  }
+
+  function handleConfirmEditFromImage() {
+    if (!editFromImageDraft) {
+      return;
+    }
+
+    const result = addReferenceImages([], [editFromImageDraft.file]);
+
+    if (result.addedCount === 0) {
+      setAppMessage(copy.messages.editFromImageUnavailable);
+      setEditFromImageDraft(null);
+      return;
+    }
+
+    const basePrompt = editFromImageDraft.record.optimizedPrompt || editFromImageDraft.record.prompt;
+    const instructions = editInstructions.trim();
+    setReferenceImagesWithCleanup(result.images);
+    setGenerationMode("image-to-image");
+    setPrompt(instructions ? `${basePrompt}\n\n${copy.fields.editInstructions}: ${instructions}` : basePrompt);
+    setOptimizedPrompt("");
+    setCustomName("");
+    setSelectedHistoryId(editFromImageDraft.record.id);
+    setHistoryBatchPreviewWithCleanup(null);
+    setActiveTab("generate");
+    setEditFromImageDraft(null);
+    setEditInstructions("");
+    clearReferenceInput();
+    setAppMessage(copy.messages.editFromImageReady);
   }
 
   function handlePreviewImageError(successState: Extract<PreviewState, { status: "success" }>) {
@@ -1581,6 +1814,13 @@ export default function App() {
                         >
                           {copy.actions.reusePrompt}
                         </button>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => void handleStartEditFromImage(selectedRecord)}
+                        >
+                          {copy.actions.editFromImage}
+                        </button>
                         {canOpenOutput ? (
                           <button
                             type="button"
@@ -1846,6 +2086,14 @@ export default function App() {
                     <button
                       type="button"
                       className="secondary-button"
+                      onClick={handleTestOutputDirectory}
+                      disabled={!runtime || isTestingOutputDirectory}
+                    >
+                      {isTestingOutputDirectory ? copy.actions.testOutputDirectoryBusy : copy.actions.testOutputDirectory}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
                       onClick={handleTestTextModel}
                       disabled={isTestingText}
                     >
@@ -1987,7 +2235,9 @@ export default function App() {
                 <h2>{copy.panel.previewTitle}</h2>
                 <p>
                   {activeBatchPreview
-                    ? copy.preview.batchBody
+                    ? isHistoryBatchPreviewActive
+                      ? copy.preview.batchHistoryBody
+                      : copy.preview.batchBody
                     : previewState.status === "running"
                     ? copy.panel.previewRunningDescription
                     : copy.panel.previewIdleDescription}
@@ -2004,15 +2254,26 @@ export default function App() {
               {!isLoadingApp && activeBatchPreview ? (
                 <div className="preview-success batch-preview">
                   {activeBatchPreview.latestImage ? (
-                    <div className="preview-frame">
+                    <button
+                      type="button"
+                      className="preview-frame preview-frame-button"
+                      onClick={() =>
+                        setLightboxImage({
+                          src: activeBatchPreview.latestImage!.previewUrl,
+                          title: activeBatchPreview.latestImage!.title,
+                          prompt: activeBatchPreview.latestImage!.prompt,
+                        })
+                      }
+                      aria-label={copy.actions.viewLarge}
+                    >
                       <img src={activeBatchPreview.latestImage.previewUrl} alt={activeBatchPreview.latestImage.title} />
-                    </div>
+                    </button>
                   ) : (
                     <div className="preview-placeholder running">{copy.preview.batch}</div>
                   )}
 
                   <div className="info-card preview-details">
-                    <h3>{copy.preview.batch}</h3>
+                    <h3>{isHistoryBatchPreviewActive && historyBatchPreviewTitle ? historyBatchPreviewTitle : copy.preview.batch}</h3>
                     <dl>
                       <div>
                         <dt>{copy.labels.status}</dt>
@@ -2056,8 +2317,43 @@ export default function App() {
                       <div className="batch-preview-grid">
                         {activeBatchPreview.images.map((image) => (
                           <figure key={image.id} className="batch-preview-thumb">
-                            <img src={image.previewUrl} alt={image.title} />
-                            <figcaption>{image.title}</figcaption>
+                            <button
+                              type="button"
+                              className="batch-preview-thumb-button"
+                              onClick={() =>
+                                setLightboxImage({
+                                  src: image.previewUrl,
+                                  title: image.title,
+                                  prompt: image.prompt,
+                                })
+                              }
+                              aria-label={copy.actions.viewLarge}
+                            >
+                              <img src={image.previewUrl} alt={image.title} />
+                            </button>
+                            <figcaption title={image.title}>{image.title}</figcaption>
+                            <button
+                              type="button"
+                              className="ghost-button compact-button"
+                              onClick={() =>
+                                void handleStartEditFromImage(
+                                  {
+                                    id: image.id,
+                                    status: "success",
+                                    createdAt: image.completedAt,
+                                    prompt: image.prompt,
+                                    optimizedPrompt: "",
+                                    model: config.imageModel,
+                                    size: config.defaultSize,
+                                    outputPath: image.outputPath,
+                                    durationMs: image.durationMs,
+                                  },
+                                  image.previewUrl,
+                                )
+                              }
+                            >
+                              {copy.actions.editFromImage}
+                            </button>
                           </figure>
                         ))}
                       </div>
@@ -2132,13 +2428,24 @@ export default function App() {
 
               {!activeBatchPreview && previewState.status === "success" ? (
                 <div className="preview-success">
-                  <div className="preview-frame">
+                  <button
+                    type="button"
+                    className="preview-frame preview-frame-button"
+                    onClick={() =>
+                      setLightboxImage({
+                        src: previewState.imageUrl,
+                        title: previewState.customName || previewState.record.outputPath.split(/[\\/]/).pop() || copy.cards.savedImage,
+                        prompt: previewState.optimizedPrompt || previewState.prompt,
+                      })
+                    }
+                    aria-label={copy.actions.viewLarge}
+                  >
                     <img
                       src={previewState.imageUrl}
                       alt={previewState.prompt}
                       onError={() => handlePreviewImageError(previewState)}
                     />
-                  </div>
+                  </button>
                   <div className="info-card preview-details">
                     <h3>{copy.cards.savedImage}</h3>
                     <dl>
@@ -2168,6 +2475,13 @@ export default function App() {
                       >
                         {copy.actions.reusePrompt}
                       </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => void handleStartEditFromImage(previewState.record, previewState.imageUrl)}
+                      >
+                        {copy.actions.editFromImage}
+                      </button>
                       {canOpenOutput ? (
                         <button
                           type="button"
@@ -2196,10 +2510,10 @@ export default function App() {
             </header>
 
             <div className="panel-body history-body">
-              {historyGroups.length === 0 ? (
+              {historyDisplayGroups.length === 0 ? (
                 <p className="empty-state">{copy.empty.noHistorySaved}</p>
               ) : (
-                historyGroups.map((group) => (
+                historyDisplayGroups.map((group) => (
                   <section key={group.date} className="history-group">
                     <div className="history-group-header">
                       <h3>{group.date}</h3>
@@ -2207,53 +2521,150 @@ export default function App() {
                     </div>
 
                     <div className="history-list">
-                      {group.records.map((record) => (
-                        <article
-                          key={record.id}
-                          className={`history-item ${record.id === selectedHistoryId ? "selected" : ""}`}
-                        >
-                          <div className="history-item-head">
-                            <span className={`status-pill ${record.status}`}>{record.status}</span>
-                            <time dateTime={record.createdAt}>{formatDateTime(record.createdAt, language)}</time>
-                          </div>
-                          <p className="history-prompt">{record.optimizedPrompt || record.prompt}</p>
-                          <dl className="history-meta">
-                            <div>
-                              <dt>{copy.labels.model}</dt>
-                              <dd>{record.model}</dd>
-                            </div>
-                            <div>
-                              <dt>{copy.labels.duration}</dt>
-                              <dd>{formatDuration(record.durationMs)}</dd>
-                            </div>
-                          </dl>
-                          <div className="history-actions">
-                            <button
-                              type="button"
-                              className="ghost-button"
-                              onClick={() => void handleInspectHistory(record)}
+                      {group.items.map((item) => {
+                        if (item.type === "batch") {
+                          const isExpanded = expandedBatchIds.has(item.id);
+                          const isSelected = item.records.some((record) => record.id === selectedHistoryId);
+                          const succeededCount = item.records.filter((record) => record.status === "success").length;
+                          const totalCount = item.totalTasks ?? item.records.length;
+                          const durationMs = item.records.reduce((sum, record) => sum + record.durationMs, 0);
+
+                          return (
+                            <article
+                              key={item.id}
+                              className={`history-item history-batch-card ${isSelected ? "selected" : ""}`}
                             >
-                              {copy.actions.inspect}
-                            </button>
-                            <button
-                              type="button"
-                              className="ghost-button"
-                              onClick={() => handleReusePrompt(record)}
-                            >
-                              {copy.actions.reusePrompt}
-                            </button>
-                            {canOpenOutput ? (
+                              <div className="history-item-head">
+                                <span className="status-pill success">{copy.labels.batch}</span>
+                                <time dateTime={item.createdAt}>{formatDateTime(item.createdAt, language)}</time>
+                              </div>
+                              <p className="history-prompt history-batch-title">{item.title}</p>
+                              <dl className="history-meta">
+                                <div>
+                                  <dt>{copy.labels.tasks}</dt>
+                                  <dd>
+                                    {succeededCount} / {totalCount}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt>{copy.labels.duration}</dt>
+                                  <dd>{formatDuration(durationMs)}</dd>
+                                </div>
+                              </dl>
+                              <div className="history-actions">
+                                <button
+                                  type="button"
+                                  className="ghost-button"
+                                  onClick={() => void handleInspectHistoryBatch(item)}
+                                >
+                                  {copy.actions.inspectBatch}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ghost-button"
+                                  onClick={() => toggleHistoryBatch(item.id)}
+                                >
+                                  {isExpanded ? copy.actions.collapseBatch : copy.actions.expandBatch}
+                                </button>
+                              </div>
+
+                              {isExpanded ? (
+                                <div className="history-batch-task-list">
+                                  {item.records.map((record) => (
+                                    <article key={record.id} className="history-batch-task">
+                                      <div className="history-item-head">
+                                        <strong>{record.batch?.taskTitle ?? record.outputPath.split(/[\\/]/).pop()}</strong>
+                                        <span className={`status-pill ${record.status}`}>{record.status}</span>
+                                      </div>
+                                      <p className="history-prompt">{record.optimizedPrompt || record.prompt}</p>
+                                      <div className="history-actions">
+                                        <button
+                                          type="button"
+                                          className="ghost-button"
+                                          onClick={() => void handleInspectHistory(record)}
+                                        >
+                                          {copy.actions.inspect}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="ghost-button"
+                                          onClick={() => handleReusePrompt(record)}
+                                        >
+                                          {copy.actions.reusePrompt}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="ghost-button"
+                                          onClick={() => void handleStartEditFromImage(record)}
+                                        >
+                                          {copy.actions.editFromImage}
+                                        </button>
+                                      </div>
+                                    </article>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </article>
+                          );
+                        }
+
+                        const record = item.record;
+
+                        return (
+                          <article
+                            key={record.id}
+                            className={`history-item ${record.id === selectedHistoryId ? "selected" : ""}`}
+                          >
+                            <div className="history-item-head">
+                              <span className={`status-pill ${record.status}`}>{record.status}</span>
+                              <time dateTime={record.createdAt}>{formatDateTime(record.createdAt, language)}</time>
+                            </div>
+                            <p className="history-prompt">{record.optimizedPrompt || record.prompt}</p>
+                            <dl className="history-meta">
+                              <div>
+                                <dt>{copy.labels.model}</dt>
+                                <dd>{record.model}</dd>
+                              </div>
+                              <div>
+                                <dt>{copy.labels.duration}</dt>
+                                <dd>{formatDuration(record.durationMs)}</dd>
+                              </div>
+                            </dl>
+                            <div className="history-actions">
                               <button
                                 type="button"
                                 className="ghost-button"
-                                onClick={() => void handleOpenOutput(record)}
+                                onClick={() => void handleInspectHistory(record)}
                               >
-                                {copy.actions.openOutput}
+                                {copy.actions.inspect}
                               </button>
-                            ) : null}
-                          </div>
-                        </article>
-                      ))}
+                              <button
+                                type="button"
+                                className="ghost-button"
+                                onClick={() => handleReusePrompt(record)}
+                              >
+                                {copy.actions.reusePrompt}
+                              </button>
+                              <button
+                                type="button"
+                                className="ghost-button"
+                                onClick={() => void handleStartEditFromImage(record)}
+                              >
+                                {copy.actions.editFromImage}
+                              </button>
+                              {canOpenOutput ? (
+                                <button
+                                  type="button"
+                                  className="ghost-button"
+                                  onClick={() => void handleOpenOutput(record)}
+                                >
+                                  {copy.actions.openOutput}
+                                </button>
+                              ) : null}
+                            </div>
+                          </article>
+                        );
+                      })}
                     </div>
                   </section>
                 ))
@@ -2305,6 +2716,71 @@ export default function App() {
             <p>{copy.welcome.quickStartBody}</p>
           </section>
         </div>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(editFromImageDraft)}
+        title={copy.cards.editFromImageTitle}
+        onClose={() => {
+          setEditFromImageDraft(null);
+          setEditInstructions("");
+        }}
+        footer={
+          <>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setEditFromImageDraft(null);
+                setEditInstructions("");
+              }}
+            >
+              {copy.actions.close}
+            </button>
+            <button type="button" className="primary-button" onClick={handleConfirmEditFromImage}>
+              {copy.actions.editFromImage}
+            </button>
+          </>
+        }
+      >
+        <div className="edit-from-image-modal">
+          {editFromImageDraft ? (
+            <div className="info-card">
+              <h3>{copy.cards.selectedHistoryItem}</h3>
+              <p>{editFromImageDraft.record.optimizedPrompt || editFromImageDraft.record.prompt}</p>
+            </div>
+          ) : null}
+          <label className="field">
+            <span>{copy.fields.editInstructions}</span>
+            <textarea
+              className="prompt-textarea compact-textarea"
+              value={editInstructions}
+              onChange={(event) => setEditInstructions(event.target.value)}
+              rows={4}
+              placeholder={copy.fields.editInstructionsPlaceholder}
+            />
+          </label>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(lightboxImage)}
+        title={lightboxImage?.title ?? copy.actions.viewLarge}
+        onClose={() => setLightboxImage(null)}
+        size="wide"
+        className="lightbox-modal"
+        footer={
+          <button type="button" className="primary-button" onClick={() => setLightboxImage(null)}>
+            {copy.actions.close}
+          </button>
+        }
+      >
+        {lightboxImage ? (
+          <div className="lightbox-content">
+            <img src={lightboxImage.src} alt={lightboxImage.title} />
+            {lightboxImage.prompt ? <p>{lightboxImage.prompt}</p> : null}
+          </div>
+        ) : null}
       </Dialog>
 
       <Dialog

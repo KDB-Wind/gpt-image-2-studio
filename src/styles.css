@@ -1417,6 +1417,16 @@ img {
   object-fit: contain;
 }
 
+.preview-frame-button {
+  width: 100%;
+  padding: 0;
+  cursor: zoom-in;
+}
+
+.preview-frame-button img {
+  display: block;
+}
+
 .batch-preview-gallery {
   display: grid;
   gap: 12px;
@@ -1444,6 +1454,16 @@ img {
   background: rgba(255, 250, 242, 0.9);
 }
 
+.batch-preview-thumb-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  cursor: zoom-in;
+}
+
 .batch-preview-thumb figcaption {
   color: var(--muted);
   font-size: 0.76rem;
@@ -1451,6 +1471,12 @@ img {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.compact-button {
+  justify-self: start;
+  padding: 6px 9px;
+  font-size: 0.76rem;
 }
 
 .preview-state p,
@@ -1516,6 +1542,37 @@ img {
 .history-item.selected {
   border-color: rgba(216, 117, 67, 0.3);
   box-shadow: inset 0 0 0 1px rgba(216, 117, 67, 0.1);
+}
+
+.history-batch-card {
+  background:
+    linear-gradient(135deg, rgba(255, 246, 232, 0.98), rgba(248, 253, 239, 0.92));
+}
+
+.history-batch-title {
+  font-weight: 800;
+}
+
+.history-batch-task-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.history-batch-task {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(140, 115, 72, 0.16);
+  border-radius: 16px;
+  background: rgba(255, 253, 248, 0.76);
+}
+
+.history-batch-task strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .status-pill {
@@ -1608,6 +1665,39 @@ img {
 
 .modal-body {
   padding: 20px;
+}
+
+.edit-from-image-modal {
+  display: grid;
+  gap: 16px;
+}
+
+.compact-textarea {
+  min-height: 7rem;
+}
+
+.lightbox-modal {
+  width: min(100%, 72rem);
+}
+
+.lightbox-content {
+  display: grid;
+  gap: 14px;
+}
+
+.lightbox-content img {
+  width: 100%;
+  max-height: min(74vh, 820px);
+  object-fit: contain;
+  border: 1px solid var(--panel-border);
+  border-radius: 22px;
+  background: #fffdf8;
+}
+
+.lightbox-content p {
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .icon-button {

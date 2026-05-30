@@ -116,6 +116,28 @@ export const tauriAdapter: RuntimeAdapter = {
     return convertFileSrc(record.outputPath);
   },
 
+  async prepareHistoryFile(record: ImageRecord) {
+    try {
+      const response = await fetch(convertFileSrc(record.outputPath));
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const blob = await response.blob();
+      return new File([blob], getFileNameFromPath(record.outputPath), { type: blob.type || "image/png" });
+    } catch {
+      return null;
+    }
+  },
+
+  async testOutputDirectory() {
+    return {
+      ok: true,
+      message: "Desktop runtime saves and opens files through native file access.",
+    };
+  },
+
   async saveImage(input: SaveImageInput): Promise<SaveImageResult> {
     const result = await invoke<SaveImageResult>("save_generated_image", {
       input: await createPayload(input),
@@ -153,3 +175,7 @@ export const tauriAdapter: RuntimeAdapter = {
     await openPath(path);
   },
 };
+
+function getFileNameFromPath(path: string): string {
+  return path.replace(/\\/g, "/").split("/").pop() || "history-image.png";
+}

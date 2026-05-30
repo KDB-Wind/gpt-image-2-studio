@@ -4,11 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 import { DEFAULT_CONFIG, type AppConfig } from "./core/config";
+import { getTranslations } from "./i18n/translations";
 import type { RuntimeAdapter } from "./runtime/types";
 
 const runtimeMock = vi.hoisted(() => ({
   adapter: null as RuntimeAdapter | null,
   saveConfig: vi.fn<(_: AppConfig) => Promise<void>>(),
+  chooseOutputDirectory: vi.fn<() => Promise<string | null>>(),
 }));
 
 vi.mock("./runtime", () => ({
@@ -40,8 +42,10 @@ function createMockRuntime(config: Partial<AppConfig> = {}): RuntimeAdapter {
       throw new Error("saveBatchImage is not used in smoke tests.");
     },
     saveBatchManifest: async () => "manifest.json",
-    chooseOutputDirectory: async () => null,
+    chooseOutputDirectory: runtimeMock.chooseOutputDirectory,
     prepareHistoryPreview: async () => null,
+    prepareHistoryFile: async () => null,
+    testOutputDirectory: async () => ({ ok: true }),
     openOutputPath: async () => undefined,
   };
 }
@@ -60,6 +64,8 @@ describe("App smoke", () => {
   beforeEach(() => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     runtimeMock.saveConfig.mockReset();
+    runtimeMock.chooseOutputDirectory.mockReset();
+    runtimeMock.chooseOutputDirectory.mockResolvedValue(null);
     runtimeMock.adapter = createMockRuntime();
     container = document.createElement("div");
     document.body.append(container);
@@ -118,4 +124,42 @@ describe("App smoke", () => {
     expect(container.querySelector(".support-fab")).toBeNull();
     expect(container.textContent).not.toContain("Buy the author a cola");
   });
+
+  it("persists the selected output directory immediately after folder authorization", async () => {
+    const copy = getTranslations("en-US");
+    runtimeMock.chooseOutputDirectory.mockResolvedValue("gpt-image-2-studio");
+    runtimeMock.adapter = createMockRuntime({ uiLanguage: "en-US", hasDismissedWelcome: true });
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushAppEffects();
+
+    await act(async () => {
+      clickButton(container, copy.tabs.settings);
+    });
+    await flushAppEffects();
+
+    await act(async () => {
+      clickButton(container, copy.actions.chooseDirectory);
+      await Promise.resolve();
+    });
+    await flushAppEffects();
+
+    expect(runtimeMock.saveConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ outputDirectory: "gpt-image-2-studio" }),
+    );
+  });
 });
+
+function clickButton(container: HTMLElement, label: string) {
+  const button = Array.from(container.querySelectorAll("button")).find(
+    (candidate) => candidate.textContent?.trim() === label,
+  ) as HTMLButtonElement | undefined;
+
+  if (!button) {
+    throw new Error(`Button not found: ${label}`);
+  }
+
+  button.click();
+}
