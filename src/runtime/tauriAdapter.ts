@@ -146,6 +146,7 @@ export const tauriAdapter: RuntimeAdapter = {
     return {
       ...result,
       previewUrl: convertFileSrc(result.record.outputPath),
+      saveMode: result.saveMode ?? "authorized-directory",
     };
   },
 
@@ -158,6 +159,7 @@ export const tauriAdapter: RuntimeAdapter = {
       ...result,
       previewUrl: convertFileSrc(result.record.outputPath),
       outputPath: result.record.outputPath,
+      saveMode: result.saveMode ?? "authorized-directory",
     };
   },
 

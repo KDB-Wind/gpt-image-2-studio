@@ -19,6 +19,7 @@ function createSaveResult(input: BatchImageSaveInput): BatchImageSaveResult {
     },
     previewUrl: `blob:${input.task.id}`,
     outputPath: `outputs/${input.task.id}.png`,
+    saveMode: "authorized-directory",
   };
 }
 

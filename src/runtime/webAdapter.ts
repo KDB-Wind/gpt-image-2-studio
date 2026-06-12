@@ -420,12 +420,16 @@ export const webAdapter: RuntimeAdapter = {
     const outputDirectoryHandle = await resolveDirectoryHandle("readwrite");
     let outputPath = fileName;
     let previewUrl: string;
+    let saveMode: SaveImageResult["saveMode"] = "browser-download";
+    let saveFallbackReason: string | undefined;
 
     if (outputDirectoryHandle) {
       try {
         previewUrl = await saveWithFileSystemAccess(outputDirectoryHandle, dateFolder, fileName, blob);
         outputPath = buildFileSystemAccessOutputPath(outputDirectoryHandle.name, dateFolder, fileName);
-      } catch {
+        saveMode = "authorized-directory";
+      } catch (error) {
+        saveFallbackReason = getRuntimeErrorMessage(error);
         previewUrl = downloadBlob(blob, fileName);
       }
     } else {
@@ -436,7 +440,7 @@ export const webAdapter: RuntimeAdapter = {
 
     writeStoredValue(HISTORY_KEY, sortHistoryNewestFirst([record, ...history]));
 
-    return { record, previewUrl };
+    return { record, previewUrl, saveMode, saveFallbackReason };
   },
 
   async saveBatchImage(input: BatchImageSaveInput): Promise<BatchImageSaveResult> {
@@ -450,6 +454,8 @@ export const webAdapter: RuntimeAdapter = {
     const outputDirectoryHandle = await resolveDirectoryHandle("readwrite");
     let outputPath = fileName;
     let previewUrl: string;
+    let saveMode: BatchImageSaveResult["saveMode"] = "browser-download";
+    let saveFallbackReason: string | undefined;
 
     if (outputDirectoryHandle) {
       try {
@@ -460,7 +466,9 @@ export const webAdapter: RuntimeAdapter = {
           blob,
         );
         outputPath = buildFileSystemAccessOutputPath(outputDirectoryHandle.name, batchFolder, fileName);
-      } catch {
+        saveMode = "authorized-directory";
+      } catch (error) {
+        saveFallbackReason = getRuntimeErrorMessage(error);
         previewUrl = downloadBlob(blob, fileName);
       }
     } else {
@@ -490,7 +498,7 @@ export const webAdapter: RuntimeAdapter = {
 
     writeStoredValue(HISTORY_KEY, sortHistoryNewestFirst([record, ...history]));
 
-    return { record, previewUrl, outputPath };
+    return { record, previewUrl, outputPath, saveMode, saveFallbackReason };
   },
 
   async saveBatchManifest(manifest: BatchManifest): Promise<string> {
@@ -522,5 +530,18 @@ export const webAdapter: RuntimeAdapter = {
 };
 
 function getRuntimeErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Unknown runtime error.";
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string"
+  ) {
+    return (error as { message: string }).message;
+  }
+
+  return "Unknown runtime error.";
 }

@@ -140,8 +140,10 @@ export function validateConfig(config: AppConfig): ValidationResult {
     errors.push("Image model is required.");
   }
 
-  if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 180) {
-    errors.push("Timeout must be at least 180 seconds.");
+  if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 60 || timeoutSeconds > 600) {
+    errors.push("Timeout must be between 60 and 600 seconds.");
+  } else if (timeoutSeconds < 180) {
+    warnings.push("Timeout below 180 seconds may interrupt slow 2K or 4K generations.");
   }
 
   if (!Number.isInteger(defaultCount) || defaultCount < 1 || defaultCount > 4) {

@@ -47,9 +47,22 @@ describe("validateConfig", () => {
     expect(validateConfig({ ...valid, apiKey: "" }).errors).toContain("API key is required.");
   });
 
-  it("requires a timeout of at least 180 seconds", () => {
-    expect(validateConfig({ ...valid, timeoutSeconds: 120 }).errors).toContain(
-      "Timeout must be at least 180 seconds.",
+  it("accepts 120 seconds but warns when timeout is below the recommended 180 seconds", () => {
+    const result = validateConfig({ ...valid, timeoutSeconds: 120 });
+
+    expect(result.errors).not.toContain("Timeout must be at least 180 seconds.");
+    expect(result.warnings).toContain("Timeout below 180 seconds may interrupt slow 2K or 4K generations.");
+  });
+
+  it("requires a timeout of at least 60 seconds", () => {
+    expect(validateConfig({ ...valid, timeoutSeconds: 59 }).errors).toContain(
+      "Timeout must be between 60 and 600 seconds.",
+    );
+  });
+
+  it("requires a timeout no higher than 600 seconds", () => {
+    expect(validateConfig({ ...valid, timeoutSeconds: 601 }).errors).toContain(
+      "Timeout must be between 60 and 600 seconds.",
     );
   });
 

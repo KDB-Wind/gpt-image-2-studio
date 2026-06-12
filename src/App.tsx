@@ -12,7 +12,7 @@ import {
 } from "./core/apiClient";
 import type { BatchPreviewImage, BatchPreviewState } from "./core/batchPreview";
 import { DEFAULT_CONFIG, mergeConfig, type AppConfig, validateConfig } from "./core/config";
-import { MAX_BATCH_TASK_COUNT, clampBatchTaskCount } from "./core/batchTypes";
+import { MAX_BATCH_TASK_COUNT, clampBatchTaskCount, type ImageSaveMode } from "./core/batchTypes";
 import {
   groupHistoryByDate,
   groupHistoryRecordsForDisplay,
@@ -104,6 +104,8 @@ type PreviewState =
       record: ImageRecord;
       customName: string;
       source: "generated" | "history";
+      saveMode?: ImageSaveMode;
+      saveFallbackReason?: string;
     }
   | {
       status: "failed";
@@ -413,6 +415,10 @@ export default function App() {
     png: copy.options.formatPng,
     jpeg: copy.options.formatJpeg,
     webp: copy.options.formatWebp,
+  };
+  const saveModeLabels: Record<ImageSaveMode, string> = {
+    "authorized-directory": copy.messages.saveModeAuthorizedDirectory,
+    "browser-download": copy.messages.saveModeBrowserDownload,
   };
   const imageSizeOptions = useMemo(
     () => [
@@ -1031,6 +1037,8 @@ export default function App() {
         record: savedResult.record,
         customName: customName.trim(),
         source: "generated",
+        saveMode: savedResult.saveMode,
+        saveFallbackReason: savedResult.saveFallbackReason,
       });
     } catch (error) {
       setPreviewState({
@@ -1900,7 +1908,8 @@ export default function App() {
                       <span>{copy.fields.timeoutSeconds}</span>
                       <input
                         type="number"
-                        min={180}
+                        min={60}
+                        max={600}
                         step={1}
                         value={config.timeoutSeconds}
                         onChange={(event) => updateConfig("timeoutSeconds", Number(event.target.value) || 0)}
@@ -2063,13 +2072,10 @@ export default function App() {
                   </div>
 
                   <div className="field-grid single-column">
-                    <label className="field">
+                    <div className="field field-readonly">
                       <span>{copy.fields.outputDirectory}</span>
-                      <input
-                        value={config.outputDirectory}
-                        onChange={(event) => updateConfig("outputDirectory", event.target.value)}
-                      />
-                    </label>
+                      <div className="readonly-value">{outputDirectoryLabel}</div>
+                    </div>
                   </div>
 
                   <p className="panel-note highlight-note">{copy.notes.outputDirectoryPermissionHint}</p>
@@ -2465,7 +2471,18 @@ export default function App() {
                         <dt>{copy.labels.customName}</dt>
                         <dd>{previewState.customName || copy.preview.autoNamed}</dd>
                       </div>
+                      {previewState.saveMode ? (
+                        <div>
+                          <dt>{copy.labels.saveMode}</dt>
+                          <dd>{saveModeLabels[previewState.saveMode]}</dd>
+                        </div>
+                      ) : null}
                     </dl>
+                    {previewState.saveFallbackReason ? (
+                      <div className="message-card warning inline-message">
+                        {copy.messages.saveFallbackToBrowserDownload(previewState.saveFallbackReason)}
+                      </div>
+                    ) : null}
                     <p>{previewState.optimizedPrompt || previewState.prompt}</p>
                     <div className="action-row">
                       <button

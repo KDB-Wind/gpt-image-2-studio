@@ -301,6 +301,7 @@ type TranslationBundle = {
     compression: string;
     batch: string;
     tasks: string;
+    saveMode: string;
   };
   preview: {
     idle: string;
@@ -390,6 +391,9 @@ type TranslationBundle = {
     editFromImageReady: string;
     editFromImageUnavailable: string;
     generatedPreviewLoadFailed: string;
+    saveModeAuthorizedDirectory: string;
+    saveModeBrowserDownload: string;
+    saveFallbackToBrowserDownload: (detail: string) => string;
     updateStatus: (version: string) => string;
   };
   validation: Record<string, string>;
@@ -717,6 +721,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       compression: "压缩",
       batch: "批次",
       tasks: "任务",
+      saveMode: "保存方式",
     },
     preview: {
       idle: "待生成",
@@ -746,11 +751,11 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       openOutputDesktopOnly: "“打开输出位置”仅在桌面模式可用。",
       webHistoryUnavailable: "网页模式无法直接读取旧文件预览，你仍然可以在本地目录中手动查看。",
       defaultsDescription:
-        "这里可以设置超时时间、默认图片数量、尺寸、质量、格式和压缩。生成高分辨率图片时，建议把超时时间保持在 180 秒以上。",
+        "这里可以设置超时时间、默认图片数量、尺寸、质量、格式和压缩。超时时间允许 60-600 秒；低于 180 秒可以保存，但生成 2K/4K 或供应商较慢时可能提前中断。",
       outputDescription:
-        "你可以指定默认保存目录。网页静态版需要通过目录选择器授权后，才能把图片直接保存到该目录并恢复历史预览。",
+        "网页静态版不能通过手填 C:\\ 路径获得本地文件权限。请使用目录选择器授权；授权成功后才能直接保存到该目录并恢复历史预览。",
       outputDirectoryPermissionHint:
-        "注意：手动填写 C:\\Users\\... 只会改变记录里的路径文字，不会授权浏览器读取本地文件。要让历史预览可用，请点击“选择并授权目录”。浏览器可能拒绝授权 Downloads 根目录；如果想放在下载目录，建议先新建 C:\\Users\\你的用户名\\Downloads\\gpt-image-2-studio，再选择并授权这个子目录。更稳定的做法是选择 D:\\gpt-image-outputs 这类普通目录。",
+        "注意：这里显示的是浏览器已记录的目录名，不等于完整磁盘路径。要让图片真正直存并恢复历史预览，请点击“选择并授权目录”，然后再点“测试保存目录”。浏览器可能拒绝授权 Downloads 根目录；如果想放在下载目录，建议先新建 C:\\Users\\你的用户名\\Downloads\\gpt-image-2-studio，再授权这个子目录。更稳定的做法是选择 D:\\gpt-image-outputs 这类普通目录。",
       currentVersionManualUpdate: "本版本只提供手动更新提示，不会自动下载或安装新版本。",
       referenceImageHint: "这些参考图会和提示词一起发送给图像模型，推荐不超过 4 张。",
       imageToImageModeDescription: "图生图会把多张参考图和提示词一起发送到 `/images/edits`。",
@@ -813,6 +818,9 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       editFromImageReady: "已把这张历史图片作为参考图带入单图工作区。你可以补充修改要求后重新生成。",
       editFromImageUnavailable: "无法读取这张图片作为参考图。请先授权正确的保存目录，或确认文件仍然存在。",
       generatedPreviewLoadFailed: "图片已保存，但预览加载失败。",
+      saveModeAuthorizedDirectory: "已保存到授权目录",
+      saveModeBrowserDownload: "浏览器下载",
+      saveFallbackToBrowserDownload: (detail) => `授权目录保存失败，已回退为浏览器下载：${detail}`,
       updateStatus: (version) => `当前版本：${version}。如需更新，请手动下载安装新版本。`,
     },
     validation: {
@@ -821,6 +829,9 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       "Text model is required.": "必须填写文字模型。",
       "Image model is required.": "必须填写生图模型。",
       "Timeout must be at least 180 seconds.": "超时时间至少需要 180 秒。",
+      "Timeout must be between 60 and 600 seconds.": "超时时间必须在 60 到 600 秒之间。",
+      "Timeout below 180 seconds may interrupt slow 2K or 4K generations.":
+        "超时时间低于 180 秒时，较慢的 2K/4K 生图可能会被提前中断。",
       "Image count must be between 1 and 4.": "图片数量必须在 1 到 4 之间。",
       "Image size must be auto or use WIDTHxHEIGHT format.": "图片尺寸必须填写 auto，或使用 WIDTHxHEIGHT 格式。",
       "Image size width and height must both be multiples of 16.": "图片尺寸的宽和高都必须是 16 的倍数。",
@@ -1168,6 +1179,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       compression: "Compression",
       batch: "Batch",
       tasks: "Tasks",
+      saveMode: "Save mode",
     },
     preview: {
       idle: "Idle",
@@ -1198,11 +1210,11 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       openOutputDesktopOnly: "\"Open output\" is available only in desktop mode.",
       webHistoryUnavailable: "The web runtime cannot preview older local files directly. You can still open them manually from the output directory.",
       defaultsDescription:
-        "Set timeout, default image count, size, quality, format, and compression here. For long-running generations, keep the timeout at 180 seconds or more.",
+        "Set timeout, default image count, size, quality, format, and compression here. Timeout accepts 60-600 seconds. Values below 180 seconds are allowed, but slower 2K/4K generations may be interrupted.",
       outputDescription:
-        "Set a default save location. In the static web version, folder authorization is required before the app can save directly there or restore history previews.",
+        "The static web version cannot gain local file access from a typed C:\\ path. Use the folder picker to authorize a folder before the app can save directly there or restore history previews.",
       outputDirectoryPermissionHint:
-        "Note: typing a C:\\Users\\... path only changes the stored path text. It does not authorize the browser to read local files. To enable history previews, click \"Choose and authorize folder\". Browsers may refuse the Downloads root folder; if you want to use Downloads, create C:\\Users\\your-name\\Downloads\\gpt-image-2-studio first and authorize that subfolder. A regular folder such as D:\\gpt-image-outputs is more reliable.",
+        "Note: this shows the folder name recorded by the browser, not the full disk path. To save directly and restore history previews, click \"Choose and authorize folder\", then click \"Test output folder\". Browsers may refuse the Downloads root folder; if you want to use Downloads, create C:\\Users\\your-name\\Downloads\\gpt-image-2-studio first and authorize that subfolder. A regular folder such as D:\\gpt-image-outputs is more reliable.",
       currentVersionManualUpdate: "This release only shows manual update guidance. It does not download updates automatically.",
       referenceImageHint: "These images are sent to the image model together with the prompt. Staying at 4 or fewer is recommended.",
       imageToImageModeDescription: "Image-to-image sends multiple reference images and the prompt together to `/images/edits`.",
@@ -1273,6 +1285,10 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       editFromImageUnavailable:
         "Could not read this image as a reference. Authorize the correct output folder first, or confirm the file still exists.",
       generatedPreviewLoadFailed: "The image was saved, but the preview failed to load afterward.",
+      saveModeAuthorizedDirectory: "Authorized folder",
+      saveModeBrowserDownload: "Browser download",
+      saveFallbackToBrowserDownload: (detail) =>
+        `Authorized folder save failed; fell back to browser download: ${detail}`,
       updateStatus: (version) => `Current version: ${version}. To update, download and install a newer release manually.`,
     },
     validation: {
@@ -1281,6 +1297,9 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       "Text model is required.": "Text model is required.",
       "Image model is required.": "Image model is required.",
       "Timeout must be at least 180 seconds.": "Timeout must be at least 180 seconds.",
+      "Timeout must be between 60 and 600 seconds.": "Timeout must be between 60 and 600 seconds.",
+      "Timeout below 180 seconds may interrupt slow 2K or 4K generations.":
+        "Timeout below 180 seconds may interrupt slow 2K or 4K generations.",
       "Image count must be between 1 and 4.": "Image count must be between 1 and 4.",
       "Image size must be auto or use WIDTHxHEIGHT format.": "Image size must be auto or use WIDTHxHEIGHT format.",
       "Image size width and height must both be multiples of 16.": "Image size width and height must both be multiples of 16.",

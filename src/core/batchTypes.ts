@@ -115,10 +115,14 @@ export type BatchImageSaveInput = {
   durationMs: number;
 };
 
+export type ImageSaveMode = "authorized-directory" | "browser-download";
+
 export type BatchImageSaveResult = {
   record: ImageRecord;
   previewUrl: string;
   outputPath: string;
+  saveMode: ImageSaveMode;
+  saveFallbackReason?: string;
 };
 
 export type BatchManifestTask = Pick<

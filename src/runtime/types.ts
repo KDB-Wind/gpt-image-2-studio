@@ -1,5 +1,5 @@
 import type { ParsedImage } from "../core/apiClient";
-import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest } from "../core/batchTypes";
+import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest, ImageSaveMode } from "../core/batchTypes";
 import type { AppConfig } from "../core/config";
 import type { ImageRecord } from "../core/history";
 
@@ -16,6 +16,8 @@ export type SaveImageInput = {
 export type SaveImageResult = {
   record: ImageRecord;
   previewUrl: string;
+  saveMode: ImageSaveMode;
+  saveFallbackReason?: string;
 };
 
 export type OutputDirectoryTestResult = {

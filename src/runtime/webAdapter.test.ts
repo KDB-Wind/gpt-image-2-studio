@@ -72,6 +72,8 @@ describe("webAdapter history deletion", () => {
     });
 
     expect(result.previewUrl).toBe("blob:fallback-download");
+    expect(result.saveMode).toBe("browser-download");
+    expect(result.saveFallbackReason).toBeUndefined();
     expect(result.record.outputPath).toMatch(/^01-53-07_illustrate-an-argentina-world-cup-poster\.png$/);
     expect(result.record.outputPath).not.toContain("/");
   });
@@ -108,9 +110,34 @@ describe("webAdapter history deletion", () => {
       .then((handle) => handle.getFile());
 
     expect(savedFile.type).toBe("image/png");
+    expect(result.saveMode).toBe("authorized-directory");
+    expect(result.saveFallbackReason).toBeUndefined();
     expect(result.record.outputPath).toBe(
       "gpt-image-2-studio/2026-05-26/02-04-05_illustrate-a-japan-world-cup-poster.png",
     );
+  });
+
+  it("reports when an authorized directory save falls back to browser download", async () => {
+    const downloadsHandle = createDirectoryHandle({}, { name: "gpt-image-2-studio", writable: false });
+    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fallback-after-authorized-save-failure");
+
+    await webAdapter.chooseOutputDirectory();
+
+    const result = await webAdapter.saveImage({
+      image: { base64: ONE_PIXEL_PNG },
+      prompt: "Illustrate a France World Cup poster",
+      optimizedPrompt: "",
+      customName: "",
+      config: { ...DEFAULT_CONFIG, defaultFormat: "png", outputDirectory: "gpt-image-2-studio" },
+      generatedAt: new Date(2026, 4, 26, 2, 10, 5),
+      durationMs: 1000,
+    });
+
+    expect(result.previewUrl).toBe("blob:fallback-after-authorized-save-failure");
+    expect(result.saveMode).toBe("browser-download");
+    expect(result.saveFallbackReason).toContain("Cannot write file");
+    expect(result.record.outputPath).toMatch(/^02-10-05_illustrate-a-france-world-cup-poster\.png$/);
   });
 
   it("previews old download-mode history from an authorized downloads folder by file name", async () => {
@@ -257,36 +284,36 @@ function createBatchTask(overrides: Partial<BatchTask>): BatchTask {
 
 function createDirectoryHandle(
   entries: Record<string, File>,
-  options: { name?: string; permission?: PermissionState } = {},
+  handleOptions: { name?: string; permission?: PermissionState; writable?: boolean } = {},
 ): FileSystemDirectoryHandle {
   const files = new Map<string, File>(Object.entries(entries));
   const directories = new Map<string, FileSystemDirectoryHandle>();
 
   return {
-    name: options.name ?? "Downloads",
+    name: handleOptions.name ?? "Downloads",
     async queryPermission() {
-      return options.permission ?? "granted";
+      return handleOptions.permission ?? "granted";
     },
     async requestPermission() {
-      return options.permission ?? "granted";
+      return handleOptions.permission ?? "granted";
     },
-    async getDirectoryHandle(name: string, options?: { create?: boolean }) {
+    async getDirectoryHandle(name: string, getOptions?: { create?: boolean }) {
       const existing = directories.get(name);
       if (existing) {
         return existing;
       }
 
-      if (options?.create) {
-        const nextHandle = createDirectoryHandle({}, { name });
+      if (getOptions?.create) {
+        const nextHandle = createDirectoryHandle({}, { name, writable: handleOptions.writable });
         directories.set(name, nextHandle);
         return nextHandle;
       }
 
       throw new DOMException(`Directory not found: ${name}`, "NotFoundError");
     },
-    async getFileHandle(name: string, options?: { create?: boolean }) {
+    async getFileHandle(name: string, getOptions?: { create?: boolean }) {
       const file = entries[name];
-      if (!file && !files.has(name) && !options?.create) {
+      if (!file && !files.has(name) && !getOptions?.create) {
         throw new DOMException(`File not found: ${name}`, "NotFoundError");
       }
 
@@ -300,6 +327,10 @@ function createDirectoryHandle(
           return currentFile;
         },
         async createWritable() {
+          if (handleOptions.writable === false) {
+            throw new DOMException(`Cannot write file: ${name}`, "NotAllowedError");
+          }
+
           return {
             async write(data: BufferSource | Blob | string) {
               const blob = data instanceof Blob ? data : new Blob([data]);
