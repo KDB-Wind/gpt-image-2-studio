@@ -150,6 +150,35 @@ describe("App smoke", () => {
       expect.objectContaining({ outputDirectory: "gpt-image-2-studio" }),
     );
   });
+
+  it("explains that the recorded output folder still needs a write/read test", async () => {
+    const copy = getTranslations("en-US");
+    runtimeMock.chooseOutputDirectory.mockResolvedValue("gpt-image-2-studio");
+    runtimeMock.adapter = createMockRuntime({ uiLanguage: "en-US", hasDismissedWelcome: true });
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushAppEffects();
+
+    await act(async () => {
+      clickButton(container, copy.tabs.settings);
+    });
+    await flushAppEffects();
+
+    const statusBefore = container.querySelector(".output-directory-status");
+    expect(statusBefore?.textContent).toContain("Images may fall back to browser downloads until the folder test passes.");
+
+    await act(async () => {
+      clickButton(container, copy.actions.chooseDirectory);
+      await Promise.resolve();
+    });
+    await flushAppEffects();
+
+    const statusAfter = container.querySelector(".output-directory-status");
+    expect(statusAfter?.textContent).toContain("Recorded folder: gpt-image-2-studio.");
+    expect(statusAfter?.textContent).toContain("Use Test output folder to confirm this browser can write and restore previews.");
+  });
 });
 
 function clickButton(container: HTMLElement, label: string) {

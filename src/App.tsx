@@ -2078,6 +2078,13 @@ export default function App() {
                     </div>
                   </div>
 
+                  <div className="output-directory-status" role="status">
+                    <strong>{copy.notes.outputDirectoryStatusTitle}</strong>
+                    <span>
+                      {copy.notes.outputDirectoryStatusBody(outputDirectoryLabel, copy.actions.testOutputDirectory)}
+                    </span>
+                  </div>
+
                   <p className="panel-note highlight-note">{copy.notes.outputDirectoryPermissionHint}</p>
 
                   <div className="action-row">

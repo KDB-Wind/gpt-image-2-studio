@@ -69,7 +69,7 @@ Evaluate provider stability, pricing, and compliance yourself.
 
 Settings include minimal tests for text, text-to-image, and image-to-image. You can still save settings if tests fail.
 
-Use a timeout of at least `180` seconds. For slow image models, use `240` to `300` seconds.
+Timeout accepts `60` to `600` seconds. Shorter values are useful for quick 1K tests; for slower image models, 2K/4K generation, or complex prompts, use `180` to `300` seconds.
 
 ## Generate
 
@@ -137,7 +137,9 @@ History records successful generation tasks in the current browser.
 
 You can view generation time, model, size, duration, output path, and prompt. You can also reuse prompts, search, filter, or bulk delete history items.
 
-The HTML edition may not preview old images after refresh because browsers restrict local file access. The generated files remain in your download folder or selected output directory.
+Whether the HTML edition can preview old images after refresh depends on folder authorization in Settings. Seeing a folder name is not the same as granting file access. Click Choose and authorize folder, then Test output folder. After the test passes, history previews will try to restore images from that authorized folder.
+
+If the browser refuses the Downloads root folder, create and authorize a `Downloads/gpt-image-2-studio` subfolder, or use a regular folder such as `D:\gpt-image-outputs`. Generated files remain in the browser download folder or the authorized output folder.
 
 ## Privacy And Security
 

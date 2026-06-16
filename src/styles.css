@@ -642,6 +642,27 @@ img {
   line-height: 1.6;
 }
 
+.output-directory-status {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid rgba(128, 168, 122, 0.24);
+  border-radius: 18px;
+  background: rgba(246, 251, 241, 0.86);
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.output-directory-status strong {
+  color: var(--text);
+  font-size: 0.94rem;
+}
+
+.output-directory-status span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .action-row {
   display: flex;
   flex-wrap: wrap;

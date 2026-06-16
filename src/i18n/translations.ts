@@ -333,6 +333,8 @@ type TranslationBundle = {
     defaultsDescription: string;
     outputDescription: string;
     outputDirectoryPermissionHint: string;
+    outputDirectoryStatusTitle: string;
+    outputDirectoryStatusBody: (directory: string, testAction: string) => string;
     currentVersionManualUpdate: string;
     referenceImageHint: string;
     imageToImageModeDescription: string;
@@ -756,6 +758,9 @@ const translations: Record<UiLanguage, TranslationBundle> = {
         "网页静态版不能通过手填 C:\\ 路径获得本地文件权限。请使用目录选择器授权；授权成功后才能直接保存到该目录并恢复历史预览。",
       outputDirectoryPermissionHint:
         "注意：这里显示的是浏览器已记录的目录名，不等于完整磁盘路径。要让图片真正直存并恢复历史预览，请点击“选择并授权目录”，然后再点“测试保存目录”。浏览器可能拒绝授权 Downloads 根目录；如果想放在下载目录，建议先新建 C:\\Users\\你的用户名\\Downloads\\gpt-image-2-studio，再授权这个子目录。更稳定的做法是选择 D:\\gpt-image-outputs 这类普通目录。",
+      outputDirectoryStatusTitle: "保存目录状态",
+      outputDirectoryStatusBody: (directory, testAction) =>
+        `当前记录目录：${directory}。在保存目录测试通过前，图片可能会回退为浏览器下载，历史预览也可能无法恢复。请点击“${testAction}”，确认浏览器能写入并读回图片。`,
       currentVersionManualUpdate: "本版本只提供手动更新提示，不会自动下载或安装新版本。",
       referenceImageHint: "这些参考图会和提示词一起发送给图像模型，推荐不超过 4 张。",
       imageToImageModeDescription: "图生图会把多张参考图和提示词一起发送到 `/images/edits`。",
@@ -828,7 +833,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       "API key is required.": "必须填写 API key。",
       "Text model is required.": "必须填写文字模型。",
       "Image model is required.": "必须填写生图模型。",
-      "Timeout must be at least 180 seconds.": "超时时间至少需要 180 秒。",
       "Timeout must be between 60 and 600 seconds.": "超时时间必须在 60 到 600 秒之间。",
       "Timeout below 180 seconds may interrupt slow 2K or 4K generations.":
         "超时时间低于 180 秒时，较慢的 2K/4K 生图可能会被提前中断。",
@@ -1215,6 +1219,9 @@ const translations: Record<UiLanguage, TranslationBundle> = {
         "The static web version cannot gain local file access from a typed C:\\ path. Use the folder picker to authorize a folder before the app can save directly there or restore history previews.",
       outputDirectoryPermissionHint:
         "Note: this shows the folder name recorded by the browser, not the full disk path. To save directly and restore history previews, click \"Choose and authorize folder\", then click \"Test output folder\". Browsers may refuse the Downloads root folder; if you want to use Downloads, create C:\\Users\\your-name\\Downloads\\gpt-image-2-studio first and authorize that subfolder. A regular folder such as D:\\gpt-image-outputs is more reliable.",
+      outputDirectoryStatusTitle: "Output folder status",
+      outputDirectoryStatusBody: (directory, testAction) =>
+        `Recorded folder: ${directory}. Images may fall back to browser downloads until the folder test passes. Use ${testAction} to confirm this browser can write and restore previews.`,
       currentVersionManualUpdate: "This release only shows manual update guidance. It does not download updates automatically.",
       referenceImageHint: "These images are sent to the image model together with the prompt. Staying at 4 or fewer is recommended.",
       imageToImageModeDescription: "Image-to-image sends multiple reference images and the prompt together to `/images/edits`.",
@@ -1296,7 +1303,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       "API key is required.": "API key is required.",
       "Text model is required.": "Text model is required.",
       "Image model is required.": "Image model is required.",
-      "Timeout must be at least 180 seconds.": "Timeout must be at least 180 seconds.",
       "Timeout must be between 60 and 600 seconds.": "Timeout must be between 60 and 600 seconds.",
       "Timeout below 180 seconds may interrupt slow 2K or 4K generations.":
         "Timeout below 180 seconds may interrupt slow 2K or 4K generations.",

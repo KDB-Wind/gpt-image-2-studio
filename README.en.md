@@ -92,7 +92,7 @@ Settings stores model configuration, default image options, batch defaults, and 
 
 - Static pages can call your provider only if the provider allows browser CORS requests.
 - If you see a CORS error, use a CORS-compatible provider or your own proxy.
-- Image generation can take 1 to 3 minutes, so keep the timeout at 180 seconds or higher.
+- Timeout accepts 60 to 600 seconds. Shorter values are useful for quick 1K tests; for 2K/4K or slower providers, use 180 to 300 seconds to avoid aborting locally too early.
 - Hosted GitHub Pages and local `file://` HTML have separate browser storage.
 - Do not put real `API key` values in issues, screenshots, logs, or commits.
 

@@ -64,7 +64,7 @@ Configure Settings before generation.
 - `Base URL`: provider endpoint, preferably ending with `/v1`.
 - Text model: prompt optimization, AI batch splitting, and text testing.
 - Image model: text-to-image, image-to-image, and image testing.
-- Timeout: at least 180 seconds; use 240 to 300 seconds for slower image models.
+- Timeout: 60 to 600 seconds. Use shorter values for quick 1K tests, and 180 to 300 seconds for slower image models or 2K/4K generation.
 
 ### Image Defaults
 
@@ -132,7 +132,7 @@ Successful batch tasks are added to History, and a `manifest.json` file is saved
 
 History records successful generation tasks. You can review prompts, model, size, duration, and output path, and reuse prompts.
 
-Source web mode and Static HTML mode store history mainly in browser local storage. Desktop mode is better for long-term local output management.
+Source web mode and Static HTML mode store history mainly in browser local storage. Old image preview recovery requires folder authorization in Settings plus a passing output-folder test; typing a path or seeing a folder name does not grant browser file access. Desktop mode is better for long-term local output management.
 
 ## About Prompt Templates
 
