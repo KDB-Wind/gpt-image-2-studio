@@ -561,6 +561,35 @@ describe("BatchPanel", () => {
     expect(container.textContent).toContain("exact rules the text model should follow");
   });
 
+  it("keeps advanced batch planning and execution notes collapsed by default", async () => {
+    const copy = getTranslations("en-US");
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key" }}
+          runtime={null}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+
+    const splitGuide = container.querySelector<HTMLDetailsElement>("details.batch-split-guide");
+    const executionNotes = container.querySelector<HTMLDetailsElement>("details.batch-execution-notes");
+
+    expect(splitGuide).not.toBeNull();
+    expect(splitGuide?.open).toBe(false);
+    expect(splitGuide?.querySelector("summary")?.textContent).toContain(copy.batch.aiSplit.guideTitle);
+    expect(executionNotes).not.toBeNull();
+    expect(executionNotes?.open).toBe(false);
+    expect(executionNotes?.querySelector("summary")?.textContent).toContain(copy.batch.fields.executionNotes);
+  });
+
   it("syncs custom prompt box count with the configurable default task count", async () => {
     const copy = getTranslations("en-US");
     const onConfigChange = vi.fn();

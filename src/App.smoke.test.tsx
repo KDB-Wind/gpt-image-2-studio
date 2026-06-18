@@ -179,6 +179,46 @@ describe("App smoke", () => {
     expect(statusAfter?.textContent).toContain("Recorded folder: gpt-image-2-studio.");
     expect(statusAfter?.textContent).toContain("Use Test output folder to confirm this browser can write and restore previews.");
   });
+
+  it("keeps low-frequency guidance collapsed in the single image and settings panels", async () => {
+    const copy = getTranslations("en-US");
+    runtimeMock.adapter = createMockRuntime({ uiLanguage: "en-US", hasDismissedWelcome: true });
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushAppEffects();
+
+    const imageOptions = container.querySelector<HTMLDetailsElement>("details.quick-output-options");
+    expect(imageOptions).not.toBeNull();
+    expect(imageOptions?.open).toBe(false);
+    expect(imageOptions?.querySelector(".quick-output-options-note")).not.toBeNull();
+
+    await act(async () => {
+      clickButton(container, copy.modes.imageToImage);
+    });
+    await flushAppEffects();
+
+    const referenceHelp = container.querySelector<HTMLDetailsElement>("details.reference-help-details");
+    expect(referenceHelp).not.toBeNull();
+    expect(referenceHelp?.open).toBe(false);
+    expect(referenceHelp?.querySelector("summary")?.textContent).toContain("Reference image notes");
+
+    await act(async () => {
+      clickButton(container, copy.tabs.settings);
+    });
+    await flushAppEffects();
+
+    const settingsHelpDetails = Array.from(container.querySelectorAll<HTMLDetailsElement>("details.settings-help-details"));
+    expect(settingsHelpDetails).toHaveLength(4);
+    expect(settingsHelpDetails.every((details) => details.open === false)).toBe(true);
+    expect(settingsHelpDetails.map((details) => details.querySelector("summary")?.textContent)).toEqual([
+      "Connection notes",
+      "Default parameter notes",
+      "Output folder notes",
+      "Image-to-image test notes",
+    ]);
+  });
 });
 
 function clickButton(container: HTMLElement, label: string) {

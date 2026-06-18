@@ -82,6 +82,7 @@ type TranslationBundle = {
       concurrency: string;
       intervalSeconds: string;
       maxRetries: string;
+      executionNotes: string;
       autoPlanTaskCount: string;
       autoPlanTaskCountHint: string;
     };
@@ -320,6 +321,16 @@ type TranslationBundle = {
     batchRunning: (title: string) => string;
     batchHistoryBody: string;
   };
+  help: {
+    imageOptions: string;
+    referenceImages: string;
+    connectionNotes: string;
+    defaultParameterNotes: string;
+    outputFolderNotes: string;
+    imageToImageTestNotes: string;
+    historyPreviewTroubleshooting: string;
+    historyPreviewMissingShort: string;
+  };
   empty: {
     noHistorySelected: string;
     noHistorySaved: string;
@@ -500,6 +511,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
         concurrency: "并发数",
         intervalSeconds: "间隔秒数",
         maxRetries: "失败重试次数",
+        executionNotes: "执行参数说明",
         autoPlanTaskCount: "让 AI 自动调整任务数量",
         autoPlanTaskCountHint:
           "开启后，规划任务列表时文字模型会返回 recommendedCount，并可把任务数量自动改成更符合主任务的数量。关闭后始终按你填写的任务数量拆分。",
@@ -742,6 +754,16 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       batchRunning: (title) => `正在生成：${title}`,
       batchHistoryBody: "这是历史批次的预览。能否恢复缩略图，取决于你是否已授权正确的保存目录。",
     },
+    help: {
+      imageOptions: "图片参数说明",
+      referenceImages: "参考图说明",
+      connectionNotes: "连接配置说明",
+      defaultParameterNotes: "默认参数说明",
+      outputFolderNotes: "保存目录说明",
+      imageToImageTestNotes: "图生图测试说明",
+      historyPreviewTroubleshooting: "为什么看不到预览？",
+      historyPreviewMissingShort: "无法恢复这张历史图片预览。",
+    },
     empty: {
       noHistorySelected: "还没有选中任何历史记录。",
       noHistorySaved: "还没有保存任何图片记录。",
@@ -957,6 +979,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
         concurrency: "Concurrency",
         intervalSeconds: "Interval seconds",
         maxRetries: "Max retries",
+        executionNotes: "Execution notes",
         autoPlanTaskCount: "Let AI adjust task count",
         autoPlanTaskCountHint:
           "When enabled, the text model returns recommendedCount while planning and can update task count to match the master task. When disabled, your typed task count stays authoritative.",
@@ -1202,6 +1225,16 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       batchRunning: (title) => `Generating: ${title}`,
       batchHistoryBody:
         "This is a saved batch preview. Thumbnail recovery depends on whether the correct output folder is authorized.",
+    },
+    help: {
+      imageOptions: "Image option notes",
+      referenceImages: "Reference image notes",
+      connectionNotes: "Connection notes",
+      defaultParameterNotes: "Default parameter notes",
+      outputFolderNotes: "Output folder notes",
+      imageToImageTestNotes: "Image-to-image test notes",
+      historyPreviewTroubleshooting: "Why is the preview missing?",
+      historyPreviewMissingShort: "Could not restore this history preview.",
     },
     empty: {
       noHistorySelected: "No history item is selected yet.",

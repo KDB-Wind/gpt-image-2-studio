@@ -426,6 +426,54 @@ img {
   border-top: 1px solid rgba(128, 168, 122, 0.18);
 }
 
+.help-details {
+  min-width: 0;
+  border: 1px solid rgba(140, 115, 72, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 253, 248, 0.62);
+}
+
+.help-details summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  color: var(--text-soft);
+  font-size: 0.84rem;
+  font-weight: 800;
+  cursor: pointer;
+  list-style: none;
+}
+
+.help-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.help-details summary::before {
+  content: "▸";
+  color: var(--accent);
+  font-size: 0.72rem;
+  transition: transform 120ms ease;
+}
+
+.help-details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.help-details-body {
+  display: grid;
+  gap: 8px;
+  padding: 0 11px 11px 27px;
+  border-top: 1px solid rgba(140, 115, 72, 0.1);
+}
+
+.help-details-body p {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
 .quick-option-section {
   display: grid;
   gap: 8px;

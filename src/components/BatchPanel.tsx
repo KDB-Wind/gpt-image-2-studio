@@ -1036,23 +1036,25 @@ export function BatchPanel({
             ) : (
               <p className="panel-note">{copy.batch.splitTemplates[splitTemplateId].description}</p>
             )}
-            <div className="split-template-guide">
-              <strong>{copy.batch.aiSplit.guideTitle}</strong>
-              <div className="split-template-guide-grid">
-                {(["basic", "style-consistent", "series", "custom"] as const).map((templateId) => (
-                  <button
-                    key={templateId}
-                    type="button"
-                    className={`split-template-guide-item ${splitTemplateId === templateId ? "active" : ""}`}
-                    onClick={() => setSplitTemplateId(templateId)}
-                    disabled={isRunning || isSplitting}
-                  >
-                    <span>{copy.batch.splitTemplates[templateId].label}</span>
-                    <small>{copy.batch.splitTemplates[templateId].useCase}</small>
-                  </button>
-                ))}
+            <details className="batch-advanced-export batch-split-guide">
+              <summary>{copy.batch.aiSplit.guideTitle}</summary>
+              <div className="batch-advanced-export-body split-template-guide">
+                <div className="split-template-guide-grid">
+                  {(["basic", "style-consistent", "series", "custom"] as const).map((templateId) => (
+                    <button
+                      key={templateId}
+                      type="button"
+                      className={`split-template-guide-item ${splitTemplateId === templateId ? "active" : ""}`}
+                      onClick={() => setSplitTemplateId(templateId)}
+                      disabled={isRunning || isSplitting}
+                    >
+                      <span>{copy.batch.splitTemplates[templateId].label}</span>
+                      <small>{copy.batch.splitTemplates[templateId].useCase}</small>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            </details>
             <button
               type="button"
               className="secondary-button"
@@ -1114,7 +1116,12 @@ export function BatchPanel({
         </label>
       </div>
 
-      <p className="panel-note">{copy.batch.defaultsNote}</p>
+      <details className="batch-advanced-export batch-execution-notes">
+        <summary>{copy.batch.fields.executionNotes}</summary>
+        <div className="batch-advanced-export-body">
+          <p>{copy.batch.defaultsNote}</p>
+        </div>
+      </details>
 
       <details className="batch-advanced-export">
         <summary>{copy.batch.recipe.advancedTitle}</summary>

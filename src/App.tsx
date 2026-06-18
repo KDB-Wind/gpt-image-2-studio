@@ -783,9 +783,14 @@ export default function App() {
             </div>
           </section>
 
-          <p className="panel-note">
-            {copy.quickOptions.hint} {copy.quickOptions.providerHint}
-          </p>
+          <details className="help-details quick-output-options-note">
+            <summary>{copy.help.imageOptions}</summary>
+            <div className="help-details-body">
+              <p>
+                {copy.quickOptions.hint} {copy.quickOptions.providerHint}
+              </p>
+            </div>
+          </details>
           {selectedSizeOption === "custom" ? (
             <p className="panel-note highlight-note">
               {copy.options.sizeCustom}: {selectedSizeLabel}
@@ -1571,7 +1576,14 @@ export default function App() {
                   <section className="reference-section">
                     <div className="section-heading">
                       <h3>{copy.fields.referenceImage}</h3>
-                      <p>{copy.notes.imageToImageModeDescription}</p>
+                      <details className="help-details reference-help-details">
+                        <summary>{copy.help.referenceImages}</summary>
+                        <div className="help-details-body">
+                          <p>{copy.notes.imageToImageModeDescription}</p>
+                          <p>{copy.notes.referenceImageLimitHint}</p>
+                          <p>{copy.notes.referenceImageHint}</p>
+                        </div>
+                      </details>
                     </div>
 
                     <input
@@ -1593,7 +1605,6 @@ export default function App() {
                       <div className="reference-dropzone-copy">
                         <strong>{copy.fields.referenceImagePlaceholder}</strong>
                         <p>{copy.notes.dragAndDropHint}</p>
-                        <p>{copy.notes.referenceImageLimitHint}</p>
                       </div>
                       <div className="action-row">
                         <button
@@ -1615,7 +1626,6 @@ export default function App() {
                       <span>
                         {copy.cards.referenceImages}: {referenceImages.length}/{MAX_REFERENCE_IMAGES}
                       </span>
-                      <span>{copy.notes.referenceImageHint}</span>
                     </div>
 
                     {referenceImages.length > 0 ? (
@@ -1854,8 +1864,13 @@ export default function App() {
                 <section className="settings-section">
                   <div className="section-heading">
                     <h3>{copy.sections.connection}</h3>
-                    <p>{copy.panel.settingsDescription}</p>
                   </div>
+                  <details className="help-details settings-help-details">
+                    <summary>{copy.help.connectionNotes}</summary>
+                    <div className="help-details-body">
+                      <p>{copy.panel.settingsDescription}</p>
+                    </div>
+                  </details>
                   <div className="field-grid">
                     <label className="field">
                       <span>{copy.fields.baseUrl}</span>
@@ -1900,8 +1915,17 @@ export default function App() {
                 <section className="settings-section">
                   <div className="section-heading">
                     <h3>{copy.sections.defaults}</h3>
-                    <p>{copy.notes.defaultsDescription}</p>
                   </div>
+                  <details className="help-details settings-help-details">
+                    <summary>{copy.help.defaultParameterNotes}</summary>
+                    <div className="help-details-body">
+                      <p>{copy.notes.defaultsDescription}</p>
+                      <p>{copy.batch.fields.autoPlanTaskCountHint}</p>
+                      <p>{copy.notes.sizeConstraintsHint}</p>
+                      {sizeMode === "custom" ? <p>{copy.notes.customSizeHint}</p> : null}
+                      {showCompressionControls ? <p>{copy.notes.compressionHint}</p> : null}
+                    </div>
+                  </details>
 
                   <div className="field-grid">
                     <label className="field">
@@ -1953,8 +1977,6 @@ export default function App() {
                       </select>
                     </label>
                   </div>
-
-                  <p className="panel-note">{copy.batch.fields.autoPlanTaskCountHint}</p>
 
                   <div className="field-grid">
                     <label className="field">
@@ -2055,21 +2077,24 @@ export default function App() {
                     )}
                   </div>
 
-                  <p className="panel-note">{copy.notes.sizeConstraintsHint}</p>
-                  {sizeMode === "custom" ? <p className="panel-note">{copy.notes.customSizeHint}</p> : null}
                   {sizeValidation.warning ? (
                     <p className="panel-note highlight-note">
                       {copy.validation[sizeValidation.warning] ?? sizeValidation.warning}
                     </p>
                   ) : null}
-                  {showCompressionControls ? <p className="panel-note">{copy.notes.compressionHint}</p> : null}
                 </section>
 
                 <section className="settings-section">
                   <div className="section-heading">
                     <h3>{copy.sections.output}</h3>
-                    <p>{copy.notes.outputDescription}</p>
                   </div>
+                  <details className="help-details settings-help-details">
+                    <summary>{copy.help.outputFolderNotes}</summary>
+                    <div className="help-details-body">
+                      <p>{copy.notes.outputDescription}</p>
+                      <p>{copy.notes.outputDirectoryPermissionHint}</p>
+                    </div>
+                  </details>
 
                   <div className="field-grid single-column">
                     <div className="field field-readonly">
@@ -2084,8 +2109,6 @@ export default function App() {
                       {copy.notes.outputDirectoryStatusBody(outputDirectoryLabel, copy.actions.testOutputDirectory)}
                     </span>
                   </div>
-
-                  <p className="panel-note highlight-note">{copy.notes.outputDirectoryPermissionHint}</p>
 
                   <div className="action-row">
                     <button
@@ -2142,7 +2165,12 @@ export default function App() {
                     <div className={`message-card inline-message ${settingsMessage.tone}`}>{settingsMessage.text}</div>
                   ) : null}
 
-                  <p className="panel-note">{copy.notes.imageEditTestDescription}</p>
+                  <details className="help-details settings-help-details">
+                    <summary>{copy.help.imageToImageTestNotes}</summary>
+                    <div className="help-details-body">
+                      <p>{copy.notes.imageEditTestDescription}</p>
+                    </div>
+                  </details>
                 </section>
 
                 <section className="settings-section version-card">
@@ -2435,7 +2463,13 @@ export default function App() {
                       </div>
                     </dl>
                   </div>
-                  <p className="panel-note">{previewState.message}</p>
+                  <p className="panel-note">{copy.help.historyPreviewMissingShort}</p>
+                  <details className="help-details history-preview-help">
+                    <summary>{copy.help.historyPreviewTroubleshooting}</summary>
+                    <div className="help-details-body">
+                      <p>{previewState.message}</p>
+                    </div>
+                  </details>
                 </div>
               ) : null}
 
