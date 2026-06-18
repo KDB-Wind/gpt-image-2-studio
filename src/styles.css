@@ -1796,6 +1796,27 @@ img {
   background: linear-gradient(160deg, rgba(255, 236, 201, 0.95), rgba(250, 244, 225, 0.92));
 }
 
+.welcome-checklist {
+  display: grid;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.welcome-checklist strong {
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.welcome-checklist ol {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
 .card-tag {
   display: inline-flex;
   width: fit-content;

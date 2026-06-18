@@ -364,6 +364,8 @@ type TranslationBundle = {
     recommendedBody: string;
     quickStartTitle: string;
     quickStartBody: string;
+    setupChecklistTitle: string;
+    setupChecklistItems: string[];
   };
   messages: {
     runtimeLoaded: (mode: string) => string;
@@ -802,6 +804,14 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       recommendedBody: "如果你还没有可用接口，可以先看看作者常用的中转站。",
       quickStartTitle: "先做这 4 步",
       quickStartBody: "去“设置”页填写 API key、Base URL、文字模型、生图模型和保存目录。你也可以先做最小连通性测试，再决定是否保存。",
+      setupChecklistTitle: "设置检查清单",
+      setupChecklistItems: [
+        "填写 Base URL 和 API key，并确认模型名称。",
+        "选择并授权保存目录，不要只手动填写 C:\\ 路径。",
+        "运行“测试保存目录”，确认浏览器能写入并读回图片。",
+        "把超时时间设在 60-600 秒之间；2K/4K 建议从 180 秒起。",
+        "先用“单图”跑通一张，再进入“批量”。",
+      ],
     },
     messages: {
       runtimeLoaded: (mode) => `${mode} 已加载。修改后记得保存配置。`,
@@ -1274,6 +1284,14 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       recommendedBody: "If you do not have an available endpoint yet, you can start with the relay the author uses most often.",
       quickStartTitle: "Start with these 4 steps",
       quickStartBody: "Go to Settings and fill in API key, Base URL, text model, image model, and output directory. You can run minimal connectivity tests before saving, but saving is still allowed even if tests fail.",
+      setupChecklistTitle: "Setup checklist",
+      setupChecklistItems: [
+        "Fill Base URL and API key, then confirm model names.",
+        "Choose and authorize an output folder instead of only typing a C:\\ path.",
+        "Run Test output folder to confirm the browser can write and restore previews.",
+        "Set timeout between 60 and 600 seconds; start from 180 seconds for 2K/4K.",
+        "Start with Single image, then use Batch after one image works.",
+      ],
     },
     messages: {
       runtimeLoaded: (mode) => `${mode} loaded. Save after changing settings.`,

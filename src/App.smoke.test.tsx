@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 import { DEFAULT_CONFIG, type AppConfig } from "./core/config";
+import type { ImageRecord } from "./core/history";
 import { getTranslations } from "./i18n/translations";
 import type { RuntimeAdapter } from "./runtime/types";
 
@@ -23,7 +24,14 @@ vi.mock("./runtime", () => ({
   },
 }));
 
-function createMockRuntime(config: Partial<AppConfig> = {}): RuntimeAdapter {
+function createMockRuntime(
+  config: Partial<AppConfig> = {},
+  options: {
+    history?: ImageRecord[];
+    prepareHistoryPreview?: RuntimeAdapter["prepareHistoryPreview"];
+    prepareHistoryFile?: RuntimeAdapter["prepareHistoryFile"];
+  } = {},
+): RuntimeAdapter {
   const mergedConfig = {
     ...DEFAULT_CONFIG,
     ...config,
@@ -33,7 +41,7 @@ function createMockRuntime(config: Partial<AppConfig> = {}): RuntimeAdapter {
     mode: "web",
     loadConfig: async () => mergedConfig,
     saveConfig: runtimeMock.saveConfig,
-    loadHistory: async () => [],
+    loadHistory: async () => options.history ?? [],
     deleteHistoryRecords: async () => [],
     saveImage: async () => {
       throw new Error("saveImage is not used in smoke tests.");
@@ -43,8 +51,8 @@ function createMockRuntime(config: Partial<AppConfig> = {}): RuntimeAdapter {
     },
     saveBatchManifest: async () => "manifest.json",
     chooseOutputDirectory: runtimeMock.chooseOutputDirectory,
-    prepareHistoryPreview: async () => null,
-    prepareHistoryFile: async () => null,
+    prepareHistoryPreview: options.prepareHistoryPreview ?? (async () => null),
+    prepareHistoryFile: options.prepareHistoryFile ?? (async () => null),
     testOutputDirectory: async () => ({ ok: true }),
     openOutputPath: async () => undefined,
   };
@@ -67,6 +75,14 @@ describe("App smoke", () => {
     runtimeMock.chooseOutputDirectory.mockReset();
     runtimeMock.chooseOutputDirectory.mockResolvedValue(null);
     runtimeMock.adapter = createMockRuntime();
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn((file: File) => `blob:${file.name}`),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -219,6 +235,123 @@ describe("App smoke", () => {
       "Image-to-image test notes",
     ]);
   });
+
+  it("starts image-to-image editing from a saved history image", async () => {
+    const copy = getTranslations("en-US");
+    const record = createHistoryRecord({
+      id: "history-france",
+      prompt: "Create a France World Cup poster.",
+      outputPath: "outputs/2026-05-26/france.png",
+    });
+    const prepareHistoryFile = vi.fn().mockResolvedValue(new File(["image"], "france.png", { type: "image/png" }));
+    runtimeMock.adapter = createMockRuntime(
+      { uiLanguage: "en-US", hasDismissedWelcome: true },
+      { history: [record], prepareHistoryFile },
+    );
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushAppEffects();
+
+    await act(async () => {
+      clickButton(container, copy.tabs.history);
+    });
+    await flushAppEffects();
+
+    await act(async () => {
+      clickButton(container, copy.actions.editFromImage);
+      await Promise.resolve();
+    });
+    await flushAppEffects();
+
+    expect(prepareHistoryFile).toHaveBeenCalledWith(record);
+    expect(container.textContent).toContain(copy.cards.editFromImageTitle);
+
+    setFieldValue(getField<HTMLTextAreaElement>(container, copy.fields.editInstructions, "textarea"), "Make it night.");
+
+    await act(async () => {
+      clickModalPrimaryButton(container);
+    });
+    await flushAppEffects();
+
+    expect(container.querySelector(".app-shell")?.classList.contains("tab-generate")).toBe(true);
+    expect(container.textContent).toContain(copy.modes.imageToImage);
+    expect(getField<HTMLTextAreaElement>(container, copy.fields.prompt, "textarea").value).toContain(
+      "Create a France World Cup poster.",
+    );
+    expect(getField<HTMLTextAreaElement>(container, copy.fields.prompt, "textarea").value).toContain("Make it night.");
+    expect(container.textContent).toContain(`${copy.cards.referenceImages}: 1/`);
+  });
+
+  it("restores a batch history preview and can edit from a restored batch image", async () => {
+    const copy = getTranslations("en-US");
+    const france = createHistoryRecord({
+      id: "record-france",
+      prompt: "Create a France poster.",
+      outputPath: "outputs/2026-05-26/batch/france.png",
+      batch: {
+        id: "batch-world-cup",
+        title: "World Cup posters",
+        createdAt: "2026-05-26T00:00:00.000Z",
+        taskId: "task-france",
+        taskIndex: 0,
+        taskTitle: "France poster",
+        totalTasks: 2,
+      },
+    });
+    const japan = createHistoryRecord({
+      id: "record-japan",
+      prompt: "Create a Japan poster.",
+      outputPath: "outputs/2026-05-26/batch/japan.png",
+      batch: {
+        id: "batch-world-cup",
+        title: "World Cup posters",
+        createdAt: "2026-05-26T00:00:00.000Z",
+        taskId: "task-japan",
+        taskIndex: 1,
+        taskTitle: "Japan poster",
+        totalTasks: 2,
+      },
+    });
+    const prepareHistoryPreview = vi
+      .fn<RuntimeAdapter["prepareHistoryPreview"]>()
+      .mockImplementation(async (record) => `blob:${record.id}`);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      blob: async () => new Blob(["image"], { type: "image/png" }),
+    } as Response);
+    runtimeMock.adapter = createMockRuntime(
+      { uiLanguage: "en-US", hasDismissedWelcome: true },
+      { history: [france, japan], prepareHistoryPreview },
+    );
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushAppEffects();
+
+    await act(async () => {
+      clickButton(container, copy.actions.inspectBatch);
+      await Promise.resolve();
+    });
+    await flushAppEffects();
+
+    expect(prepareHistoryPreview).toHaveBeenCalledTimes(2);
+    expect(container.querySelector(".preview-panel")?.textContent).toContain("World Cup posters");
+    expect(container.querySelector(".preview-panel")?.textContent).toContain(copy.preview.batchGallery);
+    expect(container.querySelector(".preview-panel")?.textContent).toContain("France poster");
+    expect(container.querySelector(".preview-panel")?.textContent).toContain("Japan poster");
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".batch-preview-gallery .ghost-button")?.click();
+      await Promise.resolve();
+    });
+    await flushAppEffects();
+
+    expect(fetchSpy).toHaveBeenCalledWith("blob:record-france");
+    expect(container.textContent).toContain(copy.cards.editFromImageTitle);
+  });
 });
 
 function clickButton(container: HTMLElement, label: string) {
@@ -231,4 +364,54 @@ function clickButton(container: HTMLElement, label: string) {
   }
 
   button.click();
+}
+
+function clickModalPrimaryButton(container: HTMLElement) {
+  const button = container.querySelector<HTMLButtonElement>(".modal-card .primary-button");
+
+  if (!button) {
+    throw new Error("Modal primary button not found");
+  }
+
+  button.click();
+}
+
+function getField<T extends HTMLInputElement | HTMLTextAreaElement>(
+  container: HTMLElement,
+  labelText: string,
+  selector: string,
+): T {
+  const label = Array.from(container.querySelectorAll("label.field")).find(
+    (candidate) => candidate.querySelector("span")?.textContent === labelText,
+  );
+  const field = label?.querySelector(selector);
+
+  if (!field) {
+    throw new Error(`Field not found: ${labelText}`);
+  }
+
+  return field as T;
+}
+
+function setFieldValue(element: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(element.constructor.prototype, "value")?.set;
+  act(() => {
+    setter?.call(element, value);
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function createHistoryRecord(overrides: Partial<ImageRecord>): ImageRecord {
+  return {
+    id: "record",
+    status: "success",
+    createdAt: "2026-05-26T00:01:00.000Z",
+    prompt: "Create poster.",
+    optimizedPrompt: "",
+    model: "gpt-image-2",
+    size: "1024x1024",
+    outputPath: "outputs/2026-05-26/poster.png",
+    durationMs: 1000,
+    ...overrides,
+  };
 }

@@ -2772,6 +2772,14 @@ export default function App() {
             <span className="card-tag">{copy.cards.welcomeQuickStart}</span>
             <h3>{copy.welcome.quickStartTitle}</h3>
             <p>{copy.welcome.quickStartBody}</p>
+            <div className="welcome-checklist">
+              <strong>{copy.welcome.setupChecklistTitle}</strong>
+              <ol>
+                {copy.welcome.setupChecklistItems.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ol>
+            </div>
           </section>
         </div>
       </Dialog>

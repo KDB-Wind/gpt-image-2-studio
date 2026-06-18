@@ -274,6 +274,46 @@ describe("App batch workspace", () => {
     expect(container.textContent).toContain(copy.actions.testOutputDirectory);
   });
 
+  it("shows a first-run setup checklist before the user starts generating", async () => {
+    window.localStorage.setItem(
+      "chat-to-image.config.v1",
+      JSON.stringify({ ...DEFAULT_CONFIG, uiLanguage: "en-US", hasDismissedWelcome: false }),
+    );
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    const checklist = container.querySelector(".welcome-checklist");
+
+    expect(checklist).not.toBeNull();
+    expect(checklist?.textContent).toContain("Setup checklist");
+    expect(checklist?.textContent).toContain("Fill Base URL and API key");
+    expect(checklist?.textContent).toContain("Choose and authorize an output folder");
+    expect(checklist?.textContent).toContain("Run Test output folder");
+    expect(checklist?.textContent).toContain("Set timeout between 60 and 600 seconds");
+    expect(checklist?.textContent).toContain("Start with Single image, then use Batch");
+  });
+
+  it("exposes timeout as a user controlled setting with safe bounds", async () => {
+    const copy = getTranslations("en-US");
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    clickButton(copy.tabs.settings);
+
+    const timeoutInput = getField<HTMLInputElement>(copy.fields.timeoutSeconds, 'input[type="number"]');
+
+    expect(timeoutInput.value).toBe("180");
+    expect(timeoutInput.min).toBe("60");
+    expect(timeoutInput.max).toBe("600");
+    expect(container.textContent).toContain("Timeout accepts 60-600 seconds");
+  });
+
   function clickButton(label: string) {
     const button = Array.from(container.querySelectorAll("button")).find(
       (candidate) => candidate.textContent?.trim() === label,
