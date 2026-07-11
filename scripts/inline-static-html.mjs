@@ -1,22 +1,36 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const distDir = resolve(rootDir, "dist-static");
-const htmlPath = resolve(distDir, "index.html");
-const releaseHtmlPath = resolve(distDir, "gpt-image-2-studio-lite.html");
-const viteHtmlPath = existsSync(htmlPath) ? htmlPath : resolve(distDir, "index.static.html");
+import { isDirectExecution } from "./archive-static-version.mjs";
 
-if (!existsSync(viteHtmlPath)) {
-  throw new Error(`Static build HTML was not found: ${htmlPath}`);
+const defaultRootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+export function copyStaticArchives({ rootDir, distDir = join(rootDir, "dist-static") }) {
+  const sourceVersionsDir = join(rootDir, "static-versions", "versions");
+  const sourceManifestPath = join(rootDir, "static-versions", "manifest.json");
+  const distVersionsDir = join(distDir, "versions");
+
+  if (!existsSync(sourceVersionsDir)) {
+    throw new Error(`Static version source is missing: ${sourceVersionsDir}`);
+  }
+
+  if (!existsSync(sourceManifestPath)) {
+    throw new Error(`Static version manifest is missing: ${sourceManifestPath}`);
+  }
+
+  mkdirSync(distVersionsDir, { recursive: true });
+  cpSync(sourceVersionsDir, distVersionsDir, { recursive: true });
+  cpSync(sourceManifestPath, join(distVersionsDir, "manifest.json"));
 }
 
-function readDistAsset(assetPath) {
+function readDistAsset(distDir, assetPath) {
   const normalized = assetPath.replace(/^\.\//, "").replace(/^\//, "");
-  const absolutePath = resolve(distDir, normalized);
+  const distRoot = resolve(distDir);
+  const absolutePath = resolve(distRoot, normalized);
+  const relativePath = relative(distRoot, absolutePath);
 
-  if (!absolutePath.startsWith(distDir)) {
+  if (isAbsolute(relativePath) || relativePath === ".." || relativePath.startsWith(`..${sep}`)) {
     throw new Error(`Refusing to inline asset outside dist-static: ${assetPath}`);
   }
 
@@ -35,32 +49,47 @@ function svgToDataUri(svg) {
     .replace(/%2F/g, "/")}`;
 }
 
-let html = readFileSync(viteHtmlPath, "utf8");
+export function inlineStaticHtml({ rootDir = defaultRootDir, distDir = join(rootDir, "dist-static") } = {}) {
+  const htmlPath = join(distDir, "index.html");
+  const releaseHtmlPath = join(distDir, "gpt-image-2-studio-lite.html");
+  const viteHtmlPath = existsSync(htmlPath) ? htmlPath : join(distDir, "index.static.html");
 
-html = html.replace(/\s*<link\b[^>]*rel=["']modulepreload["'][^>]*>/g, "");
+  if (!existsSync(viteHtmlPath)) {
+    throw new Error(`Static build HTML was not found: ${viteHtmlPath}`);
+  }
 
-html = html.replace(
-  /<link\b(?=[^>]*rel=["']icon["'])(?=[^>]*href=["'])([^>]*href=["'])([^"']+)(["'][^>]*>)/g,
-  (tag, hrefPrefix, href, end) => {
-    if (href.startsWith("data:")) {
-      return tag;
-    }
+  let html = readFileSync(viteHtmlPath, "utf8");
 
-    return `<link${hrefPrefix}${svgToDataUri(readDistAsset(href))}${end}`;
-  },
-);
+  html = html.replace(/\s*<link\b[^>]*rel=["']modulepreload["'][^>]*>/g, "");
 
-html = html.replace(
-  /\s*<link\b(?=[^>]*rel=["']stylesheet["'])(?=[^>]*href=["']([^"']+)["'])[^>]*>/g,
-  (_tag, href) => `\n    <style>\n${readDistAsset(href)}\n    </style>`,
-);
+  html = html.replace(
+    /<link\b(?=[^>]*rel=["']icon["'])(?=[^>]*href=["'])([^>]*href=["'])([^"']+)(["'][^>]*>)/g,
+    (tag, hrefPrefix, href, end) => {
+      if (href.startsWith("data:")) {
+        return tag;
+      }
 
-html = html.replace(
-  /\s*<script\b(?=[^>]*type=["']module["'])(?=[^>]*src=["']([^"']+)["'])[^>]*><\/script>/g,
-  (_tag, src) => `\n    <script type="module">\n${readDistAsset(src)}\n    </script>`,
-);
+      return `<link${hrefPrefix}${svgToDataUri(readDistAsset(distDir, href))}${end}`;
+    },
+  );
 
-html = html.replace(/\r\n/g, "\n");
+  html = html.replace(
+    /\s*<link\b(?=[^>]*rel=["']stylesheet["'])(?=[^>]*href=["']([^"']+)["'])[^>]*>/g,
+    (_tag, href) => `\n    <style>\n${readDistAsset(distDir, href)}\n    </style>`,
+  );
 
-writeFileSync(htmlPath, html, "utf8");
-writeFileSync(releaseHtmlPath, html, "utf8");
+  html = html.replace(
+    /\s*<script\b(?=[^>]*type=["']module["'])(?=[^>]*src=["']([^"']+)["'])[^>]*><\/script>/g,
+    (_tag, src) => `\n    <script type="module">\n${readDistAsset(distDir, src)}\n    </script>`,
+  );
+
+  html = html.replace(/\r\n/g, "\n");
+
+  writeFileSync(htmlPath, html, "utf8");
+  writeFileSync(releaseHtmlPath, html, "utf8");
+  copyStaticArchives({ rootDir, distDir });
+}
+
+if (isDirectExecution(import.meta.url, process.argv[1])) {
+  inlineStaticHtml();
+}

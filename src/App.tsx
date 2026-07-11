@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 
 import packageJson from "../package.json";
+import staticVersionManifest from "../static-versions/manifest.json";
 import { AppLogo } from "./components/AppLogo";
 import { BatchPanel } from "./components/BatchPanel";
 import {
@@ -41,7 +42,8 @@ const APP_VERSION = packageJson.version;
 const RECOMMENDED_RELAY_URL = "https://ruoli.dev/register?aff=mR35";
 const GITHUB_PROJECT_URL = "https://github.com/KDB-Wind/gpt-image-2-studio";
 const GITHUB_PAGES_URL = "https://kdb-wind.github.io/gpt-image-2-studio/";
-const ARCHIVED_VERSION_URL = `${GITHUB_PAGES_URL}versions/v${APP_VERSION}/`;
+const ARCHIVED_VERSION = staticVersionManifest.latestStable;
+const ARCHIVED_VERSION_URL = `${GITHUB_PAGES_URL}versions/v${ARCHIVED_VERSION}/`;
 const MINIMAL_API_EXAMPLE_URL = `${GITHUB_PROJECT_URL}#最小-api-调用示例`;
 const DEFAULT_CUSTOM_SIZE = { width: "1024", height: "1024" };
 
@@ -2221,7 +2223,7 @@ export default function App() {
                       <dt>{copy.labels.archivedVersion}</dt>
                       <dd>
                         <a href={ARCHIVED_VERSION_URL} target="_blank" rel="noreferrer">
-                          v{APP_VERSION}
+                          v{ARCHIVED_VERSION}
                         </a>
                       </dd>
                     </div>
@@ -2269,7 +2271,7 @@ export default function App() {
                       {copy.actions.openLatestVersion}
                     </a>
                     <a className="secondary-button link-button" href={ARCHIVED_VERSION_URL} target="_blank" rel="noreferrer">
-                      {copy.actions.openArchivedVersion}
+                      {copy.actions.openArchivedVersion} ({ARCHIVED_VERSION})
                     </a>
                   </div>
                   <p className="microcopy">{copy.notes.versionSwitchHint}</p>
