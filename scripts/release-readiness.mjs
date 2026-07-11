@@ -23,19 +23,11 @@ export function findSensitivePatterns(filesByPath) {
   return findSecretFindings(filesByPath).map(formatSecretFinding);
 }
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function commandIndex(workflowText, command, useLast = false) {
   return useLast ? workflowText.lastIndexOf(command) : workflowText.indexOf(command);
 }
 
-export function checkReleaseWorkflow(workflowText, releaseVersion) {
-  const releaseNotesPathPattern = new RegExp(
-    `body_path:\\s*docs\\/release-notes\\/v${escapeRegExp(releaseVersion)}\\.md`,
-  );
-
+export function checkReleaseWorkflow(workflowText) {
   const checks = [
     [/v\*\.\*\.\*/, "Release workflow must trigger on v*.*.* tags."],
     [/workflow_dispatch:/, "Release workflow must support manual dispatch."],
@@ -45,6 +37,12 @@ export function checkReleaseWorkflow(workflowText, releaseVersion) {
     [/actions\/setup-node@v4/, "Release workflow must install Node.js."],
     [/dtolnay\/rust-toolchain@stable/, "Release workflow must install Rust stable."],
     [/npm ci/, "Release workflow must install dependencies with npm ci."],
+    [/node -p ["']require\(["']\.\/package\.json["']\)\.version["']/, "Release workflow must read the version from package.json."],
+    [/\$expectedTag\s*=\s*["']v\$version["']/, "Release workflow must derive the expected tag from the package version."],
+    [/\$tag\s*-ne\s*\$expectedTag/, "Release workflow must fail when the tag does not match v<package version>."],
+    [/\$releaseNotes\s*=\s*["']docs\/release-notes\/v\$version\.md["']/, "Release workflow must derive the release-notes path from package metadata."],
+    [/Test-Path\s+-LiteralPath\s+\$releaseNotes/, "Release workflow must fail when derived release notes are missing."],
+    [/release_notes=\$releaseNotes/, "Release workflow must expose the derived release-notes path."],
     [/npm run secret:scan/, "Release workflow must run the unified secret scan."],
     [/npm run release:check/, "Release workflow must run the release readiness check."],
     [/npm run test:run/, "Release workflow must run tests before packaging."],
@@ -57,7 +55,7 @@ export function checkReleaseWorkflow(workflowText, releaseVersion) {
     [/actions\/upload-artifact@v4[\s\S]*path:\s*\|[\s\S]*SHA256SUMS\.txt/, "Release workflow must upload SHA256SUMS.txt as a workflow artifact."],
     [/actions\/upload-artifact@v4[\s\S]*retention-days:\s*\d+/, "Release workflow must set artifact retention-days for installer artifacts."],
     [/softprops\/action-gh-release@v2/, "Release workflow must create or update a GitHub Release."],
-    [releaseNotesPathPattern, `Release workflow must use the v${releaseVersion} release notes body.`],
+    [/body_path:\s*\$\{\{\s*steps\.release_metadata\.outputs\.release_notes\s*\}\}/, "Release workflow must use the derived release-notes path."],
     [/softprops\/action-gh-release@v2[\s\S]*files:\s*\|[\s\S]*dist-static\/gpt-image-2-studio-lite\.html/, "Release workflow must attach the single-file HTML asset to the draft GitHub Release."],
     [/softprops\/action-gh-release@v2[\s\S]*files:\s*\|[\s\S]*SHA256SUMS\.txt/, "Release workflow must attach SHA256SUMS.txt to the draft GitHub Release."],
   ];
@@ -65,6 +63,10 @@ export function checkReleaseWorkflow(workflowText, releaseVersion) {
   const errors = checks
     .filter(([pattern]) => !pattern.test(workflowText))
     .map(([, message]) => message);
+
+  if (/body_path:\s*docs\/release-notes\/v[^\s]+\.md/.test(workflowText)) {
+    errors.push("Release workflow must derive the release-notes path from package metadata.");
+  }
 
   const staticBuildIndex = commandIndex(workflowText, "npm run build:static");
   const desktopBuildIndex = commandIndex(workflowText, "npm run desktop:build");
@@ -139,6 +141,24 @@ export function checkTauriWindowsBundleConfig(config) {
   return errors;
 }
 
+export function checkPackageReleaseMetadata(packageJson, packageLock) {
+  const errors = [];
+
+  if (packageJson?.license !== "MIT") {
+    errors.push("package.json license must be MIT.");
+  }
+
+  if (packageLock?.version !== packageJson?.version || packageLock?.packages?.[""]?.version !== packageJson?.version) {
+    errors.push("package-lock.json root version must match package.json.");
+  }
+
+  if (packageLock?.packages?.[""]?.license !== "MIT") {
+    errors.push("package-lock.json root license must be MIT.");
+  }
+
+  return errors;
+}
+
 function checkPublicProjectDocs(rootDir, releaseVersion) {
   const requiredFiles = [
     "README.md",
@@ -169,12 +189,20 @@ export function runReleaseReadiness(rootDir) {
   const pagesWorkflowPath = join(rootDir, ".github", "workflows", "pages.yml");
   const tauriConfigPath = join(rootDir, "src-tauri", "tauri.conf.json");
   const packageJsonPath = join(rootDir, "package.json");
-  const releaseVersion = readJson(packageJsonPath).version;
+  const packageLockPath = join(rootDir, "package-lock.json");
+  const packageJson = readJson(packageJsonPath);
+  const releaseVersion = packageJson.version;
+
+  if (!existsSync(packageLockPath)) {
+    errors.push("package-lock.json is missing.");
+  } else {
+    errors.push(...checkPackageReleaseMetadata(packageJson, readJson(packageLockPath)));
+  }
 
   if (!existsSync(releaseWorkflowPath)) {
     errors.push(".github/workflows/release.yml is missing.");
   } else {
-    errors.push(...checkReleaseWorkflow(readText(releaseWorkflowPath), releaseVersion));
+    errors.push(...checkReleaseWorkflow(readText(releaseWorkflowPath)));
   }
 
   if (!existsSync(ciWorkflowPath)) {

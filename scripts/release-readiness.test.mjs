@@ -1,4 +1,7 @@
 // @vitest-environment node
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 import {
   checkReleaseWorkflow,
@@ -9,6 +12,122 @@ import {
 } from "./release-readiness.mjs";
 
 describe("release readiness checks", () => {
+  it("requires MIT package metadata and matching lockfile release metadata", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+    const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+
+    expect(packageJson.license).toBe("MIT");
+    expect(packageLock.version).toBe(packageJson.version);
+    expect(packageLock.packages[""].version).toBe(packageJson.version);
+    expect(packageLock.packages[""].license).toBe("MIT");
+    expect(existsSync(join("docs", "release-notes", `v${packageJson.version}.md`))).toBe(true);
+  });
+
+  it("accepts release metadata derived from package.json and rejects tag mismatches", () => {
+    const workflow = `
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - name: Resolve release metadata
+        id: release_metadata
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $tag = "\${{ github.ref_name }}"
+          $expectedTag = "v$version"
+          if ($tag -ne $expectedTag) { throw "Release tag $tag does not match package version $expectedTag." }
+          $releaseNotes = "docs/release-notes/v$version.md"
+          if (-not (Test-Path -LiteralPath $releaseNotes)) { throw "Release notes are missing: $releaseNotes" }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "release_notes=$releaseNotes" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+      - run: npm run release:check
+      - run: npm run test:run
+      - run: npm run build
+      - run: npm run build:static
+      - run: npm run desktop:build
+      - run: npm run secret:scan
+      - run: Get-FileHash dist-static/gpt-image-2-studio-lite.html | Set-Content SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          retention-days: 30
+          path: |
+            dist-static/gpt-image-2-studio-lite.html
+            SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: \${{ steps.release_metadata.outputs.release_notes }}
+          files: |
+            dist-static/gpt-image-2-studio-lite.html
+            SHA256SUMS.txt
+`;
+
+    expect(checkReleaseWorkflow(workflow)).toEqual([]);
+  });
+
+  it("rejects a hard-coded release-notes path", () => {
+    const workflow = `
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - name: Resolve release metadata
+        id: release_metadata
+        run: |
+          $version = node -p "require('./package.json').version"
+          $tag = "\${{ github.ref_name }}"
+          $expectedTag = "v$version"
+          if ($tag -ne $expectedTag) { throw "tag mismatch" }
+          $releaseNotes = "docs/release-notes/v$version.md"
+          if (-not (Test-Path -LiteralPath $releaseNotes)) { throw "notes missing" }
+          "release_notes=$releaseNotes" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+      - run: npm run release:check
+      - run: npm run test:run
+      - run: npm run build
+      - run: npm run build:static
+      - run: npm run desktop:build
+      - run: npm run secret:scan
+      - run: Get-FileHash dist-static/gpt-image-2-studio-lite.html | Set-Content SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          retention-days: 30
+          path: |
+            dist-static/gpt-image-2-studio-lite.html
+            SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: docs/release-notes/v9.8.7.md
+          files: |
+            dist-static/gpt-image-2-studio-lite.html
+            SHA256SUMS.txt
+`;
+
+    expect(checkReleaseWorkflow(workflow)).toContain(
+      "Release workflow must derive the release-notes path from package metadata.",
+    );
+  });
+
   it("accepts a Windows release workflow that builds and publishes Tauri bundles", () => {
     const workflow = `
 name: Release
@@ -27,6 +146,16 @@ jobs:
       - uses: actions/setup-node@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
+      - name: Resolve release metadata
+        id: release_metadata
+        run: |
+          $version = node -p "require('./package.json').version"
+          $tag = "\${{ github.ref_name }}"
+          $expectedTag = "v$version"
+          if ($tag -ne $expectedTag) { throw "tag mismatch" }
+          $releaseNotes = "docs/release-notes/v$version.md"
+          if (-not (Test-Path -LiteralPath $releaseNotes)) { throw "notes missing" }
+          "release_notes=$releaseNotes" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
       - run: npm run release:check
       - run: npm run test:run
       - run: npm run build
@@ -47,7 +176,7 @@ jobs:
             SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
-          body_path: docs/release-notes/v0.1.2.md
+          body_path: \${{ steps.release_metadata.outputs.release_notes }}
           files: |
             src-tauri/target/release/bundle/nsis/*.exe
             dist-static/gpt-image-2-studio-lite.html

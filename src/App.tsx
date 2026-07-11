@@ -1,7 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 
 import { useCallback } from "react";
-import packageJson from "../package.json";
 import staticVersionManifest from "../static-versions/manifest.json";
 import { AppLogo } from "./components/AppLogo";
 import { BatchPanel } from "./components/BatchPanel";
@@ -41,7 +40,7 @@ import { getTranslations, resolveLanguage, type UiLanguage } from "./i18n/transl
 import { getRuntimeAdapter } from "./runtime";
 import type { OutputDirectoryState, RuntimeAdapter, RuntimeStorageCapabilities } from "./runtime/types";
 
-const APP_VERSION = packageJson.version;
+const APP_VERSION = __APP_VERSION__;
 const RECOMMENDED_RELAY_URL = "https://ruoli.dev/register?aff=mR35";
 const GITHUB_PROJECT_URL = "https://github.com/KDB-Wind/gpt-image-2-studio";
 const GITHUB_PAGES_URL = "https://kdb-wind.github.io/gpt-image-2-studio/";

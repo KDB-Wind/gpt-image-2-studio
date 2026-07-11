@@ -2,7 +2,7 @@
 
 一个轻量的 `gpt-image-2` 生图工具台。打开网页，填入自己的 `API key` 和 `Base URL`，就可以做单图、图生图和批量生图。
 
-它不提供后端服务，也不会托管你的密钥。所有请求都从你的浏览器直接发往你配置的模型服务。
+它不提供后端服务。你的 API key 只会随请求发送到你填写的 `Base URL`。
 
 [English](./README.en.md)
 
@@ -29,11 +29,11 @@
 4. 点击「保存配置」。
 5. 先测试文字模型和图片模型，再开始正式生成。
 
-如果你还没有可用的模型服务，可以参考作者推荐的中转站：
+如果你还没有可用的模型服务，可以参考作者的可选中转站推荐：
 
 [https://ruoli.dev/register?aff=mR35](https://ruoli.dev/register?aff=mR35)
 
-请自行判断服务稳定性、价格和合规性。本仓库不会内置任何真实 `API key`。
+你也可以使用任何兼容的 `Base URL`。请自行判断服务稳定性、价格和合规性。本仓库不会内置任何真实 `API key`。
 
 ## 批量生图
 
@@ -91,9 +91,40 @@
 
 - 静态网页能否直接调用模型服务，取决于供应商是否允许浏览器跨域请求，也就是 CORS。
 - 如果出现 CORS 错误，通常需要换一个支持浏览器访问的供应商，或使用自己的代理。
+- 标准接口请保持“官方 GPT Image 模式”；只有兼容中转明确要求时，才启用“强制 base64”。
 - 超时时间可设为 60 到 600 秒。快速 1K 测试可以短一些；2K/4K 或供应商较慢时，建议用 180 到 300 秒，避免本地提前中断。
 - 在线静态页和本地 `file://` HTML 是不同浏览器来源，配置不会互通。
 - 不要把真实 `API key` 发到 Issue、截图、日志或提交记录里。
+
+## 最小 API 调用示例
+
+如果你只是想了解这个页面背后实际发送了什么请求，可以参考下面这段最小示例。它不依赖本项目，也可以改造成自己的脚本或工作流。
+
+```js
+const baseUrl = "https://your-provider.example/v1";
+const apiKey = "YOUR_API_KEY";
+
+const response = await fetch(`${baseUrl.replace(/\/$/, "")}/images/generations`, {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    model: "gpt-image-2",
+    prompt: "生成一张暖色自然光的咖啡海报",
+    size: "1024x1024",
+    quality: "auto",
+    n: 1,
+  }),
+});
+
+const data = await response.json();
+const imageBase64 = data.data?.[0]?.b64_json;
+console.log(imageBase64 ? "图片已返回" : data);
+```
+
+如果在浏览器里直接运行这段代码，供应商需要允许 CORS；如果放在 Node.js、本地脚本或自己的后端里调用，则不受浏览器 CORS 限制。
 
 ## 本地开发
 

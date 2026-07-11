@@ -1,6 +1,6 @@
 {
   "name": "chat-to-image",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "engines": {
     "node": ">=20.19.0",
@@ -62,5 +62,5 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "MIT"
 }

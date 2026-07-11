@@ -108,9 +108,28 @@ function assertHeaderLogoIsSelfContained(distDir) {
   }
 }
 
+const forbiddenCurrentReleaseMarkers = [
+  { pattern: /\blicense\s*:\s*["'`]/i, label: "package license metadata" },
+  { pattern: /vitest run/i, label: "package scripts" },
+  { pattern: /@tauri-apps\/api/i, label: "tooling dependencies" },
+];
+
+export function assertCurrentReleaseHasNoPackageMetadata(distDir) {
+  for (const fileName of ["index.html", "gpt-image-2-studio-lite.html"]) {
+    const html = readFileSync(join(distDir, fileName), "utf8");
+
+    for (const { pattern, label } of forbiddenCurrentReleaseMarkers) {
+      if (pattern.test(html)) {
+        throw new Error(`${fileName} contains forbidden ${label}.`);
+      }
+    }
+  }
+}
+
 export function runStaticSiteCheck({ rootDir = defaultRootDir, distDir = join(rootDir, "dist-static") } = {}) {
   assertRequiredFiles(distDir);
   assertSingleFileParity(distDir);
+  assertCurrentReleaseHasNoPackageMetadata(distDir);
   assertVersionManifestAndArchives({ rootDir, distDir });
   assertFaviconIsInlined(distDir);
   assertHeaderLogoIsSelfContained(distDir);

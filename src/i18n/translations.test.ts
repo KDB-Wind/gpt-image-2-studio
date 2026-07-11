@@ -112,4 +112,14 @@ describe("getTranslations", () => {
     expect(en.batch.fields.customPrompt(2)).toBe("Prompt 2");
     expect(en.batch.messages.maxTaskCountWarning(20)).toContain("20");
   });
+
+  it("states the connection and relay trust boundaries plainly", () => {
+    const zh = getTranslations("zh-CN");
+    const en = getTranslations("en-US");
+
+    expect(zh.welcome.intro).toContain("只会发送到你填写的 Base URL");
+    expect(zh.welcome.recommendedBody).toContain("可选");
+    expect(en.welcome.intro).toContain("sent only to the Base URL you enter");
+    expect(en.welcome.recommendedBody).toContain("optional");
+  });
 });

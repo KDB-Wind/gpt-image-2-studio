@@ -2,7 +2,7 @@
 
 A lightweight browser workspace for `gpt-image-2`. Open the page, enter your own `API key` and `Base URL`, then use it for single-image generation, image-to-image, and batch generation.
 
-There is no hosted backend. Requests are sent directly from your browser to the model provider you configure.
+There is no hosted backend. Your API key is sent only with requests to the `Base URL` you enter.
 
 [简体中文](./README.md)
 
@@ -29,11 +29,11 @@ First use:
 4. Save settings.
 5. Test the text model and image model before real generation.
 
-If you do not have a provider yet, you may check the author's recommended relay:
+If you do not have a provider yet, you may check the author's optional relay recommendation:
 
 [https://ruoli.dev/register?aff=mR35](https://ruoli.dev/register?aff=mR35)
 
-Evaluate provider stability, pricing, and compliance yourself. This repository does not include any real `API key`.
+You can use any compatible `Base URL`. Evaluate service stability, pricing, and compliance yourself. This repository does not include any real `API key`.
 
 ## Batch Generation
 
@@ -92,9 +92,40 @@ Settings stores model configuration, default image options, batch defaults, and 
 
 - Static pages can call your provider only if the provider allows browser CORS requests.
 - If you see a CORS error, use a CORS-compatible provider or your own proxy.
+- Keep Official GPT Image mode for standard responses. Use force-base64 only when a compatible relay explicitly requires it.
 - Timeout accepts 60 to 600 seconds. Shorter values are useful for quick 1K tests; for 2K/4K or slower providers, use 180 to 300 seconds to avoid aborting locally too early.
 - Hosted GitHub Pages and local `file://` HTML have separate browser storage.
 - Do not put real `API key` values in issues, screenshots, logs, or commits.
+
+## Minimal API Call Example
+
+If you only want to see what this page sends behind the scenes, start with this minimal request. It does not depend on this project and can be adapted into your own script or workflow.
+
+```js
+const baseUrl = "https://your-provider.example/v1";
+const apiKey = "YOUR_API_KEY";
+
+const response = await fetch(`${baseUrl.replace(/\/$/, "")}/images/generations`, {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    model: "gpt-image-2",
+    prompt: "Create a warm natural-light coffee poster",
+    size: "1024x1024",
+    quality: "auto",
+    n: 1,
+  }),
+});
+
+const data = await response.json();
+const imageBase64 = data.data?.[0]?.b64_json;
+console.log(imageBase64 ? "Image returned" : data);
+```
+
+If you run this directly in a browser, your provider must allow CORS. If you run it from Node.js, a local script, or your own backend, browser CORS does not apply.
 
 ## Local Development
 

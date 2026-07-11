@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import staticVersionManifest from "../static-versions/manifest.json";
 import * as apiClient from "./core/apiClient";
 import { DEFAULT_CONFIG, mergeConfig } from "./core/config";
 import type { ImageRecord } from "./core/history";
@@ -694,7 +695,9 @@ describe("App batch workspace", () => {
     ).not.toBeNull();
     expect(container.querySelector('a[href="https://kdb-wind.github.io/gpt-image-2-studio/"]')).not.toBeNull();
     expect(
-      container.querySelector('a[href="https://kdb-wind.github.io/gpt-image-2-studio/versions/v0.1.4/"]'),
+      container.querySelector(
+        `a[href="https://kdb-wind.github.io/gpt-image-2-studio/versions/v${staticVersionManifest.latestStable}/"]`,
+      ),
     ).not.toBeNull();
   });
 

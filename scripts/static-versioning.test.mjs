@@ -642,6 +642,27 @@ describe("static version archives", () => {
     expect(() => runStaticSiteCheck(fixture)).toThrow(/same inlined app/);
   });
 
+  it.each([
+    ['license:"MIT"', "package license metadata"],
+    ["vitest run", "package scripts"],
+    ["@tauri-apps/api", "tooling dependencies"],
+  ])("rejects %s in top-level current-release HTML", (marker, label) => {
+    const fixture = createSiteFixture();
+    const leakingHtml = `<!doctype html><link rel="icon" href="data:image/svg+xml,test"><script>viewBox:"0 0 1024 1024";${marker}</script>`;
+    writeFileSync(join(fixture.distDir, "index.html"), leakingHtml, "utf8");
+    writeFileSync(join(fixture.distDir, "gpt-image-2-studio-lite.html"), leakingHtml, "utf8");
+
+    expect(() => runStaticSiteCheck(fixture)).toThrow(new RegExp(label, "i"));
+  });
+
+  it("does not scan immutable historical archive contents for package markers", () => {
+    const fixture = createSiteFixture({
+      sourceContents: '<html><script>license:"ISC";vitest run;@tauri-apps/api</script></html>\n',
+    });
+
+    expect(() => runStaticSiteCheck(fixture)).not.toThrow();
+  });
+
   it("rejects an unexpected dist archive", () => {
     const fixture = createSiteFixture();
     mkdirSync(join(fixture.distDir, "versions", "v2.0.0"), { recursive: true });

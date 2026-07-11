@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import packageJson from "../package.json";
+import viteConfig from "../vite.config";
 import staticViteConfig from "../vite.static.config";
 
 describe("static basic tool build", () => {
@@ -17,6 +18,15 @@ describe("static basic tool build", () => {
     expect(staticViteConfig.build?.assetsInlineLimit).toBeGreaterThan(1024 * 1024);
     expect(staticViteConfig.build?.outDir).toBe("dist-static");
     expect(staticViteConfig.build?.rollupOptions?.input).toBe("index.static.html");
+  });
+
+  it("injects only the package version into both Vite builds", () => {
+    expect(viteConfig.define?.__APP_VERSION__).toBe(JSON.stringify(packageJson.version));
+    expect(staticViteConfig.define?.__APP_VERSION__).toBe(JSON.stringify(packageJson.version));
+
+    const appSource = readFileSync("src/App.tsx", "utf8");
+    expect(appSource).not.toContain('import packageJson from "../package.json"');
+    expect(appSource).toContain("const APP_VERSION = __APP_VERSION__;");
   });
 
   it("uses a static HTML entry that mounts only the basic tool", () => {
