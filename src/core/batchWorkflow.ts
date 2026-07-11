@@ -89,6 +89,10 @@ export function resetFailedBatchTasks(tasks: BatchTask[]): BatchTask[] {
   });
 }
 
+export function mergeRetriedBatchTask(tasks: BatchTask[], retriedTask: BatchTask): BatchTask[] {
+  return tasks.map((task) => (task.id === retriedTask.id ? retriedTask : task));
+}
+
 export function buildBatchPromptRecipe(input: BuildBatchPromptRecipeInput): BatchPromptRecipe {
   return {
     schemaVersion: 1,

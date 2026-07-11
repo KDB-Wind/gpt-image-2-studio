@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import {
+  ONE_PIXEL_PNG_BASE64,
   expectBatchHistoryContains,
   expectHistoryContains,
   installMockOutputDirectory,
@@ -37,6 +38,65 @@ test("static page runs a custom two-prompt batch, shows previews, and writes his
   await expect(page.locator(".preview-panel figure img")).toHaveCount(2);
   await expectBatchHistoryContains(page, "batch-images", "红色机器人");
   await expectBatchHistoryContains(page, "batch-images", "绿色飞船");
+});
+
+test("static single-task retry ignores a rapid double click and persists the merged result", async ({ page }) => {
+  let providerCalls = 0;
+  await page.route("**/images/generations", async (route) => {
+    providerCalls += 1;
+    if (providerCalls === 1) {
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { message: "Mock validation failure." } }),
+      });
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: [{ b64_json: ONE_PIXEL_PNG_BASE64 }] }),
+    });
+  });
+  await installMockOutputDirectory(page);
+  await openCleanStaticPage(page, { uiLanguage: "en-US", batchDefaultTaskCount: 1 });
+
+  await page.getByRole("tab", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Choose and authorize folder" }).click();
+  await page.getByRole("tab", { name: "Batch" }).click();
+  await page.getByTestId("batch-source-custom-prompts").click();
+  await page.getByTestId("batch-custom-prompt-0").fill("Create one retryable poster");
+  await page.getByTestId("batch-create-tasks").click();
+  await page.getByTestId("batch-start").click();
+
+  const retryButton = page.getByRole("button", { name: "Retry this task" });
+  await expect(retryButton).toBeVisible({ timeout: 30_000 });
+  await retryButton.evaluate((button) => {
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  await expect.poll(() => providerCalls).toBe(2);
+  await expect(page.getByTestId("batch-start")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Retry failed tasks" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Clear current batch" })).toBeDisabled();
+  await expect(page.locator(".batch-task-card .batch-task-prompt-textarea")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Pause" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Cancel remaining" })).toBeDisabled();
+
+  await expect(page.locator(".batch-task-list .status-pill.succeeded")).toHaveCount(1, { timeout: 30_000 });
+  expect(providerCalls).toBe(2);
+
+  const manifestText = await readMockOutputDirectoryFile(page, "manifest.json");
+  expect(manifestText).not.toBeNull();
+  const manifest = JSON.parse(manifestText ?? "{}") as {
+    tasks: Array<{ status: string; prompt: string }>;
+  };
+  expect(manifest.tasks).toEqual([
+    expect.objectContaining({ status: "succeeded", prompt: "Create one retryable poster" }),
+  ]);
 });
 
 test("static batch preserves browser-download fallbacks in its summary and manifest", async ({ page }) => {

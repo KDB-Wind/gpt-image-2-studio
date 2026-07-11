@@ -467,7 +467,75 @@ describe("BatchPanel", () => {
     );
   });
 
-  it("keeps the user task count when AI count planning is disabled", async () => {
+  it("uses every returned item when AI count planning is enabled without a recommended count", async () => {
+    const copy = getTranslations("en-US");
+    const onConfigChange = vi.fn();
+    splitPromptWithTextModelMock.mockResolvedValue({
+      items: Array.from({ length: 4 }, (_, index) => ({
+        title: `Task ${index + 1}`,
+        prompt: `Create image ${index + 1}.`,
+      })),
+    });
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 3 }}
+          runtime={null}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={onConfigChange}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+
+    setFieldValue(getField(copy.batch.fields.masterPrompt, "textarea"), "Create four named poster variants.");
+    await clickButtonAsync(copy.batch.actions.splitWithTextModel);
+
+    expect(getField(copy.batch.fields.taskCount, 'input[type="number"]').value).toBe("4");
+    expect(container.querySelectorAll(".batch-task-card")).toHaveLength(4);
+    expect(onConfigChange).toHaveBeenCalledWith("batchDefaultTaskCount", 4);
+  });
+
+  it("rejects inconsistent AI count metadata without replacing the current task list", async () => {
+    const copy = getTranslations("en-US");
+    const setAppMessage = vi.fn();
+    splitPromptWithTextModelMock.mockResolvedValue({
+      recommendedCount: 4,
+      items: Array.from({ length: 3 }, (_, index) => ({
+        title: `Replacement ${index + 1}`,
+        prompt: `Replacement prompt ${index + 1}.`,
+      })),
+    });
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 1 }}
+          runtime={null}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={setAppMessage}
+        />,
+      );
+    });
+
+    setFieldValue(getField(copy.batch.fields.masterPrompt, "textarea"), "Keep this existing task.");
+    clickButton(copy.batch.actions.createTasks);
+    await clickButtonAsync(copy.batch.actions.splitWithTextModel);
+
+    expect(container.querySelectorAll(".batch-task-card")).toHaveLength(1);
+    expect(getTaskPromptTextareas()[0].value).toContain("Keep this existing task.");
+    expect(setAppMessage).toHaveBeenLastCalledWith(copy.batch.messages.aiCountMismatch(4, 3));
+  });
+
+  it("rejects a mismatched result when AI count planning is disabled", async () => {
     const copy = getTranslations("en-US");
     const setAppMessage = vi.fn();
     splitPromptWithTextModelMock.mockResolvedValue({
@@ -507,8 +575,87 @@ describe("BatchPanel", () => {
       }),
     );
     expect(getField(copy.batch.fields.taskCount, 'input[type="number"]').value).toBe("5");
-    expect(Array.from(container.querySelectorAll(".batch-task-card"))).toHaveLength(5);
-    expect(setAppMessage).toHaveBeenLastCalledWith(copy.batch.messages.splitSuccess(5));
+    expect(Array.from(container.querySelectorAll(".batch-task-card"))).toHaveLength(0);
+    expect(setAppMessage).toHaveBeenLastCalledWith(copy.batch.messages.fixedAiCountMismatch(5, 8));
+  });
+
+  it("keeps an over-limit AI plan unchanged when the user cancels confirmation", async () => {
+    const copy = getTranslations("en-US");
+    const setAppMessage = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    splitPromptWithTextModelMock.mockResolvedValue({
+      recommendedCount: 25,
+      items: Array.from({ length: 25 }, (_, index) => ({
+        title: `Replacement ${index + 1}`,
+        prompt: `Replacement prompt ${index + 1}.`,
+      })),
+    });
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 1 }}
+          runtime={null}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={setAppMessage}
+        />,
+      );
+    });
+
+    setFieldValue(getField(copy.batch.fields.masterPrompt, "textarea"), "Keep this existing task.");
+    clickButton(copy.batch.actions.createTasks);
+    await clickButtonAsync(copy.batch.actions.splitWithTextModel);
+
+    expect(confirmSpy).toHaveBeenCalledWith(copy.batch.messages.aiCountOverLimitConfirm(25, 20));
+    expect(container.querySelectorAll(".batch-task-card")).toHaveLength(1);
+    expect(getTaskPromptTextareas()[0].value).toContain("Keep this existing task.");
+    expect(setAppMessage).toHaveBeenLastCalledWith(copy.batch.messages.aiCountOverLimitCancelled);
+    confirmSpy.mockRestore();
+  });
+
+  it("uses the first twenty AI tasks only after explicit confirmation", async () => {
+    const copy = getTranslations("en-US");
+    const setAppMessage = vi.fn();
+    const onConfigChange = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    splitPromptWithTextModelMock.mockResolvedValue({
+      recommendedCount: 25,
+      items: Array.from({ length: 25 }, (_, index) => ({
+        title: `Task ${index + 1}`,
+        prompt: `Create image ${index + 1}.`,
+      })),
+    });
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 5 }}
+          runtime={null}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={onConfigChange}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={setAppMessage}
+        />,
+      );
+    });
+
+    setFieldValue(getField(copy.batch.fields.masterPrompt, "textarea"), "Create twenty-five named posters.");
+    await clickButtonAsync(copy.batch.actions.splitWithTextModel);
+
+    expect(confirmSpy).toHaveBeenCalledWith(copy.batch.messages.aiCountOverLimitConfirm(25, 20));
+    expect(container.querySelectorAll(".batch-task-card")).toHaveLength(20);
+    expect(getTaskNameInputs().at(-1)?.value).toBe("Task 20");
+    expect(getTaskNameInputs().some((input) => input.value === "Task 21")).toBe(false);
+    expect(getField(copy.batch.fields.taskCount, 'input[type="number"]').value).toBe("20");
+    expect(onConfigChange).toHaveBeenCalledWith("batchDefaultTaskCount", 20);
+    expect(setAppMessage).toHaveBeenLastCalledWith(copy.batch.messages.aiCountLimitedAfterConfirmation(25, 20));
+    confirmSpy.mockRestore();
   });
 
   it("shows the AI task-count planning setting in settings-facing copy", async () => {
@@ -769,8 +916,192 @@ describe("BatchPanel", () => {
     expect(executionRow?.textContent).toContain(copy.batch.actions.clearDraft);
   });
 
+  it("acquires a single-task retry synchronously and locks task-list mutations", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createRuntime();
+    const retryDeferred = createDeferred<import("../core/batchTypes").BatchTask>();
+    runBatchTasksMock.mockResolvedValue({
+      status: "completed",
+      tasks: createFailedTasks(),
+      pauseReason: null,
+    });
+    retrySingleBatchTaskMock.mockReturnValue(retryDeferred.promise);
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 2 }}
+          runtime={runtime}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+
+    await createAndRunTwoTaskBatch(copy);
+    const retryButton = queryButtons(copy.batch.actions.retryTask)[0];
+
+    act(() => {
+      retryButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      retryButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(retrySingleBatchTaskMock).toHaveBeenCalledTimes(1);
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="batch-start"]')?.disabled).toBe(true);
+    expect(queryButton(copy.batch.actions.retryFailed)?.disabled).toBe(true);
+    expect(queryButton(copy.batch.actions.clearDraft)?.disabled).toBe(true);
+    expect(queryButtons(copy.actions.removeImage).every((button) => button.disabled)).toBe(true);
+    expect(getTaskPromptTextareas().every((textarea) => textarea.disabled)).toBe(true);
+    expect(queryButton(copy.batch.actions.pause)?.disabled).toBe(true);
+    expect(queryButton(copy.batch.actions.cancel)?.disabled).toBe(true);
+
+    retryDeferred.resolve(
+      createTestTask({
+        id: "task-001",
+        index: 0,
+        title: "Task one",
+        prompt: "Prompt one",
+        status: "succeeded",
+        outputPath: "outputs/task-one.png",
+      }),
+    );
+    await act(async () => {
+      await retryDeferred.promise;
+      await Promise.resolve();
+    });
+  });
+
+  it("persists the final merged retry snapshot while keeping sibling task state", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createRuntime();
+    const onHistoryChanged = vi.fn().mockResolvedValue(undefined);
+    const failedTasks = createFailedTasks();
+    const retryDeferred = createDeferred<import("../core/batchTypes").BatchTask>();
+    const retriedTask = createTestTask({
+      ...failedTasks[0],
+      status: "succeeded",
+      attemptCount: 2,
+      errorMessage: "",
+      failureCategory: null,
+      outputPath: "outputs/task-one.png",
+      previewUrl: "blob:task-one",
+    });
+    runBatchTasksMock.mockResolvedValue({ status: "completed", tasks: failedTasks, pauseReason: null });
+    retrySingleBatchTaskMock.mockReturnValue(retryDeferred.promise);
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 2 }}
+          runtime={runtime}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={onHistoryChanged}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+
+    await createAndRunTwoTaskBatch(copy);
+    const siblingPrompt = getTaskPromptTextareas()[1];
+    const retryButton = queryButtons(copy.batch.actions.retryTask)[0];
+    const valueSetter = Object.getOwnPropertyDescriptor(siblingPrompt.constructor.prototype, "value")?.set;
+    act(() => {
+      valueSetter?.call(siblingPrompt, "Prompt two edited immediately before retry");
+      siblingPrompt.dispatchEvent(new Event("input", { bubbles: true }));
+      retryButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    retryDeferred.resolve(retriedTask);
+    await act(async () => {
+      await retryDeferred.promise;
+      await Promise.resolve();
+    });
+
+    const saveManifestMock = vi.mocked(runtime.saveBatchManifest);
+    const finalManifest = saveManifestMock.mock.calls.at(-1)?.[0];
+    expect(finalManifest?.tasks).toEqual([
+      expect.objectContaining({ id: "task-001", status: "succeeded", outputPath: "outputs/task-one.png" }),
+      expect.objectContaining({
+        id: "task-002",
+        status: "pending",
+        prompt: "Prompt two edited immediately before retry",
+      }),
+    ]);
+    expect(getTaskPromptTextareas()[1].value).toBe("Prompt two edited immediately before retry");
+    expect(onHistoryChanged).toHaveBeenCalledTimes(2);
+  });
+
+  it("enables pause and cancel only for an actual running batch", async () => {
+    const copy = getTranslations("en-US");
+    const runDeferred = createDeferred<{
+      status: "completed";
+      tasks: import("../core/batchTypes").BatchTask[];
+      pauseReason: null;
+    }>();
+    runBatchTasksMock.mockReturnValue(runDeferred.promise);
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 1 }}
+          runtime={createRuntime()}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+
+    setFieldValue(getField(copy.batch.fields.masterPrompt, "textarea"), "Create one poster.");
+    clickButton(copy.batch.actions.createTasks);
+    act(() => {
+      queryButton(copy.batch.actions.start)?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(queryButton(copy.batch.actions.pause)?.disabled).toBe(false);
+    expect(queryButton(copy.batch.actions.cancel)?.disabled).toBe(false);
+
+    runDeferred.resolve({ status: "completed", tasks: [], pauseReason: null });
+    await act(async () => {
+      await runDeferred.promise;
+      await Promise.resolve();
+    });
+  });
+
   function getDraftPromptTextareas(): HTMLTextAreaElement[] {
     return Array.from(container.querySelectorAll(".custom-prompt-draft textarea"));
+  }
+
+  function getTaskPromptTextareas(): HTMLTextAreaElement[] {
+    return Array.from(container.querySelectorAll(".batch-task-card .batch-task-prompt-textarea"));
+  }
+
+  function getTaskNameInputs(): HTMLInputElement[] {
+    return Array.from(container.querySelectorAll(".batch-task-card .batch-task-name-field input"));
+  }
+
+  async function createAndRunTwoTaskBatch(copy: ReturnType<typeof getTranslations>) {
+    clickButton(copy.batch.sources.customPrompts);
+    const prompts = getDraftPromptTextareas();
+    setFieldValue(prompts[0], "Prompt one");
+    setFieldValue(prompts[1], "Prompt two");
+    clickButton(copy.batch.actions.createTasks);
+    await clickButtonAsync(copy.batch.actions.start);
   }
 
   function clickButton(label: string) {
@@ -799,6 +1130,10 @@ describe("BatchPanel", () => {
     return (
       Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes(label)) ?? null
     );
+  }
+
+  function queryButtons(label: string): HTMLButtonElement[] {
+    return Array.from(container.querySelectorAll("button")).filter((button) => button.textContent?.includes(label));
   }
 
   function getField(labelText: string, selector: string): HTMLInputElement | HTMLTextAreaElement {
@@ -884,4 +1219,42 @@ function createTestTask(overrides: Partial<import("../core/batchTypes").BatchTas
     completedAt: "2026-07-11T08:00:01.000Z",
     ...overrides,
   };
+}
+
+function createFailedTasks(): import("../core/batchTypes").BatchTask[] {
+  return [
+    createTestTask({
+      id: "task-001",
+      index: 0,
+      title: "Task one",
+      prompt: "Prompt one",
+      status: "failed",
+      errorMessage: "Provider failed task one.",
+      failureCategory: "unknown",
+      outputPath: "",
+      previewUrl: "",
+    }),
+    createTestTask({
+      id: "task-002",
+      index: 1,
+      title: "Task two",
+      prompt: "Prompt two",
+      status: "failed",
+      errorMessage: "Provider failed task two.",
+      failureCategory: "unknown",
+      outputPath: "",
+      previewUrl: "",
+    }),
+  ];
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, resolve, reject };
 }

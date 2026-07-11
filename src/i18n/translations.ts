@@ -124,6 +124,11 @@ type TranslationBundle = {
       splitRunning: string;
       splitSuccess: (count: number) => string;
       taskCountAdjustedByAi: (count: number, reason?: string) => string;
+      aiCountMismatch: (recommended: number, actual: number) => string;
+      fixedAiCountMismatch: (expected: number, actual: number) => string;
+      aiCountOverLimitConfirm: (requested: number, max: number) => string;
+      aiCountOverLimitCancelled: string;
+      aiCountLimitedAfterConfirmation: (requested: number, max: number) => string;
       splitFailed: (detail: string) => string;
       costRiskPaused: string;
       authPaused: string;
@@ -575,6 +580,15 @@ const translations: Record<UiLanguage, TranslationBundle> = {
           `AI 判断该主任务更适合拆分为 ${count} 个任务，已自动调整任务数量。若不需要某一项，可以在任务列表中删除。${
             reason ? ` 判断依据：${reason}` : ""
           }`,
+        aiCountMismatch: (recommended, actual) =>
+          `文字模型推荐 ${recommended} 个任务，但实际返回 ${actual} 个。请重试规划；当前任务列表未更改。`,
+        fixedAiCountMismatch: (expected, actual) =>
+          `AI 自动调整任务数量已关闭，应严格返回 ${expected} 个任务，但实际返回 ${actual} 个。请重试规划；当前任务列表未更改。`,
+        aiCountOverLimitConfirm: (requested, max) =>
+          `文字模型返回了 ${requested} 个任务，超过单批最多 ${max} 个的硬性限制。是否明确使用前 ${max} 个任务？取消不会更改当前任务列表。`,
+        aiCountOverLimitCancelled: "已取消采用超限的 AI 规划，当前任务列表未更改。",
+        aiCountLimitedAfterConfirmation: (requested, max) =>
+          `文字模型返回了 ${requested} 个任务。经你确认，已采用前 ${max} 个；其余 ${requested - max} 个因硬性上限未加入。`,
         splitFailed: (detail) => `文字模型规划失败。${detail}`,
         costRiskPaused: "供应商返回可能已产生费用但没有图片的异常，批次已暂停。确认后再继续。",
         authPaused: "API key 或权限异常，批次已暂停。请先检查设置。",
@@ -1070,6 +1084,15 @@ const translations: Record<UiLanguage, TranslationBundle> = {
           `AI recommended ${count} tasks and adjusted the task count to ${count}. Remove any task you do not need from the task list.${
             reason ? ` Reason: ${reason}` : ""
           }`,
+        aiCountMismatch: (recommended, actual) =>
+          `The text model recommended ${recommended} tasks but returned ${actual}. Retry planning; the current task list was not changed.`,
+        fixedAiCountMismatch: (expected, actual) =>
+          `AI task-count planning is off, so the model must return exactly ${expected} tasks. It returned ${actual}. Retry planning; the current task list was not changed.`,
+        aiCountOverLimitConfirm: (requested, max) =>
+          `The text model returned ${requested} tasks, above the hard batch limit of ${max}. Explicitly continue with the first ${max} tasks? Cancel leaves the current task list unchanged.`,
+        aiCountOverLimitCancelled: "The over-limit AI plan was cancelled. The current task list was not changed.",
+        aiCountLimitedAfterConfirmation: (requested, max) =>
+          `The text model returned ${requested} tasks. After your confirmation, the first ${max} were used; the remaining ${requested - max} were omitted because of the hard limit.`,
         splitFailed: (detail) => `Text model planning failed. ${detail}`,
         costRiskPaused: "The provider returned an error that may still have incurred cost but no image. The batch is paused until you confirm.",
         authPaused: "API key or permission failed. The batch is paused. Check Settings first.",

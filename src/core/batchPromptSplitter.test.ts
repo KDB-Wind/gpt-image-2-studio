@@ -3,6 +3,7 @@ import { DEFAULT_CONFIG } from "./config";
 import {
   BUILT_IN_BATCH_SPLIT_TEMPLATES,
   buildBatchSplitUserPrompt,
+  normalizeBatchSplitPlan,
   parseBatchSplitResponse,
   splitPromptWithTextModel,
 } from "./batchPromptSplitter";
@@ -26,6 +27,20 @@ describe("batchPromptSplitter", () => {
     expect(prompt).toContain('"prompt"');
     expect(prompt).toContain('"suggestedName"');
     expect(prompt).toContain('"notes"');
+  });
+
+  it("instructs the text model not to truncate explicit target lists to the initial count", () => {
+    const prompt = buildBatchSplitUserPrompt(
+      "为我生成法国 / 日本 / 比利时 / 韩国 2026 世界杯宣传海报",
+      3,
+      "",
+      true,
+    );
+
+    expect(prompt).toContain("用户初始填写的任务数量不是上限");
+    expect(prompt).toContain("不要因为用户初始填写的任务数量较小而丢弃主任务中的明确主体");
+    expect(prompt).toContain("recommendedCount 必须等于 items.length");
+    expect(prompt).toContain("保留主任务中的主体名称");
   });
 
   it("includes the batch style lock in the text-model split prompt", async () => {
@@ -90,6 +105,94 @@ describe("batchPromptSplitter", () => {
         },
       ],
     });
+  });
+
+  it("rejects a recommended count that does not match the returned item count", () => {
+    const items = [
+      { title: "France", prompt: "Create a France poster." },
+      { title: "Japan", prompt: "Create a Japan poster." },
+      { title: "Belgium", prompt: "Create a Belgium poster." },
+    ];
+
+    expect(
+      normalizeBatchSplitPlan({
+        planning: { recommendedCount: 4, items },
+        initialCount: 3,
+        allowAiTaskCountPlanning: true,
+      }),
+    ).toEqual({
+      status: "invalid",
+      reason: "recommended-count-mismatch",
+      expectedCount: 4,
+      actualCount: 3,
+    });
+    expect(items).toHaveLength(3);
+  });
+
+  it("uses all returned items when auto planning is enabled and no count is recommended", () => {
+    const items = Array.from({ length: 4 }, (_, index) => ({
+      title: `Task ${index + 1}`,
+      prompt: `Create image ${index + 1}.`,
+    }));
+
+    const result = normalizeBatchSplitPlan({
+      planning: { items },
+      initialCount: 3,
+      allowAiTaskCountPlanning: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "ready",
+      taskCount: 4,
+      didAdjustTaskCount: true,
+    });
+    if (result.status === "ready") {
+      expect(result.items).toBe(items);
+    }
+  });
+
+  it("requires exactly the user count when auto planning is disabled", () => {
+    const items = Array.from({ length: 8 }, (_, index) => ({
+      title: `Task ${index + 1}`,
+      prompt: `Create image ${index + 1}.`,
+    }));
+
+    expect(
+      normalizeBatchSplitPlan({
+        planning: { recommendedCount: 8, items },
+        initialCount: 5,
+        allowAiTaskCountPlanning: false,
+      }),
+    ).toEqual({
+      status: "invalid",
+      reason: "fixed-count-mismatch",
+      expectedCount: 5,
+      actualCount: 8,
+    });
+  });
+
+  it("retains an over-limit AI plan intact until explicit confirmation", () => {
+    const items = Array.from({ length: 25 }, (_, index) => ({
+      title: `Task ${index + 1}`,
+      prompt: `Create image ${index + 1}.`,
+    }));
+
+    const result = normalizeBatchSplitPlan({
+      planning: { recommendedCount: 25, countReason: "Twenty-five named subjects.", items },
+      initialCount: 5,
+      allowAiTaskCountPlanning: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "requires-confirmation",
+      requestedCount: 25,
+      maxTaskCount: 20,
+      countReason: "Twenty-five named subjects.",
+    });
+    if (result.status === "requires-confirmation") {
+      expect(result.items).toBe(items);
+      expect(result.items).toHaveLength(25);
+    }
   });
 
   it("extracts a JSON array from surrounding text", () => {

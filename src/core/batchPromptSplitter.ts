@@ -43,6 +43,35 @@ export type SplitPromptWithTextModelInput = {
   sendText?: typeof sendTextRequest;
 };
 
+export type NormalizeBatchSplitPlanInput = {
+  planning: BatchSplitPlanningResult;
+  initialCount: number;
+  allowAiTaskCountPlanning: boolean;
+  maxTaskCount?: number;
+};
+
+export type NormalizedBatchSplitPlan =
+  | {
+      status: "ready";
+      taskCount: number;
+      didAdjustTaskCount: boolean;
+      countReason?: string;
+      items: BatchSplitResultItem[];
+    }
+  | {
+      status: "requires-confirmation";
+      requestedCount: number;
+      maxTaskCount: number;
+      countReason?: string;
+      items: BatchSplitResultItem[];
+    }
+  | {
+      status: "invalid";
+      reason: "recommended-count-mismatch" | "fixed-count-mismatch";
+      expectedCount: number;
+      actualCount: number;
+    };
+
 export function buildBatchSplitUserPrompt(
   masterPrompt: string,
   count: number,
@@ -55,7 +84,15 @@ export function buildBatchSplitUserPrompt(
     `用户初始填写的任务数量：${targetCount}`,
     `最多允许任务数量：${MAX_BATCH_TASK_COUNT}`,
     allowAiTaskCountPlanning
-      ? '请先判断主任务最适合拆分成几个独立任务，并把数量写入 "recommendedCount"。如果主任务明确或隐含了数量、主体列表、风格数量、商品数量等，请以主任务意图为准；如果无法判断，就使用用户初始填写的任务数量。'
+      ? [
+          '请先判断主任务最适合拆分成几个独立任务，并把数量写入 "recommendedCount"。',
+          "用户初始填写的任务数量不是上限，只是用户的初始估计。",
+          "如果主任务明确或隐含了数量、主体列表、风格数量、商品数量等，请以主任务意图为准。",
+          "不要因为用户初始填写的任务数量较小而丢弃主任务中的明确主体。",
+          "recommendedCount 必须等于 items.length，items 必须覆盖你识别出的全部子任务。",
+          "每条 title、prompt 和 suggestedName 都要保留主任务中的主体名称或差异点。",
+          "如果无法判断，就使用用户初始填写的任务数量。",
+        ].join(" ")
       : `不要自动调整任务数量。"recommendedCount" 必须等于 ${targetCount}，并按这个数量拆分。`,
     '输出要求：只返回 JSON 对象，结构为 {"recommendedCount": number, "countReason": string, "items": [...]}。',
     '"countReason" 用一句话说明为什么推荐这个数量。',
@@ -94,6 +131,53 @@ export async function splitPromptWithTextModel(input: SplitPromptWithTextModelIn
   );
   const raw = await sendText(input.config, systemPrompt, userPrompt);
   return parseBatchSplitResponse(raw);
+}
+
+export function normalizeBatchSplitPlan(input: NormalizeBatchSplitPlanInput): NormalizedBatchSplitPlan {
+  const { planning } = input;
+  const actualCount = planning.items.length;
+  const initialCount = Math.max(1, Math.round(input.initialCount));
+  const maxTaskCount = input.maxTaskCount ?? MAX_BATCH_TASK_COUNT;
+
+  if (planning.recommendedCount !== undefined && planning.recommendedCount !== actualCount) {
+    return {
+      status: "invalid",
+      reason: "recommended-count-mismatch",
+      expectedCount: planning.recommendedCount,
+      actualCount,
+    };
+  }
+
+  if (!input.allowAiTaskCountPlanning && actualCount !== initialCount) {
+    return {
+      status: "invalid",
+      reason: "fixed-count-mismatch",
+      expectedCount: initialCount,
+      actualCount,
+    };
+  }
+
+  const taskCount = input.allowAiTaskCountPlanning
+    ? planning.recommendedCount ?? actualCount
+    : initialCount;
+
+  if (taskCount > maxTaskCount) {
+    return {
+      status: "requires-confirmation",
+      requestedCount: taskCount,
+      maxTaskCount,
+      ...(planning.countReason ? { countReason: planning.countReason } : null),
+      items: planning.items,
+    };
+  }
+
+  return {
+    status: "ready",
+    taskCount,
+    didAdjustTaskCount: taskCount !== initialCount,
+    ...(planning.countReason ? { countReason: planning.countReason } : null),
+    items: planning.items,
+  };
 }
 
 export function parseBatchSplitResponse(raw: string): BatchSplitPlanningResult {

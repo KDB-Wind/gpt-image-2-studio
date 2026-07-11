@@ -6,6 +6,7 @@ import {
   buildBatchPromptRecipe,
   countRecoverableBatchTasks,
   formatBatchPromptRecipe,
+  mergeRetriedBatchTask,
   resetFailedBatchTasks,
 } from "./batchWorkflow";
 import { DEFAULT_BATCH_EXECUTION_CONFIG } from "./batchTypes";
@@ -52,6 +53,27 @@ describe("batchWorkflow", () => {
       failureCategory: null,
       attemptCount: 0,
     });
+  });
+
+  it("merges a retried task into the latest task snapshot without replacing newer sibling state", () => {
+    const originalTasks = createTasksFromPromptList(["one", "two"]);
+    const latestTasks = [
+      { ...originalTasks[0], status: "running" as const },
+      { ...originalTasks[1], prompt: "two edited while retry was pending", status: "pending" as const },
+    ];
+    const retriedTask = {
+      ...originalTasks[0],
+      status: "succeeded" as const,
+      outputPath: "outputs/one.png",
+      previewUrl: "blob:one",
+      attemptCount: 2,
+    };
+
+    const merged = mergeRetriedBatchTask(latestTasks, retriedTask);
+
+    expect(merged[0]).toEqual(retriedTask);
+    expect(merged[1]).toEqual(latestTasks[1]);
+    expect(merged[1].prompt).toBe("two edited while retry was pending");
   });
 
   it("builds a versioned prompt recipe that can be copied or imported later", () => {
