@@ -13,6 +13,7 @@ import {
 } from "./core/apiClient";
 import type { BatchPreviewImage, BatchPreviewState } from "./core/batchPreview";
 import { DEFAULT_CONFIG, mergeConfig, type AppConfig, validateConfig } from "./core/config";
+import { safeErrorMessage } from "./core/errorSanitizer";
 import { MAX_BATCH_TASK_COUNT, clampBatchTaskCount, type ImageSaveMode } from "./core/batchTypes";
 import {
   groupHistoryByDate,
@@ -146,7 +147,7 @@ type DialogProps = {
 };
 
 function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Something went wrong.";
+  return safeErrorMessage(error);
 }
 
 function formatDuration(durationMs: number): string {
@@ -1943,6 +1944,20 @@ export default function App() {
                       />
                     </label>
                   </div>
+                  {runtime?.mode === "web" ? (
+                    <>
+                      <label className="toggle-row">
+                        <input
+                          data-testid="settings-remember-api-key"
+                          type="checkbox"
+                          checked={config.rememberApiKey}
+                          onChange={(event) => updateConfig("rememberApiKey", event.currentTarget.checked)}
+                        />
+                        <span>{copy.fields.rememberApiKey}</span>
+                      </label>
+                      <p className="inline-note">{copy.notes.apiKeyStorageHint}</p>
+                    </>
+                  ) : null}
 
                   <div className="field-grid">
                     <label className="field">

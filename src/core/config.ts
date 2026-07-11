@@ -19,6 +19,7 @@ import {
 export type AppConfig = {
   baseUrl: string;
   apiKey: string;
+  rememberApiKey: boolean;
   textModel: string;
   imageModel: string;
   timeoutSeconds: number;
@@ -50,6 +51,7 @@ type MaybeConfig = Partial<Record<keyof AppConfig, unknown>>;
 export const DEFAULT_CONFIG: AppConfig = {
   baseUrl: "https://ruoli.dev/v1",
   apiKey: "",
+  rememberApiKey: false,
   textModel: "gpt-5.4-mini",
   imageModel: "gpt-image-2",
   timeoutSeconds: 180,
@@ -93,6 +95,7 @@ export function mergeConfig(value: Partial<AppConfig> | null | undefined): AppCo
     ? merged.imageResponseMode
     : DEFAULT_CONFIG.imageResponseMode;
   merged.uiLanguage = isUiLanguage(merged.uiLanguage) ? merged.uiLanguage : DEFAULT_CONFIG.uiLanguage;
+  merged.rememberApiKey = asBoolean(merged.rememberApiKey, DEFAULT_CONFIG.rememberApiKey);
   merged.hasDismissedWelcome = asBoolean(merged.hasDismissedWelcome, DEFAULT_CONFIG.hasDismissedWelcome);
   merged.batchDefaultTaskCount = clampBatchTaskCount(asNumber(merged.batchDefaultTaskCount));
   const batchExecutionConfig = clampBatchExecutionConfig({

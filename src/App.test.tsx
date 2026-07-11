@@ -7,6 +7,8 @@ import { DEFAULT_CONFIG, mergeConfig } from "./core/config";
 import type { ImageRecord } from "./core/history";
 import { getTranslations } from "./i18n/translations";
 
+const REMEMBERED_UI_API_KEY = ["remembered", "ui", "provider", "key", "123456789"].join("-");
+
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("App batch workspace", () => {
@@ -15,6 +17,7 @@ describe("App batch workspace", () => {
 
   beforeEach(() => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
     window.localStorage.setItem(
       "chat-to-image.config.v1",
       JSON.stringify({ ...DEFAULT_CONFIG, uiLanguage: "en-US", hasDismissedWelcome: true }),
@@ -30,6 +33,7 @@ describe("App batch workspace", () => {
     });
     container.remove();
     window.localStorage.clear();
+    window.sessionStorage.clear();
   });
 
   it("keeps batch draft fields mounted when switching between tabs", async () => {
@@ -353,6 +357,37 @@ describe("App batch workspace", () => {
   it("migrates an unknown stored image response mode back to official", () => {
     expect(DEFAULT_CONFIG.imageResponseMode).toBe("official");
     expect(mergeConfig({ imageResponseMode: "provider-specific" as never }).imageResponseMode).toBe("official");
+  });
+
+  it("remembers the API key only after explicit opt-in", async () => {
+    const copy = getTranslations("en-US");
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+    clickButton(copy.tabs.settings);
+
+    const apiKeyInput = getField<HTMLInputElement>(copy.fields.apiKey, 'input[type="password"]');
+    const rememberToggle = container.querySelector<HTMLInputElement>('[data-testid="settings-remember-api-key"]');
+    if (!rememberToggle) {
+      throw new Error(`Field not found: ${copy.fields.rememberApiKey}`);
+    }
+    expect(rememberToggle.checked).toBe(false);
+
+    setFieldValue(apiKeyInput, REMEMBERED_UI_API_KEY);
+    act(() => {
+      rememberToggle.click();
+    });
+    clickButton(copy.actions.save);
+    await flushEffects();
+
+    const storedConfig = JSON.parse(window.localStorage.getItem("chat-to-image.config.v1") ?? "{}");
+    expect(storedConfig.apiKey).toBeUndefined();
+    expect(storedConfig.rememberApiKey).toBe(true);
+    expect(window.localStorage.getItem("chat-to-image.api-key.persistent.v1")).toContain(
+      REMEMBERED_UI_API_KEY,
+    );
   });
 
   function clickButton(label: string) {

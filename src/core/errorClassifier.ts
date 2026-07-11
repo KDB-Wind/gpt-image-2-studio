@@ -1,3 +1,5 @@
+import { safeErrorMessage } from "./errorSanitizer";
+
 export type UserErrorKind = "auth" | "provider" | "timeout" | "empty-image" | "network" | "unknown";
 
 export type ClassifiedUserError = {
@@ -23,16 +25,16 @@ const COST_WARNINGS: Record<UserErrorKind, boolean> = {
 };
 
 export function classifyErrorForUser(error: unknown): ClassifiedUserError {
-  const technicalDetail = getTechnicalDetail(error);
-  const status = getStatus(error, technicalDetail);
+  const rawTechnicalDetail = getTechnicalDetail(error);
+  const status = getStatus(error, rawTechnicalDetail);
   const errorKind = getErrorKind(error);
-  const searchable = `${technicalDetail} ${getResponseBody(error)}`.toLowerCase();
+  const searchable = `${rawTechnicalDetail} ${getResponseBody(error)}`.toLowerCase();
   const kind = detectKind(searchable, status, errorKind);
 
   return {
     kind,
     costWarning: COST_WARNINGS[kind],
-    technicalDetail,
+    technicalDetail: safeErrorMessage(error),
   };
 }
 

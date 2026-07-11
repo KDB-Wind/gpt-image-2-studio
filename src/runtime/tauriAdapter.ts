@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 
 import { sanitizeBatchManifest } from "../core/batchManifest";
+import { safeErrorMessage } from "../core/errorSanitizer";
 import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest } from "../core/batchTypes";
 import type { AppConfig } from "../core/config";
 import type { ImageRecord } from "../core/history";
@@ -147,7 +148,7 @@ export const tauriAdapter: RuntimeAdapter = {
     } catch (error) {
       return {
         ok: false,
-        message: error instanceof Error ? error.message : String(error),
+        message: safeErrorMessage(error),
       };
     }
   },

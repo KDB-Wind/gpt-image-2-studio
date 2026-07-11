@@ -2,11 +2,13 @@ import { DEFAULT_CONFIG, mergeConfig, type AppConfig } from "../core/config";
 import { buildBatchDirectoryName, buildBatchImageFileName, sanitizeBatchManifest } from "../core/batchManifest";
 import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest } from "../core/batchTypes";
 import { buildImageFileName, formatDateFolder } from "../core/fileNames";
+import { safeErrorMessage } from "../core/errorSanitizer";
 import { sortHistoryNewestFirst, type ImageRecord } from "../core/history";
-import { summarizeSensitiveError } from "../core/providerErrors";
 import type { OutputDirectoryState, RuntimeAdapter, SaveImageInput, SaveImageResult } from "./types";
 
 const CONFIG_KEY = "chat-to-image.config.v1";
+const SESSION_API_KEY = "chat-to-image.api-key.session.v1";
+const PERSISTENT_API_KEY = "chat-to-image.api-key.persistent.v1";
 const HISTORY_KEY = "chat-to-image.history.v1";
 const FILE_HANDLE_DB_NAME = "chat-to-image.file-handles.v1";
 const FILE_HANDLE_STORE_NAME = "handles";
@@ -19,27 +21,33 @@ const OUTPUT_DIRECTORY_TEST_PNG =
 let directoryHandle: FileSystemDirectoryHandle | null = null;
 let readyOutputDirectory: PersistedReadyOutputDirectory | null = null;
 const memoryStorageFallback = new Map<string, string>();
+const memorySessionStorageFallback = new Map<string, string>();
 
-function getBrowserStorage(): Storage | null {
+function getBrowserStorage(kind: "local" | "session" = "local"): Storage | null {
   try {
-    return window.localStorage;
+    return kind === "session" ? window.sessionStorage : window.localStorage;
   } catch {
     return null;
   }
 }
 
-function readStoredValue<T>(key: string, fallback: T): T {
-  const storage = getBrowserStorage();
+function getMemoryStorage(kind: "local" | "session") {
+  return kind === "session" ? memorySessionStorageFallback : memoryStorageFallback;
+}
+
+function readStoredValue<T>(key: string, fallback: T, kind: "local" | "session" = "local"): T {
+  const storage = getBrowserStorage(kind);
+  const memoryStorage = getMemoryStorage(kind);
   let raw: string | null = null;
 
   if (storage) {
     try {
       raw = storage.getItem(key);
     } catch {
-      raw = memoryStorageFallback.get(key) ?? null;
+      raw = memoryStorage.get(key) ?? null;
     }
   } else {
-    raw = memoryStorageFallback.get(key) ?? null;
+    raw = memoryStorage.get(key) ?? null;
   }
 
   if (!raw) {
@@ -53,9 +61,10 @@ function readStoredValue<T>(key: string, fallback: T): T {
   }
 }
 
-function writeStoredValue(key: string, value: unknown) {
+function writeStoredValue(key: string, value: unknown, kind: "local" | "session" = "local") {
   const serializedValue = JSON.stringify(value);
-  const storage = getBrowserStorage();
+  const storage = getBrowserStorage(kind);
+  const memoryStorage = getMemoryStorage(kind);
 
   if (storage) {
     try {
@@ -66,7 +75,22 @@ function writeStoredValue(key: string, value: unknown) {
     }
   }
 
-  memoryStorageFallback.set(key, serializedValue);
+  memoryStorage.set(key, serializedValue);
+}
+
+function removeStoredValue(key: string, kind: "local" | "session" = "local") {
+  const storage = getBrowserStorage(kind);
+  const memoryStorage = getMemoryStorage(kind);
+
+  if (storage) {
+    try {
+      storage.removeItem(key);
+    } catch {
+      // Restricted file:// runtimes fall through to the in-memory store.
+    }
+  }
+
+  memoryStorage.delete(key);
 }
 
 function getIndexedDb(): IDBFactory | null {
@@ -350,7 +374,7 @@ async function imageToBlob(input: SaveImageInput): Promise<Blob> {
 
       return response.blob();
     } catch (error) {
-      const reason = summarizeSensitiveError(error);
+      const reason = safeErrorMessage(error);
       throw new Error(
         `The provider returned an image URL, but this browser could not download it. ` +
           `This is usually caused by CORS restrictions on the provider-hosted image. ` +
@@ -492,11 +516,49 @@ export const webAdapter: RuntimeAdapter = {
   mode: "web",
 
   async loadConfig() {
-    return mergeConfig(readStoredValue<Partial<AppConfig>>(CONFIG_KEY, DEFAULT_CONFIG));
+    const storedValue = readStoredValue<unknown>(CONFIG_KEY, DEFAULT_CONFIG);
+    const storedConfig = storedValue && typeof storedValue === "object" && !Array.isArray(storedValue)
+      ? storedValue as Partial<AppConfig>
+      : {};
+    const legacyApiKey = typeof storedConfig.apiKey === "string" ? storedConfig.apiKey : "";
+    const { apiKey: _legacyApiKey, ...persistableConfig } = storedConfig;
+    const mergedConfig = mergeConfig({ ...persistableConfig, apiKey: "" });
+    const sessionApiKey = readStoredValue<string>(SESSION_API_KEY, "", "session");
+    const persistentApiKey = mergedConfig.rememberApiKey
+      ? readStoredValue<string>(PERSISTENT_API_KEY, "")
+      : "";
+    const apiKey = sessionApiKey || persistentApiKey || legacyApiKey;
+
+    if (!mergedConfig.rememberApiKey) {
+      removeStoredValue(PERSISTENT_API_KEY);
+    }
+
+    if (legacyApiKey) {
+      writeStoredValue(SESSION_API_KEY, legacyApiKey, "session");
+      if (mergedConfig.rememberApiKey) {
+        writeStoredValue(PERSISTENT_API_KEY, legacyApiKey);
+      }
+      writeStoredValue(CONFIG_KEY, persistableConfig);
+    }
+
+    return { ...mergedConfig, apiKey };
   },
 
   async saveConfig(config: AppConfig) {
-    writeStoredValue(CONFIG_KEY, config);
+    const { apiKey, ...persistableConfig } = config;
+    writeStoredValue(CONFIG_KEY, persistableConfig);
+
+    if (apiKey) {
+      writeStoredValue(SESSION_API_KEY, apiKey, "session");
+    } else {
+      removeStoredValue(SESSION_API_KEY, "session");
+    }
+
+    if (config.rememberApiKey && apiKey) {
+      writeStoredValue(PERSISTENT_API_KEY, apiKey);
+    } else {
+      removeStoredValue(PERSISTENT_API_KEY);
+    }
   },
 
   async loadHistory() {
@@ -605,7 +667,7 @@ export const webAdapter: RuntimeAdapter = {
       return {
         ok: false,
         fileName: OUTPUT_DIRECTORY_TEST_FILE_NAME,
-        message: summarizeSensitiveError(error),
+        message: safeErrorMessage(error),
       };
     }
   },
@@ -636,7 +698,7 @@ export const webAdapter: RuntimeAdapter = {
         outputPath = buildFileSystemAccessOutputPath(outputDirectoryHandle.name, dateFolder, fileName);
         saveMode = "authorized-directory";
       } catch (error) {
-        saveFallbackReason = summarizeSensitiveError(error);
+        saveFallbackReason = safeErrorMessage(error);
         previewUrl = downloadBlob(blob, fileName);
       }
     } else {
@@ -675,7 +737,7 @@ export const webAdapter: RuntimeAdapter = {
         outputPath = buildFileSystemAccessOutputPath(outputDirectoryHandle.name, batchFolder, fileName);
         saveMode = "authorized-directory";
       } catch (error) {
-        saveFallbackReason = summarizeSensitiveError(error);
+        saveFallbackReason = safeErrorMessage(error);
         previewUrl = downloadBlob(blob, fileName);
       }
     } else {
@@ -741,4 +803,5 @@ export function __resetWebAdapterForTests() {
   directoryHandle = null;
   readyOutputDirectory = null;
   memoryStorageFallback.clear();
+  memorySessionStorageFallback.clear();
 }

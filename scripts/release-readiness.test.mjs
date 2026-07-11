@@ -32,6 +32,7 @@ jobs:
       - run: npm run build
       - run: npm run build:static
       - run: npm run desktop:build
+      - run: npm run secret:scan
       - name: Generate installer checksums
         run: |
           Get-FileHash src-tauri/target/release/bundle/nsis/*.exe, dist-static/gpt-image-2-studio-lite.html -Algorithm SHA256 |
@@ -78,6 +79,7 @@ jobs:
       - run: npm run test:run
       - run: npm run build:static
       - run: npm run site:check
+      - run: npm run secret:scan
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist-static
@@ -87,6 +89,78 @@ jobs:
 `;
 
     expect(checkPagesWorkflow(workflow)).toEqual([]);
+  });
+
+  it("rejects a Pages workflow that scans only before the static build", () => {
+    const workflow = `
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+steps:
+  - uses: actions/checkout@v4
+  - uses: actions/setup-node@v4
+  - run: npm ci
+  - run: npm run secret:scan
+  - run: npm run release:check
+  - run: npm run test:run
+  - run: npm run build:static
+  - run: npm run site:check
+  - uses: actions/upload-pages-artifact@v3
+    with:
+      path: dist-static
+  - uses: actions/deploy-pages@v4
+`;
+
+    expect(checkPagesWorkflow(workflow)).toContain(
+      "Pages workflow must scan built static artifacts before upload.",
+    );
+  });
+
+  it("rejects a Release workflow that scans only before release assets are built", () => {
+    const workflow = `
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npm run secret:scan
+      - run: npm run release:check
+      - run: npm run test:run
+      - run: npm run build
+      - run: npm run build:static
+      - run: npm run desktop:build
+      - run: Get-FileHash dist-static/gpt-image-2-studio-lite.html | Set-Content SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          retention-days: 30
+          path: |
+            dist-static/gpt-image-2-studio-lite.html
+            SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: docs/release-notes/v0.1.2.md
+          files: |
+            dist-static/gpt-image-2-studio-lite.html
+            SHA256SUMS.txt
+`;
+
+    expect(checkReleaseWorkflow(workflow, "0.1.2")).toContain(
+      "Release workflow must scan built release assets before checksums and upload.",
+    );
   });
 
   it("requires checksums and bounded artifact retention for installer releases", () => {
@@ -128,6 +202,7 @@ jobs:
         "Release workflow must upload SHA256SUMS.txt as a workflow artifact.",
         "Release workflow must attach SHA256SUMS.txt to the draft GitHub Release.",
         "Release workflow must set artifact retention-days for installer artifacts.",
+        "Release workflow must run the unified secret scan.",
       ]),
     );
   });
@@ -154,9 +229,7 @@ jobs:
       "src/example.ts": `const key = '${fakeKey}';`,
     });
 
-    expect(findings).toEqual([
-      "src/example.ts contains a real-looking API key pattern.",
-    ]);
+    expect(findings).toEqual(["src/example.ts: openai-like-key"]);
   });
 
   it("keeps the repository release chain ready", () => {

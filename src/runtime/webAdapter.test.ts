@@ -6,16 +6,116 @@ import { __resetWebAdapterForTests, isSameOutputDirectoryHandle, webAdapter } fr
 
 const ONE_PIXEL_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lwP8NwAAAABJRU5ErkJggg==";
+const SESSION_API_KEY = ["session", "provider", "key", "123456789"].join("-");
+const REMEMBERED_API_KEY = ["remembered", "provider", "key", "123456789"].join("-");
+const CURRENT_SESSION_API_KEY = ["current", "session", "key", "987654321"].join("-");
+const STALE_API_KEY = ["stale", "persistent", "provider", "key", "123456789"].join("-");
+const LEGACY_API_KEY = ["legacy", "provider", "key", "123456789"].join("-");
+const MEMORY_API_KEY = ["memory", "provider", "key", "123456789"].join("-");
 
 describe("webAdapter history deletion", () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     __resetWebAdapterForTests();
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    sessionStorage.clear();
+  });
+
+  it("keeps the API key out of ordinary local config and restores it from session storage", async () => {
+    await webAdapter.saveConfig({
+      ...DEFAULT_CONFIG,
+      apiKey: SESSION_API_KEY,
+      rememberApiKey: false,
+      uiLanguage: "en-US",
+    });
+
+    const storedConfig = JSON.parse(localStorage.getItem("chat-to-image.config.v1") ?? "{}");
+    expect(storedConfig.apiKey).toBeUndefined();
+    expect(localStorage.getItem("chat-to-image.api-key.persistent.v1")).toBeNull();
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      apiKey: SESSION_API_KEY,
+      rememberApiKey: false,
+      uiLanguage: "en-US",
+    });
+  });
+
+  it("persists the API key separately only after explicit opt-in", async () => {
+    await webAdapter.saveConfig({
+      ...DEFAULT_CONFIG,
+      apiKey: REMEMBERED_API_KEY,
+      rememberApiKey: true,
+    });
+
+    const storedConfig = JSON.parse(localStorage.getItem("chat-to-image.config.v1") ?? "{}");
+    expect(storedConfig.apiKey).toBeUndefined();
+    expect(localStorage.getItem("chat-to-image.api-key.persistent.v1")).toContain(REMEMBERED_API_KEY);
+
+    sessionStorage.clear();
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      apiKey: REMEMBERED_API_KEY,
+      rememberApiKey: true,
+    });
+  });
+
+  it("removes a remembered key when opt-in is disabled but keeps the current session key", async () => {
+    await webAdapter.saveConfig({
+      ...DEFAULT_CONFIG,
+      apiKey: REMEMBERED_API_KEY,
+      rememberApiKey: true,
+    });
+    await webAdapter.saveConfig({
+      ...DEFAULT_CONFIG,
+      apiKey: CURRENT_SESSION_API_KEY,
+      rememberApiKey: false,
+    });
+
+    expect(localStorage.getItem("chat-to-image.api-key.persistent.v1")).toBeNull();
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      apiKey: CURRENT_SESSION_API_KEY,
+      rememberApiKey: false,
+    });
+  });
+
+  it("removes a stale persistent key while loading an opted-out config", async () => {
+    localStorage.setItem(
+      "chat-to-image.config.v1",
+      JSON.stringify({ ...DEFAULT_CONFIG, apiKey: undefined, rememberApiKey: false }),
+    );
+    localStorage.setItem(
+      "chat-to-image.api-key.persistent.v1",
+      JSON.stringify(STALE_API_KEY),
+    );
+
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      apiKey: "",
+      rememberApiKey: false,
+    });
+    expect(localStorage.getItem("chat-to-image.api-key.persistent.v1")).toBeNull();
+  });
+
+  it("migrates a legacy API key out of the ordinary config into session storage", async () => {
+    localStorage.setItem(
+      "chat-to-image.config.v1",
+      JSON.stringify({ ...DEFAULT_CONFIG, apiKey: LEGACY_API_KEY, rememberApiKey: false }),
+    );
+
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      apiKey: LEGACY_API_KEY,
+      rememberApiKey: false,
+    });
+    const migratedConfig = JSON.parse(localStorage.getItem("chat-to-image.config.v1") ?? "{}");
+    expect(migratedConfig.apiKey).toBeUndefined();
+  });
+
+  it("falls back safely when the stored config JSON is not an object", async () => {
+    localStorage.setItem("chat-to-image.config.v1", "null");
+
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject(DEFAULT_CONFIG);
   });
 
   it("reports unsupported when the File System Access API is unavailable", async () => {
@@ -61,6 +161,28 @@ describe("webAdapter history deletion", () => {
 
     await expect(webAdapter.loadConfig()).resolves.toMatchObject({
       apiKey: "test-key",
+      uiLanguage: "en-US",
+    });
+  });
+
+  it("keeps working from in-memory stores when both browser storage APIs are blocked", async () => {
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("Access is denied for this document.", "SecurityError");
+    });
+    vi.spyOn(window, "sessionStorage", "get").mockImplementation(() => {
+      throw new DOMException("Access is denied for this document.", "SecurityError");
+    });
+
+    await webAdapter.saveConfig({
+      ...DEFAULT_CONFIG,
+      apiKey: MEMORY_API_KEY,
+      rememberApiKey: false,
+      uiLanguage: "en-US",
+    });
+
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      apiKey: MEMORY_API_KEY,
+      rememberApiKey: false,
       uiLanguage: "en-US",
     });
   });

@@ -39,13 +39,25 @@ const COST_RISK_MARKERS = [
 const DEFAULT_SAFE_ERROR_SUMMARY = "Provider error details were redacted.";
 const DEFAULT_SAFE_ERROR_SUMMARY_LENGTH = 280;
 const SENSITIVE_FIELD_NAME =
-  "(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|token|signature|secret|key)";
+  "(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|aws[_-]?secret[_-]?access[_-]?key|aws[_-]?access[_-]?key[_-]?id|github[_-]?token|token|signature|secret|key)";
 const SENSITIVE_ASSIGNMENT_PATTERN =
   new RegExp(`(["']?${SENSITIVE_FIELD_NAME}["']?\\s*[:=]\\s*)(["'])(.*?)\\2`, "gi");
 const SENSITIVE_BARE_ASSIGNMENT_PATTERN = new RegExp(
   `(\\b${SENSITIVE_FIELD_NAME}\\b\\s*[:=]\\s*)([^\\s,}\\]]+)`,
   "gi",
 );
+const CREDENTIAL_TOKEN_SOURCE = [
+  "sk[-_A-Za-z0-9]{10,}",
+  "1ts[-_A-Za-z0-9]{10,}",
+  "gh[pousr]_[A-Za-z0-9]{20,}",
+  "github_pat_[A-Za-z0-9_]{20,}",
+  "(?:AKIA|ASIA)[A-Z0-9]{16}",
+  "AIza[A-Za-z0-9_-]{28,}",
+  "xox[baprs]-[A-Za-z0-9-]{20,}",
+  "ya29\\.[A-Za-z0-9_-]{20,}",
+].join("|");
+const CREDENTIAL_TOKEN_PATTERN = new RegExp(CREDENTIAL_TOKEN_SOURCE, "gi");
+const CREDENTIAL_TOKEN_DETECTION_PATTERN = new RegExp(CREDENTIAL_TOKEN_SOURCE, "i");
 
 export function classifyProviderError(input: ProviderErrorInput): ProviderErrorClassification {
   if (input.status === 401 || input.status === 403) {
@@ -137,6 +149,10 @@ export function isCostRiskProviderError(input: ProviderErrorInput): boolean {
   }
 
   return hasStructuredErrorObject(input.payload) && input.status === 200;
+}
+
+export function isCredentialLikeToken(value: string): boolean {
+  return CREDENTIAL_TOKEN_DETECTION_PATTERN.test(value);
 }
 
 export function summarizeSensitiveError(input: unknown, options: SafeErrorSummaryOptions = {}): string {
@@ -334,7 +350,7 @@ function redactSensitiveText(value: string): string {
     .replace(SENSITIVE_ASSIGNMENT_PATTERN, (_match, prefix: string, quote: string) => `${prefix}${quote}[redacted]${quote}`)
     .replace(SENSITIVE_BARE_ASSIGNMENT_PATTERN, "$1[redacted]")
     .replace(/([?&](?:signature|token|key|api_key|access_token)=)[^&\s"'<>]+/gi, "$1[redacted]")
-    .replace(/\b(?:sk|1ts)[-_A-Za-z0-9]{10,}\b/g, "[redacted-token]")
+    .replace(CREDENTIAL_TOKEN_PATTERN, "[redacted-token]")
     .replace(/https?:\/\/[^\s"'<>]+/g, "[redacted-url]");
 }
 

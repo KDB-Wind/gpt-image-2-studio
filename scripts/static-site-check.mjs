@@ -1,25 +1,9 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { isDirectExecution, validateVersionManifest } from "./archive-static-version.mjs";
 
 const defaultRootDir = resolve(".");
-
-function listFiles(dir) {
-  if (!existsSync(dir)) {
-    return [];
-  }
-
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const absolutePath = join(dir, entry.name);
-
-    if (entry.isDirectory()) {
-      return listFiles(absolutePath);
-    }
-
-    return [absolutePath];
-  });
-}
 
 function listArchiveVersions(dir) {
   if (!existsSync(dir)) {
@@ -87,38 +71,6 @@ function assertRequiredFiles(distDir) {
   }
 }
 
-function assertNoSecrets(distDir) {
-  const secretPatterns = [
-    {
-      label: "real-looking API key",
-      pattern: /\bsk-[A-Za-z0-9_-]{24,}\b/g,
-    },
-  ];
-  const findings = [];
-
-  for (const file of listFiles(distDir)) {
-    const stats = statSync(file);
-
-    if (stats.size > 10 * 1024 * 1024) {
-      continue;
-    }
-
-    const contents = readFileSync(file, "utf8");
-
-    for (const secretPattern of secretPatterns) {
-      if (secretPattern.pattern.test(contents)) {
-        findings.push(`${file} contains ${secretPattern.label}.`);
-      }
-
-      secretPattern.pattern.lastIndex = 0;
-    }
-  }
-
-  if (findings.length > 0) {
-    throw new Error(`Static site secret scan failed:\n${findings.map((item) => `- ${item}`).join("\n")}`);
-  }
-}
-
 function assertSingleFileParity(distDir) {
   const indexHtml = readFileSync(join(distDir, "index.html"), "utf8");
   const liteHtml = readFileSync(join(distDir, "gpt-image-2-studio-lite.html"), "utf8");
@@ -158,7 +110,6 @@ function assertHeaderLogoIsSelfContained(distDir) {
 
 export function runStaticSiteCheck({ rootDir = defaultRootDir, distDir = join(rootDir, "dist-static") } = {}) {
   assertRequiredFiles(distDir);
-  assertNoSecrets(distDir);
   assertSingleFileParity(distDir);
   assertVersionManifestAndArchives({ rootDir, distDir });
   assertFaviconIsInlined(distDir);

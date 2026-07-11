@@ -53,6 +53,9 @@ jobs:
       - name: Check static site output
         run: npm run site:check
 
+      - name: Scan source and built static artifacts for secrets
+        run: npm run secret:scan
+
       - name: Add Pages marker
         run: touch dist-static/.nojekyll
 

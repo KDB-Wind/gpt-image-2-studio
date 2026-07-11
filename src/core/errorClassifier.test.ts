@@ -50,6 +50,19 @@ describe("classifyErrorForUser", () => {
     expect(result.costWarning).toBe(true);
   });
 
+  it("returns a sanitized technical detail for user-facing formatting", () => {
+    const secret = ["private", "provider", "token", "123456789"].join("-");
+    const result = classifyErrorForUser({
+      status: 500,
+      message: `upstream failed at https://provider.example/image?token=${secret}`,
+      responseBody: JSON.stringify({ error: { message: `Authorization: Bearer ${secret}` } }),
+    });
+
+    expect(result.kind).toBe("provider");
+    expect(result.technicalDetail).not.toContain(secret);
+    expect(result.technicalDetail).not.toContain("provider.example");
+  });
+
   it("returns Chinese copy when the active UI language is Chinese", () => {
     const error = new Error("Failed to fetch");
     const result = classifyErrorForUser(error);

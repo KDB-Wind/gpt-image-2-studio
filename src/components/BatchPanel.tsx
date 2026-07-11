@@ -15,6 +15,7 @@ import {
   splitPromptWithTextModel,
 } from "../core/batchPromptSplitter";
 import { retrySingleBatchTask, runBatchTasks } from "../core/batchRunner";
+import { safeErrorMessage } from "../core/errorSanitizer";
 import {
   buildBatchPromptRecipe,
   countRecoverableBatchTasks,
@@ -677,7 +678,7 @@ export function BatchPanel({
           : copy.batch.messages.splitSuccess(nextTasks.length),
       );
     } catch (error) {
-      setAppMessage(copy.batch.messages.splitFailed(error instanceof Error ? error.message : "Unknown error."));
+      setAppMessage(copy.batch.messages.splitFailed(safeErrorMessage(error)));
     } finally {
       isSplittingRef.current = false;
       setIsSplitting(false);
@@ -827,7 +828,7 @@ export function BatchPanel({
       await navigator.clipboard.writeText(text);
       setAppMessage(copy.batch.messages.recipeCopied);
     } catch (error) {
-      setAppMessage(copy.batch.messages.recipeCopyFailed(error instanceof Error ? error.message : "Unknown error."));
+      setAppMessage(copy.batch.messages.recipeCopyFailed(safeErrorMessage(error)));
     }
   }
 
@@ -914,7 +915,7 @@ export function BatchPanel({
       await notifyBatchComplete(copy.batch.title, message);
     } catch (error) {
       setStatus("paused");
-      setPauseMessage(error instanceof Error ? error.message : "Batch execution failed.");
+      setPauseMessage(safeErrorMessage(error));
     } finally {
       restoreDocumentTitle();
     }

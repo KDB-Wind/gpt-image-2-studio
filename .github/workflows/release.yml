@@ -62,6 +62,9 @@ jobs:
       - name: Build Windows installers
         run: npm run desktop:build
 
+      - name: Scan source and built release artifacts for secrets
+        run: npm run secret:scan
+
       - name: Generate release checksums
         shell: pwsh
         run: |

@@ -450,6 +450,31 @@ describe("requestJsonWithTimeout", () => {
 
     vi.useRealTimers();
   });
+
+  it("keeps provider response bodies out of the thrown public message", async () => {
+    const secret = ["private", "provider", "token", "123456789"].join("-");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ error: { message: `failed at https://provider.example/file?token=${secret}` } }),
+          { status: 500, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    let caught: unknown;
+    try {
+      await requestJsonWithTimeout(config, { path: "/images/generations", body: {} });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe("Request failed with status 500.");
+    expect((caught as Error).message).not.toContain(secret);
+    expect((caught as Error).message).not.toContain("provider.example");
+  });
 });
 
 describe("sendTextRequest", () => {

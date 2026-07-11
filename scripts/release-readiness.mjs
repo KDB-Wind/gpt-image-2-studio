@@ -1,30 +1,7 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { extname, join } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-
-const TEXT_EXTENSIONS = new Set([
-  ".css",
-  ".html",
-  ".js",
-  ".json",
-  ".jsx",
-  ".md",
-  ".mjs",
-  ".rs",
-  ".toml",
-  ".ts",
-  ".tsx",
-  ".yml",
-  ".yaml",
-]);
-
-const SECRET_PATTERNS = [
-  {
-    label: "a real-looking API key pattern",
-    pattern: /\bsk-[A-Za-z0-9_-]{24,}\b/,
-  },
-];
+import { findSecretFindings, formatSecretFinding, scanRepositorySecrets } from "./secret-scan.mjs";
 
 function readText(path) {
   return readFileSync(path, "utf8");
@@ -42,44 +19,16 @@ function hasBundleTarget(targets, target) {
   return Array.isArray(targets) && targets.includes(target);
 }
 
-function listCandidateFiles(rootDir) {
-  const output = execFileSync(
-    "git",
-    ["ls-files", "--cached", "--others", "--exclude-standard"],
-    {
-      cwd: rootDir,
-      encoding: "utf8",
-    },
-  );
-
-  return output
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .filter((file) => TEXT_EXTENSIONS.has(extname(file).toLowerCase()));
-}
-
-function readCandidateFiles(rootDir) {
-  return Object.fromEntries(
-    listCandidateFiles(rootDir).map((file) => [file, readText(join(rootDir, file))]),
-  );
-}
-
 export function findSensitivePatterns(filesByPath) {
-  const findings = [];
-
-  for (const [file, contents] of Object.entries(filesByPath)) {
-    for (const secretPattern of SECRET_PATTERNS) {
-      if (secretPattern.pattern.test(contents)) {
-        findings.push(`${file} contains ${secretPattern.label}.`);
-      }
-    }
-  }
-
-  return findings;
+  return findSecretFindings(filesByPath).map(formatSecretFinding);
 }
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function commandIndex(workflowText, command, useLast = false) {
+  return useLast ? workflowText.lastIndexOf(command) : workflowText.indexOf(command);
 }
 
 export function checkReleaseWorkflow(workflowText, releaseVersion) {
@@ -96,6 +45,7 @@ export function checkReleaseWorkflow(workflowText, releaseVersion) {
     [/actions\/setup-node@v4/, "Release workflow must install Node.js."],
     [/dtolnay\/rust-toolchain@stable/, "Release workflow must install Rust stable."],
     [/npm ci/, "Release workflow must install dependencies with npm ci."],
+    [/npm run secret:scan/, "Release workflow must run the unified secret scan."],
     [/npm run release:check/, "Release workflow must run the release readiness check."],
     [/npm run test:run/, "Release workflow must run tests before packaging."],
     [/npm run build/, "Release workflow must build the frontend before packaging."],
@@ -112,9 +62,25 @@ export function checkReleaseWorkflow(workflowText, releaseVersion) {
     [/softprops\/action-gh-release@v2[\s\S]*files:\s*\|[\s\S]*SHA256SUMS\.txt/, "Release workflow must attach SHA256SUMS.txt to the draft GitHub Release."],
   ];
 
-  return checks
+  const errors = checks
     .filter(([pattern]) => !pattern.test(workflowText))
     .map(([, message]) => message);
+
+  const staticBuildIndex = commandIndex(workflowText, "npm run build:static");
+  const desktopBuildIndex = commandIndex(workflowText, "npm run desktop:build");
+  const secretScanIndex = commandIndex(workflowText, "npm run secret:scan", true);
+  const checksumIndex = commandIndex(workflowText, "Get-FileHash");
+  if (
+    staticBuildIndex >= 0
+    && desktopBuildIndex >= 0
+    && secretScanIndex >= 0
+    && (secretScanIndex < Math.max(staticBuildIndex, desktopBuildIndex)
+      || (checksumIndex >= 0 && secretScanIndex > checksumIndex))
+  ) {
+    errors.push("Release workflow must scan built release assets before checksums and upload.");
+  }
+
+  return errors;
 }
 
 export function checkPagesWorkflow(workflowText) {
@@ -127,6 +93,7 @@ export function checkPagesWorkflow(workflowText) {
     [/actions\/checkout@v4/, "Pages workflow must check out the repository."],
     [/actions\/setup-node@v4/, "Pages workflow must install Node.js."],
     [/npm ci/, "Pages workflow must install dependencies with npm ci."],
+    [/npm run secret:scan/, "Pages workflow must run the unified secret scan."],
     [/npm run release:check/, "Pages workflow must run the release readiness check."],
     [/npm run test:run/, "Pages workflow must run frontend tests."],
     [/npm run build:static/, "Pages workflow must build the static HTML site."],
@@ -136,9 +103,25 @@ export function checkPagesWorkflow(workflowText) {
     [/actions\/deploy-pages@v4/, "Pages workflow must deploy with actions/deploy-pages."],
   ];
 
-  return checks
+  const errors = checks
     .filter(([pattern]) => !pattern.test(workflowText))
     .map(([, message]) => message);
+
+  const staticBuildIndex = commandIndex(workflowText, "npm run build:static");
+  const siteCheckIndex = commandIndex(workflowText, "npm run site:check");
+  const secretScanIndex = commandIndex(workflowText, "npm run secret:scan", true);
+  const uploadIndex = commandIndex(workflowText, "actions/upload-pages-artifact@v3");
+  if (
+    staticBuildIndex >= 0
+    && siteCheckIndex >= 0
+    && secretScanIndex >= 0
+    && uploadIndex >= 0
+    && (secretScanIndex < Math.max(staticBuildIndex, siteCheckIndex) || secretScanIndex > uploadIndex)
+  ) {
+    errors.push("Pages workflow must scan built static artifacts before upload.");
+  }
+
+  return errors;
 }
 
 export function checkTauriWindowsBundleConfig(config) {
@@ -211,7 +194,7 @@ export function runReleaseReadiness(rootDir) {
   }
 
   errors.push(...checkPublicProjectDocs(rootDir, releaseVersion));
-  errors.push(...findSensitivePatterns(readCandidateFiles(rootDir)));
+  errors.push(...scanRepositorySecrets(rootDir).map(formatSecretFinding));
 
   return errors;
 }

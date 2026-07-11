@@ -209,6 +209,7 @@ type TranslationBundle = {
     optimizedPromptPlaceholder: string;
     baseUrl: string;
     apiKey: string;
+    rememberApiKey: string;
     textModel: string;
     imageModel: string;
     timeoutSeconds: string;
@@ -376,6 +377,7 @@ type TranslationBundle = {
     compressionHint: string;
     compressionUnavailable: string;
     imageResponseModeHint: string;
+    apiKeyStorageHint: string;
   };
   welcome: {
     title: string;
@@ -669,6 +671,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       optimizedPromptPlaceholder: "可选；你也可以手动修改这里的内容后再生成。",
       baseUrl: "Base URL",
       apiKey: "API key",
+      rememberApiKey: "在此设备上记住 API key",
       textModel: "文字模型",
       imageModel: "生图模型",
       timeoutSeconds: "超时时间（秒）",
@@ -841,6 +844,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       customSizeHint: "自定义尺寸适合高级用法；只要满足约束就可以尝试，但兼容服务商不支持时仍会返回接口错误。",
       compressionHint: "output_compression 仅对 JPEG / WebP 生效；数值越高通常画质越高、文件也越大。",
       compressionUnavailable: "PNG 不使用压缩参数。",
+      apiKeyStorageHint: "默认只在当前浏览器会话中保存。仅在你信任的个人设备上启用长期保存。",
       imageResponseModeHint:
         "默认遵循 OpenAI 官方 GPT Image 行为，不发送 response_format。仅当中转站或供应商明确要求时，才启用“中转站强制 base64”。",
     },
@@ -1173,6 +1177,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       optimizedPromptPlaceholder: "Optional. You can still edit this text before generating.",
       baseUrl: "Base URL",
       apiKey: "API key",
+      rememberApiKey: "Remember API key on this device",
       textModel: "Text model",
       imageModel: "Image model",
       timeoutSeconds: "Timeout (seconds)",
@@ -1349,6 +1354,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       compressionUnavailable: "PNG does not use a compression parameter.",
       imageResponseModeHint:
         "The default follows official OpenAI GPT Image behavior and omits response_format. Enable force-base64 only when a relay or provider explicitly requires it.",
+      apiKeyStorageHint: "By default the key lasts only for this browser session. Enable long-term storage only on a trusted personal device.",
     },
     welcome: {
       title: "Welcome to Local Image Studio",

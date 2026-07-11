@@ -1,5 +1,6 @@
 import { isCompressionFormat, type ImageOutputFormat, type ImageQuality } from "./imageOptions";
 import { normalizeBaseUrl, type AppConfig, type ImageResponseMode } from "./config";
+import { safeErrorMessage } from "./errorSanitizer";
 
 export type TextRequestInput = {
   model: string;
@@ -205,7 +206,11 @@ export function parseImageGenerationResponse(payload: unknown): ParsedImage[] {
   const record = asRecord(payload);
   const providerError = readProviderErrorMessage(record);
   if (providerError) {
-    throw new Error(providerError);
+    throw new ApiClientError(safeErrorMessage({ status: 200, payload: record }), {
+      kind: "http",
+      status: 200,
+      responseBody: safeJsonStringify(record),
+    });
   }
 
   const data = Array.isArray(record.data) ? record.data : [];
@@ -262,8 +267,7 @@ export async function requestJsonWithTimeout(config: AppConfig, { path, body }: 
 
     if (!response.ok) {
       const details = await readResponseText(response);
-      const suffix = details ? `: ${details}` : "";
-      throw new ApiClientError(`Request failed with status ${response.status}${suffix}`, {
+      throw new ApiClientError(`Request failed with status ${response.status}.`, {
         kind: "http",
         status: response.status,
         responseBody: details,
@@ -282,7 +286,7 @@ export async function requestJsonWithTimeout(config: AppConfig, { path, body }: 
       throw error;
     }
 
-    throw new ApiClientError(error instanceof Error ? error.message : "Request failed.", {
+    throw new ApiClientError(safeErrorMessage(error), {
       kind: "network",
     });
   } finally {
@@ -311,8 +315,7 @@ export async function requestMultipartWithTimeout(config: AppConfig, { path, bod
 
     if (!response.ok) {
       const details = await readResponseText(response);
-      const suffix = details ? `: ${details}` : "";
-      throw new ApiClientError(`Request failed with status ${response.status}${suffix}`, {
+      throw new ApiClientError(`Request failed with status ${response.status}.`, {
         kind: "http",
         status: response.status,
         responseBody: details,
@@ -331,7 +334,7 @@ export async function requestMultipartWithTimeout(config: AppConfig, { path, bod
       throw error;
     }
 
-    throw new ApiClientError(error instanceof Error ? error.message : "Request failed.", {
+    throw new ApiClientError(safeErrorMessage(error), {
       kind: "network",
     });
   } finally {
@@ -517,6 +520,14 @@ function decodeBase64(value: string): ArrayBuffer {
 async function readResponseText(response: Response): Promise<string> {
   try {
     return (await response.text()).trim();
+  } catch {
+    return "";
+  }
+}
+
+function safeJsonStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value);
   } catch {
     return "";
   }
