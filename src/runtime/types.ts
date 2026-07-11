@@ -1,5 +1,11 @@
 import type { ParsedImage } from "../core/apiClient";
-import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest, ImageSaveMode } from "../core/batchTypes";
+import type {
+  BatchImageSaveInput,
+  BatchImageSaveResult,
+  BatchManifest,
+  BatchWorkspace,
+  ImageSaveMode,
+} from "../core/batchTypes";
 import type { AppConfig } from "../core/config";
 import type { ImageRecord } from "../core/history";
 
@@ -47,6 +53,8 @@ export type RuntimeAdapter = {
   saveImage(input: SaveImageInput): Promise<SaveImageResult>;
   saveBatchImage(input: BatchImageSaveInput): Promise<BatchImageSaveResult>;
   saveBatchManifest(manifest: BatchManifest): Promise<string>;
+  loadBatchWorkspace?(): Promise<BatchWorkspace | null>;
+  saveBatchWorkspace?(workspace: BatchWorkspace): Promise<void>;
   chooseOutputDirectory(): Promise<string | null>;
   openOutputPath(path: string): Promise<void>;
 };

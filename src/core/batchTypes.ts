@@ -74,6 +74,24 @@ export type BatchSplitResultItem = {
   notes?: string;
 };
 
+export type BatchWorkspace = {
+  schemaVersion: 1;
+  id: string;
+  title: string;
+  source: BatchSource;
+  status: BatchStatus;
+  createdAt: string;
+  startedAt: string;
+  completedAt: string;
+  masterPrompt: string;
+  styleLock: string;
+  customPromptDrafts: string[];
+  taskCount: number;
+  splitTemplateId: BatchSplitTemplateId;
+  customSplitSystemPrompt: string;
+  tasks: BatchTask[];
+};
+
 export type BatchSplitPlanningResult = {
   recommendedCount?: number;
   countReason?: string;

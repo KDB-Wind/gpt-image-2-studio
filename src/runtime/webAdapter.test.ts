@@ -187,6 +187,96 @@ describe("webAdapter history deletion", () => {
     });
   });
 
+  it("persists a sanitized versioned batch workspace and restores it", async () => {
+    const adapter = webAdapter as typeof webAdapter & {
+      loadBatchWorkspace(): Promise<unknown>;
+      saveBatchWorkspace(workspace: unknown): Promise<void>;
+    };
+    const workspace = createBatchWorkspace({
+      apiKey: "must-not-persist",
+      referenceImages: [new File(["reference-bytes"], "reference.png", { type: "image/png" })],
+      tasks: [
+        createWorkspaceTask({
+          status: "succeeded",
+          previewUrl: "blob:generated-secret-preview",
+          saveFallbackReason: "Failed at https://provider.example/image.png?token=private-token",
+        }),
+      ],
+    });
+
+    await adapter.saveBatchWorkspace(workspace);
+
+    const raw = localStorage.getItem("chat-to-image.batch.draft.v1") ?? "";
+    expect(raw).toContain('"schemaVersion":1');
+    expect(raw).not.toContain("blob:generated-secret-preview");
+    expect(raw).not.toContain("private-token");
+    expect(raw).not.toContain("apiKey");
+    expect(raw).not.toContain("must-not-persist");
+    expect(raw).not.toContain("reference-bytes");
+    await expect(adapter.loadBatchWorkspace()).resolves.toMatchObject({
+      schemaVersion: 1,
+      masterPrompt: "Create two launch posters",
+      taskCount: 2,
+      tasks: [expect.objectContaining({ status: "succeeded", previewUrl: "" })],
+    });
+  });
+
+  it("normalizes stale running workspace state to recoverable paused and pending state", async () => {
+    const adapter = webAdapter as typeof webAdapter & {
+      loadBatchWorkspace(): Promise<unknown>;
+    };
+    localStorage.setItem(
+      "chat-to-image.batch.draft.v1",
+      JSON.stringify(
+        createBatchWorkspace({
+          status: "running",
+          tasks: [createWorkspaceTask({ status: "running", previewUrl: "blob:running" })],
+        }),
+      ),
+    );
+
+    await expect(adapter.loadBatchWorkspace()).resolves.toMatchObject({
+      status: "paused",
+      tasks: [
+        expect.objectContaining({
+          status: "pending",
+          errorMessage: "",
+          failureCategory: null,
+          previewUrl: "",
+        }),
+      ],
+    });
+  });
+
+  it("ignores absent, older, and malformed batch workspace values", async () => {
+    const adapter = webAdapter as typeof webAdapter & {
+      loadBatchWorkspace(): Promise<unknown>;
+    };
+
+    await expect(adapter.loadBatchWorkspace()).resolves.toBeNull();
+    localStorage.setItem("chat-to-image.batch.draft.v1", JSON.stringify({ schemaVersion: 0, tasks: [] }));
+    await expect(adapter.loadBatchWorkspace()).resolves.toBeNull();
+    localStorage.setItem("chat-to-image.batch.draft.v1", "not-json");
+    await expect(adapter.loadBatchWorkspace()).resolves.toBeNull();
+  });
+
+  it("uses the existing in-memory fallback for batch workspace when localStorage is denied", async () => {
+    const adapter = webAdapter as typeof webAdapter & {
+      loadBatchWorkspace(): Promise<unknown>;
+      saveBatchWorkspace(workspace: unknown): Promise<void>;
+    };
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("Access is denied for this document.", "SecurityError");
+    });
+
+    await adapter.saveBatchWorkspace(createBatchWorkspace());
+
+    await expect(adapter.loadBatchWorkspace()).resolves.toMatchObject({
+      masterPrompt: "Create two launch posters",
+      taskCount: 2,
+    });
+  });
+
   it("deletes selected history records from local storage and returns the remaining records", async () => {
     const first = await webAdapter.saveImage({
       image: { base64: ONE_PIXEL_PNG },
@@ -586,6 +676,46 @@ describe("webAdapter history deletion", () => {
     ).resolves.toBeNull();
   });
 });
+
+function createBatchWorkspace(overrides: Record<string, unknown> = {}) {
+  return {
+    schemaVersion: 1,
+    id: "batch-workspace-1",
+    title: "Launch campaign",
+    source: "same-prompt",
+    status: "completed",
+    createdAt: "2026-07-12T00:00:00.000Z",
+    startedAt: "2026-07-12T00:00:01.000Z",
+    completedAt: "2026-07-12T00:00:02.000Z",
+    masterPrompt: "Create two launch posters",
+    styleLock: "Use one visual system",
+    customPromptDrafts: ["Launch alpha", "Launch beta"],
+    taskCount: 2,
+    splitTemplateId: "basic",
+    customSplitSystemPrompt: "",
+    tasks: [createWorkspaceTask()],
+    ...overrides,
+  };
+}
+
+function createWorkspaceTask(overrides: Partial<BatchTask> = {}): BatchTask {
+  return {
+    id: "task-1",
+    index: 0,
+    title: "Launch alpha",
+    prompt: "Launch alpha",
+    status: "succeeded",
+    attemptCount: 1,
+    errorMessage: "",
+    failureCategory: null,
+    outputPath: "outputs/launch-alpha.png",
+    previewUrl: "blob:launch-alpha",
+    durationMs: 1000,
+    startedAt: "2026-07-12T00:00:01.000Z",
+    completedAt: "2026-07-12T00:00:02.000Z",
+    ...overrides,
+  };
+}
 
 function createBatchTask(overrides: Partial<BatchTask>): BatchTask {
   return {

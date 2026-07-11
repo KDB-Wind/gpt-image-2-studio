@@ -37,6 +37,7 @@ import {
   type BatchSource,
   type BatchStatus,
   type BatchTask,
+  type BatchWorkspace,
 } from "../core/batchTypes";
 import type { AppConfig } from "../core/config";
 import {
@@ -119,6 +120,8 @@ export function BatchPanel({
   const pendingTaskPreviewReleasesRef = useRef(new Set<string>());
   const revokedTaskPreviewUrlsRef = useRef(new Set<string>());
   const [previewReleaseVersion, setPreviewReleaseVersion] = useState(0);
+  const [isWorkspaceHydrated, setIsWorkspaceHydrated] = useState(false);
+  const hydratedWorkspaceRuntimeRef = useRef<RuntimeAdapter | null>(null);
 
   const executionConfig: BatchExecutionConfig = useMemo(
     () =>
@@ -180,6 +183,99 @@ export function BatchPanel({
   useEffect(() => {
     taskReferenceImagesByIdRef.current = taskReferenceImagesById;
   }, [taskReferenceImagesById]);
+
+  useEffect(() => {
+    let isCurrent = true;
+    hydratedWorkspaceRuntimeRef.current = null;
+    setIsWorkspaceHydrated(false);
+
+    if (!runtime?.loadBatchWorkspace) {
+      hydratedWorkspaceRuntimeRef.current = runtime;
+      setIsWorkspaceHydrated(true);
+      return () => {
+        isCurrent = false;
+      };
+    }
+
+    void runtime.loadBatchWorkspace()
+      .then((workspace) => {
+        if (!isCurrent || !workspace) {
+          return;
+        }
+
+        setBatchId(workspace.id || createBatchId());
+        setBatchCreatedAt(workspace.createdAt || new Date().toISOString());
+        setSource(workspace.source);
+        setStatus(workspace.status);
+        setStartedAt(workspace.startedAt);
+        setCompletedAt(workspace.completedAt);
+        setBatchTitle(workspace.title);
+        setMasterPrompt(workspace.masterPrompt);
+        setStyleLock(workspace.styleLock);
+        setCustomPromptDrafts(resizePromptDrafts(workspace.customPromptDrafts, workspace.taskCount));
+        setTaskCount(workspace.taskCount);
+        setSplitTemplateId(workspace.splitTemplateId);
+        setCustomSplitSystemPrompt(workspace.customSplitSystemPrompt);
+        commitTasks(workspace.tasks);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (isCurrent) {
+          hydratedWorkspaceRuntimeRef.current = runtime;
+          setIsWorkspaceHydrated(true);
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [runtime]);
+
+  useEffect(() => {
+    if (
+      !isWorkspaceHydrated ||
+      !runtime?.saveBatchWorkspace ||
+      hydratedWorkspaceRuntimeRef.current !== runtime
+    ) {
+      return;
+    }
+
+    const workspace: BatchWorkspace = {
+      schemaVersion: 1,
+      id: batchId,
+      title: batchTitle,
+      source,
+      status,
+      createdAt: batchCreatedAt,
+      startedAt,
+      completedAt,
+      masterPrompt,
+      styleLock,
+      customPromptDrafts,
+      taskCount,
+      splitTemplateId,
+      customSplitSystemPrompt,
+      tasks,
+    };
+    void runtime.saveBatchWorkspace(workspace);
+  }, [
+    batchCreatedAt,
+    batchId,
+    batchTitle,
+    completedAt,
+    customPromptDrafts,
+    customSplitSystemPrompt,
+    isWorkspaceHydrated,
+    masterPrompt,
+    runtime,
+    source,
+    splitTemplateId,
+    startedAt,
+    status,
+    styleLock,
+    taskCount,
+    tasks,
+  ]);
 
   useEffect(() => {
     isMountedRef.current = true;

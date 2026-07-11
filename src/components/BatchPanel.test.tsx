@@ -49,6 +49,101 @@ describe("BatchPanel", () => {
     vi.clearAllMocks();
   });
 
+  it("hydrates a saved batch workspace without overwriting it during the initial render", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createRuntime();
+    const workspaceDeferred = createDeferred<ReturnType<typeof createSavedBatchWorkspace> | null>();
+    runtime.loadBatchWorkspace.mockReturnValue(workspaceDeferred.promise);
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 5 }}
+          runtime={null}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 5 }}
+          runtime={runtime}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(runtime.saveBatchWorkspace).not.toHaveBeenCalled();
+
+    workspaceDeferred.resolve(createSavedBatchWorkspace());
+    await flushPromises();
+
+    expect(getField(copy.batch.fields.batchTitle, "input").value).toBe("Restored launch campaign");
+    expect(getField(copy.batch.fields.masterPrompt, "textarea").value).toBe("Create two restored posters");
+    expect(getField(copy.batch.fields.taskCount, "input").value).toBe("2");
+    expect(getTaskPromptTextareas().map((textarea) => textarea.value)).toEqual([
+      "Restored alpha prompt",
+      "Restored beta prompt",
+    ]);
+    expect(container.querySelectorAll(".batch-task-list .status-pill.succeeded")).toHaveLength(1);
+    expect(container.querySelectorAll(".batch-task-list .status-pill.failed")).toHaveLength(1);
+  });
+
+  it("persists edits after hydration and persists a clean workspace after reset", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createRuntime();
+    runtime.loadBatchWorkspace.mockResolvedValue(createSavedBatchWorkspace());
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 2 }}
+          runtime={runtime}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+    await flushPromises();
+    runtime.saveBatchWorkspace.mockClear();
+
+    setFieldValue(getField(copy.batch.fields.masterPrompt, "textarea"), "Edited restored master task");
+    await flushPromises();
+    expect(runtime.saveBatchWorkspace).toHaveBeenLastCalledWith(
+      expect.objectContaining({ masterPrompt: "Edited restored master task", taskCount: 2 }),
+    );
+
+    clickButton(copy.batch.actions.clearDraft);
+    await flushPromises();
+    expect(runtime.saveBatchWorkspace).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        title: "",
+        source: "same-prompt",
+        masterPrompt: "",
+        tasks: [],
+        status: "draft",
+      }),
+    );
+  });
+
   it("creates editable prompt boxes for custom prompts and builds one task per filled prompt", async () => {
     const copy = getTranslations("en-US");
 
@@ -1548,7 +1643,10 @@ function setFieldValue(element: HTMLInputElement | HTMLTextAreaElement | null, v
   });
 }
 
-function createRuntime(): RuntimeAdapter {
+function createRuntime(): RuntimeAdapter & {
+  loadBatchWorkspace: ReturnType<typeof vi.fn>;
+  saveBatchWorkspace: ReturnType<typeof vi.fn>;
+} {
   return {
     mode: "web",
     loadConfig: vi.fn().mockResolvedValue(DEFAULT_CONFIG),
@@ -1558,12 +1656,52 @@ function createRuntime(): RuntimeAdapter {
     saveImage: vi.fn(),
     saveBatchImage: vi.fn(),
     saveBatchManifest: vi.fn().mockResolvedValue("batch.json"),
+    loadBatchWorkspace: vi.fn().mockResolvedValue(null),
+    saveBatchWorkspace: vi.fn().mockResolvedValue(undefined),
     chooseOutputDirectory: vi.fn().mockResolvedValue(null),
     prepareHistoryPreview: vi.fn().mockResolvedValue(null),
     prepareHistoryFile: vi.fn().mockResolvedValue(null),
     getOutputDirectoryState: vi.fn().mockResolvedValue({ status: "not-authorized" }),
     testOutputDirectory: vi.fn().mockResolvedValue({ ok: true }),
     openOutputPath: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createSavedBatchWorkspace() {
+  return {
+    schemaVersion: 1 as const,
+    id: "batch-restored",
+    title: "Restored launch campaign",
+    source: "same-prompt" as const,
+    status: "completed" as const,
+    createdAt: "2026-07-12T00:00:00.000Z",
+    startedAt: "2026-07-12T00:00:01.000Z",
+    completedAt: "2026-07-12T00:00:02.000Z",
+    masterPrompt: "Create two restored posters",
+    styleLock: "Shared restored style",
+    customPromptDrafts: ["Restored alpha prompt", "Restored beta prompt"],
+    taskCount: 2,
+    splitTemplateId: "basic" as const,
+    customSplitSystemPrompt: "",
+    tasks: [
+      createTestTask({
+        id: "task-restored-1",
+        index: 0,
+        prompt: "Restored alpha prompt",
+        status: "succeeded",
+        previewUrl: "",
+      }),
+      createTestTask({
+        id: "task-restored-2",
+        index: 1,
+        prompt: "Restored beta prompt",
+        status: "failed",
+        errorMessage: "Restored safe failure",
+        failureCategory: "unknown",
+        outputPath: "",
+        previewUrl: "",
+      }),
+    ],
   };
 }
 

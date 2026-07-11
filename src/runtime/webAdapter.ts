@@ -1,6 +1,7 @@
 import { DEFAULT_CONFIG, mergeConfig, type AppConfig } from "../core/config";
 import { buildBatchDirectoryName, buildBatchImageFileName, sanitizeBatchManifest } from "../core/batchManifest";
-import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest } from "../core/batchTypes";
+import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest, BatchWorkspace } from "../core/batchTypes";
+import { sanitizeBatchWorkspace } from "../core/batchWorkspace";
 import { buildImageFileName, formatDateFolder } from "../core/fileNames";
 import { safeErrorMessage } from "../core/errorSanitizer";
 import { sortHistoryNewestFirst, type ImageRecord } from "../core/history";
@@ -10,6 +11,7 @@ const CONFIG_KEY = "chat-to-image.config.v1";
 const SESSION_API_KEY = "chat-to-image.api-key.session.v1";
 const PERSISTENT_API_KEY = "chat-to-image.api-key.persistent.v1";
 const HISTORY_KEY = "chat-to-image.history.v1";
+const BATCH_WORKSPACE_KEY = "chat-to-image.batch.draft.v1";
 const FILE_HANDLE_DB_NAME = "chat-to-image.file-handles.v1";
 const FILE_HANDLE_STORE_NAME = "handles";
 const OUTPUT_DIRECTORY_HANDLE_KEY = "output-directory";
@@ -590,6 +592,17 @@ export const webAdapter: RuntimeAdapter = {
     await persistDirectoryHandle(directoryHandle);
     await clearPersistedReadyOutputDirectory();
     return directoryHandle.name;
+  },
+
+  async loadBatchWorkspace() {
+    return sanitizeBatchWorkspace(readStoredValue<unknown>(BATCH_WORKSPACE_KEY, null));
+  },
+
+  async saveBatchWorkspace(workspace: BatchWorkspace) {
+    const safeWorkspace = sanitizeBatchWorkspace(workspace);
+    if (safeWorkspace) {
+      writeStoredValue(BATCH_WORKSPACE_KEY, safeWorkspace);
+    }
   },
 
   async getOutputDirectoryState(): Promise<OutputDirectoryState> {
