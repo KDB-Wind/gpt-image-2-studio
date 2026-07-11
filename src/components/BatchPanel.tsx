@@ -99,6 +99,7 @@ export function BatchPanel({
   const [taskReferenceDragOverId, setTaskReferenceDragOverId] = useState<string | null>(null);
   const cancelRef = useRef(false);
   const pauseRef = useRef(false);
+  const isSplittingRef = useRef(false);
   const retryingTaskIdsRef = useRef<Set<string>>(new Set());
   const latestTasksRef = useRef<BatchTask[]>([]);
   const batchReferenceInputRef = useRef<HTMLInputElement | null>(null);
@@ -129,6 +130,7 @@ export function BatchPanel({
   const isRunning = status === "running";
   const hasActiveTaskRetry = retryingTaskIds.size > 0;
   const isTaskListLocked = isRunning || hasActiveTaskRetry;
+  const isTaskMutationLocked = isTaskListLocked || isSplitting;
   const batchDisplayTitle = batchTitle.trim() || "batch-images";
   const recoverableTaskCount = useMemo(() => countRecoverableBatchTasks(tasks), [tasks]);
   const hasFailedTasks = useMemo(() => hasFailedBatchTasks(tasks), [tasks]);
@@ -160,14 +162,14 @@ export function BatchPanel({
   }, []);
 
   useEffect(() => {
-    if (isRunning || tasks.length > 0) {
+    if (isRunning || isSplitting || tasks.length > 0) {
       return;
     }
 
     const nextCount = clampBatchTaskCount(config.batchDefaultTaskCount);
     setTaskCount(nextCount);
     setCustomPromptDrafts((current) => resizePromptDrafts(current, nextCount));
-  }, [config.batchDefaultTaskCount, isRunning, tasks.length]);
+  }, [config.batchDefaultTaskCount, isRunning, isSplitting, tasks.length]);
 
   function commitTasks(update: BatchTask[] | ((current: BatchTask[]) => BatchTask[])): BatchTask[] {
     const nextTasks = typeof update === "function" ? update(latestTasksRef.current) : update;
@@ -178,6 +180,10 @@ export function BatchPanel({
 
   function hasTaskRetryLock(): boolean {
     return retryingTaskIdsRef.current.size > 0;
+  }
+
+  function hasTaskMutationLock(): boolean {
+    return isRunning || hasTaskRetryLock() || isSplittingRef.current;
   }
 
   function acquireTaskRetry(taskId: string): boolean {
@@ -210,7 +216,7 @@ export function BatchPanel({
   }
 
   function handleClearBatch() {
-    if (isRunning || hasTaskRetryLock()) {
+    if (hasTaskMutationLock()) {
       return;
     }
 
@@ -360,7 +366,7 @@ export function BatchPanel({
   }
 
   function addTaskReferenceFiles(taskId: string, files: Iterable<File>) {
-    if (isRunning || hasTaskRetryLock()) {
+    if (hasTaskMutationLock()) {
       return;
     }
 
@@ -380,7 +386,7 @@ export function BatchPanel({
   }
 
   function handleRemoveTaskReferenceImage(taskId: string, imageId: string) {
-    if (isRunning || hasTaskRetryLock()) {
+    if (hasTaskMutationLock()) {
       return;
     }
 
@@ -398,7 +404,7 @@ export function BatchPanel({
   }
 
   function handleClearTaskReferenceImages(taskId: string) {
-    if (isRunning || hasTaskRetryLock()) {
+    if (hasTaskMutationLock()) {
       return;
     }
 
@@ -432,7 +438,7 @@ export function BatchPanel({
   }
 
   function handleToggleTaskUsesGlobalReferences(taskId: string, checked: boolean) {
-    if (isRunning || hasTaskRetryLock()) {
+    if (hasTaskMutationLock()) {
       return;
     }
 
@@ -507,7 +513,7 @@ export function BatchPanel({
   }
 
   function handleTaskReferenceDragEnter(taskId: string, event: DragEvent<HTMLElement>) {
-    if (isTaskListLocked || !hasDraggedFiles(event)) {
+    if (isTaskMutationLocked || !hasDraggedFiles(event)) {
       return;
     }
 
@@ -517,7 +523,7 @@ export function BatchPanel({
   }
 
   function handleTaskReferenceDragOver(event: DragEvent<HTMLElement>) {
-    if (isTaskListLocked || !hasDraggedFiles(event)) {
+    if (isTaskMutationLocked || !hasDraggedFiles(event)) {
       return;
     }
 
@@ -526,7 +532,7 @@ export function BatchPanel({
   }
 
   function handleTaskReferenceDragLeave(taskId: string, event: DragEvent<HTMLElement>) {
-    if (isTaskListLocked || !hasDraggedFiles(event)) {
+    if (isTaskMutationLocked || !hasDraggedFiles(event)) {
       return;
     }
 
@@ -538,7 +544,7 @@ export function BatchPanel({
   }
 
   function handleTaskReferenceDrop(taskId: string, event: DragEvent<HTMLElement>) {
-    if (isTaskListLocked || !hasDraggedFiles(event)) {
+    if (isTaskMutationLocked || !hasDraggedFiles(event)) {
       return;
     }
 
@@ -549,7 +555,7 @@ export function BatchPanel({
   }
 
   function handleCreateTasks() {
-    if (isRunning || hasTaskRetryLock()) {
+    if (hasTaskMutationLock()) {
       return;
     }
 
@@ -581,7 +587,7 @@ export function BatchPanel({
   }
 
   async function handleSplitWithTextModel() {
-    if (isRunning || hasTaskRetryLock() || isSplitting) {
+    if (hasTaskMutationLock()) {
       return;
     }
 
@@ -594,6 +600,7 @@ export function BatchPanel({
       return;
     }
 
+    isSplittingRef.current = true;
     setIsSplitting(true);
     setAppMessage(copy.batch.messages.splitRunning);
 
@@ -672,12 +679,13 @@ export function BatchPanel({
     } catch (error) {
       setAppMessage(copy.batch.messages.splitFailed(error instanceof Error ? error.message : "Unknown error."));
     } finally {
+      isSplittingRef.current = false;
       setIsSplitting(false);
     }
   }
 
   function updateTaskCount(rawValue: number) {
-    if (isRunning || hasTaskRetryLock()) {
+    if (hasTaskMutationLock()) {
       return;
     }
 
@@ -692,7 +700,7 @@ export function BatchPanel({
   }
 
   function handleUpdateCustomPrompt(index: number, value: string) {
-    if (isRunning || hasTaskRetryLock()) {
+    if (hasTaskMutationLock()) {
       return;
     }
 
@@ -700,7 +708,7 @@ export function BatchPanel({
   }
 
   function handleAddCustomPrompt() {
-    if (isRunning || hasTaskRetryLock()) {
+    if (hasTaskMutationLock()) {
       return;
     }
 
@@ -713,7 +721,7 @@ export function BatchPanel({
   }
 
   function handleRemoveCustomPrompt(index: number) {
-    if (isRunning || hasTaskRetryLock()) {
+    if (hasTaskMutationLock()) {
       return;
     }
 
@@ -728,7 +736,7 @@ export function BatchPanel({
   }
 
   function handleUpdateTask(id: string, patch: Partial<Pick<BatchTask, "title" | "prompt">>) {
-    if (isRunning || hasTaskRetryLock()) {
+    if (hasTaskMutationLock()) {
       return;
     }
 
@@ -764,7 +772,7 @@ export function BatchPanel({
   }
 
   function handleDeleteTask(id: string) {
-    if (isRunning || hasTaskRetryLock()) {
+    if (hasTaskMutationLock()) {
       return;
     }
 
@@ -848,7 +856,7 @@ export function BatchPanel({
 
   async function handleStartBatch(tasksOverride?: BatchTask[]) {
     const targetTasks = tasksOverride ?? latestTasksRef.current;
-    if (!runtime || targetTasks.length === 0 || isRunning || hasTaskRetryLock()) {
+    if (!runtime || targetTasks.length === 0 || hasTaskMutationLock()) {
       return;
     }
 
@@ -921,7 +929,7 @@ export function BatchPanel({
   }
 
   async function handleRetryFailedTasks() {
-    if (!hasFailedTasks || isRunning || hasTaskRetryLock()) {
+    if (!hasFailedTasks || hasTaskMutationLock()) {
       return;
     }
 
@@ -934,7 +942,7 @@ export function BatchPanel({
   }
 
   async function handleRetryTask(task: BatchTask) {
-    if (!runtime || isRunning || hasTaskRetryLock()) {
+    if (!runtime || hasTaskMutationLock()) {
       return;
     }
 
@@ -989,8 +997,12 @@ export function BatchPanel({
             type="button"
             data-testid={`batch-source-${value}`}
             className={`source-card ${source === value ? "active" : ""}`}
-            onClick={() => setSource(value)}
-            disabled={isTaskListLocked}
+            onClick={() => {
+              if (!hasTaskMutationLock()) {
+                setSource(value);
+              }
+            }}
+            disabled={isTaskMutationLocked}
           >
             {label}
           </button>
@@ -1097,15 +1109,17 @@ export function BatchPanel({
           className="batch-style-lock-textarea"
           value={styleLock}
           rows={3}
-          disabled={isTaskListLocked}
+          disabled={isTaskMutationLocked}
           placeholder={copy.batch.workflow.styleLockPlaceholder}
           onChange={(event) => {
-            setStyleLock(event.target.value);
-            setPromptRecipeText("");
+            if (!hasTaskMutationLock()) {
+              setStyleLock(event.target.value);
+              setPromptRecipeText("");
+            }
           }}
         />
         <small className="inline-note">
-          {tasks.length > 0 && !isTaskListLocked
+          {tasks.length > 0 && !isTaskMutationLocked
             ? copy.batch.workflow.styleLockGeneratedHint
             : copy.batch.workflow.styleLockHint}
         </small>
@@ -1122,7 +1136,7 @@ export function BatchPanel({
                   className="batch-task-prompt-textarea"
                   value={prompt}
                   rows={3}
-                  disabled={isTaskListLocked}
+                  disabled={isTaskMutationLocked}
                   onChange={(event) => handleUpdateCustomPrompt(index, event.target.value)}
                 />
               </label>
@@ -1130,7 +1144,7 @@ export function BatchPanel({
                 type="button"
                 className="ghost-button custom-prompt-remove"
                 onClick={() => handleRemoveCustomPrompt(index)}
-                disabled={isTaskListLocked || customPromptDrafts.length <= 1}
+                disabled={isTaskMutationLocked || customPromptDrafts.length <= 1}
               >
                 {copy.batch.actions.removePrompt}
               </button>
@@ -1145,8 +1159,12 @@ export function BatchPanel({
               className="prompt-textarea"
               value={masterPrompt}
               rows={6}
-              disabled={isTaskListLocked}
-              onChange={(event) => setMasterPrompt(event.target.value)}
+              disabled={isTaskMutationLocked}
+              onChange={(event) => {
+                if (!hasTaskMutationLock()) {
+                  setMasterPrompt(event.target.value);
+                }
+              }}
             />
           </label>
           <section className="batch-split-card" aria-label={copy.batch.aiSplit.title}>
@@ -1158,8 +1176,12 @@ export function BatchPanel({
               <span>{copy.batch.fields.splitTemplate}</span>
               <select
                 value={splitTemplateId}
-                disabled={isTaskListLocked || isSplitting}
-                onChange={(event) => setSplitTemplateId(event.target.value as BatchSplitTemplateId)}
+                disabled={isTaskMutationLocked}
+                onChange={(event) => {
+                  if (!hasTaskMutationLock()) {
+                    setSplitTemplateId(event.target.value as BatchSplitTemplateId);
+                  }
+                }}
               >
                 {BUILT_IN_BATCH_SPLIT_TEMPLATES.map((template) => (
                   <option key={template.id} value={template.id}>
@@ -1176,8 +1198,12 @@ export function BatchPanel({
                   className="batch-task-prompt-textarea"
                   value={customSplitSystemPrompt}
                   rows={4}
-                  disabled={isTaskListLocked || isSplitting}
-                  onChange={(event) => setCustomSplitSystemPrompt(event.target.value)}
+                  disabled={isTaskMutationLocked}
+                  onChange={(event) => {
+                    if (!hasTaskMutationLock()) {
+                      setCustomSplitSystemPrompt(event.target.value);
+                    }
+                  }}
                 />
               </label>
             ) : (
@@ -1192,8 +1218,12 @@ export function BatchPanel({
                       key={templateId}
                       type="button"
                       className={`split-template-guide-item ${splitTemplateId === templateId ? "active" : ""}`}
-                      onClick={() => setSplitTemplateId(templateId)}
-                      disabled={isTaskListLocked || isSplitting}
+                      onClick={() => {
+                        if (!hasTaskMutationLock()) {
+                          setSplitTemplateId(templateId);
+                        }
+                      }}
+                      disabled={isTaskMutationLocked}
                     >
                       <span>{copy.batch.splitTemplates[templateId].label}</span>
                       <small>{copy.batch.splitTemplates[templateId].useCase}</small>
@@ -1206,7 +1236,7 @@ export function BatchPanel({
               type="button"
               className="secondary-button"
               onClick={() => void handleSplitWithTextModel()}
-              disabled={isTaskListLocked || isSplitting}
+              disabled={isTaskMutationLocked}
             >
               {isSplitting ? copy.batch.actions.splitBusy : copy.batch.actions.splitWithTextModel}
             </button>
@@ -1222,7 +1252,7 @@ export function BatchPanel({
             min={1}
             max={MAX_BATCH_TASK_COUNT}
             value={taskCount}
-            disabled={isTaskListLocked}
+            disabled={isTaskMutationLocked}
             onChange={(event) => updateTaskCount(Number(event.target.value) || 1)}
           />
         </label>
@@ -1311,7 +1341,7 @@ export function BatchPanel({
             type="button"
             className="secondary-button"
             onClick={handleAddCustomPrompt}
-            disabled={isTaskListLocked}
+            disabled={isTaskMutationLocked}
           >
             {copy.batch.actions.addPrompt}
           </button>
@@ -1321,7 +1351,7 @@ export function BatchPanel({
           className="secondary-button"
           data-testid="batch-create-tasks"
           onClick={handleCreateTasks}
-          disabled={isTaskListLocked}
+          disabled={isTaskMutationLocked}
         >
           {copy.batch.actions.createTasks}
         </button>
@@ -1373,7 +1403,7 @@ export function BatchPanel({
           className="primary-button"
           data-testid="batch-start"
           onClick={() => void handleStartBatch()}
-          disabled={!runtime || tasks.length === 0 || isTaskListLocked}
+          disabled={!runtime || tasks.length === 0 || isTaskMutationLocked}
         >
           {primaryBatchActionLabel}
         </button>
@@ -1387,11 +1417,11 @@ export function BatchPanel({
           type="button"
           className="secondary-button"
           onClick={() => void handleRetryFailedTasks()}
-          disabled={!runtime || isTaskListLocked || !hasFailedTasks}
+          disabled={!runtime || isTaskMutationLocked || !hasFailedTasks}
         >
           {copy.batch.actions.retryFailed}
         </button>
-        <button type="button" className="secondary-button" onClick={handleClearBatch} disabled={isTaskListLocked}>
+        <button type="button" className="secondary-button" onClick={handleClearBatch} disabled={isTaskMutationLocked}>
           {copy.batch.actions.clearDraft}
         </button>
       </div>
@@ -1422,7 +1452,7 @@ export function BatchPanel({
                       <span>{copy.fields.customName}</span>
                       <input
                         value={task.title}
-                        disabled={isTaskListLocked}
+                        disabled={isTaskMutationLocked}
                         onChange={(event) => handleUpdateTask(task.id, { title: event.target.value })}
                       />
                     </label>
@@ -1432,7 +1462,7 @@ export function BatchPanel({
                         className="batch-task-prompt-textarea"
                         value={task.prompt}
                         rows={3}
-                        disabled={isTaskListLocked}
+                        disabled={isTaskMutationLocked}
                         onChange={(event) => handleUpdateTask(task.id, { prompt: event.target.value })}
                       />
                     </label>
@@ -1471,7 +1501,7 @@ export function BatchPanel({
                           <input
                             type="checkbox"
                             checked={useGlobalReferences}
-                            disabled={isTaskListLocked}
+                            disabled={isTaskMutationLocked}
                             aria-label={copy.batch.referenceImages.useGlobalForTask(taskNumber)}
                             onChange={(event) => handleToggleTaskUsesGlobalReferences(task.id, event.currentTarget.checked)}
                           />
@@ -1501,7 +1531,7 @@ export function BatchPanel({
                             accept="image/*"
                             multiple
                             aria-label={copy.batch.referenceImages.taskInputLabel(taskNumber)}
-                            disabled={isTaskListLocked}
+                            disabled={isTaskMutationLocked}
                             onChange={(event) => handleTaskReferenceImageChange(task.id, event)}
                           />
                           <div className="action-row">
@@ -1509,7 +1539,7 @@ export function BatchPanel({
                               type="button"
                               className="secondary-button"
                               onClick={() => taskReferenceInputRefs.current.get(task.id)?.click()}
-                              disabled={isTaskListLocked}
+                              disabled={isTaskMutationLocked}
                             >
                               {taskReferenceImages.length > 0 ? copy.actions.changeImage : copy.actions.chooseImage}
                             </button>
@@ -1518,7 +1548,7 @@ export function BatchPanel({
                                 type="button"
                                 className="secondary-button"
                                 onClick={() => handleClearTaskReferenceImages(task.id)}
-                                disabled={isTaskListLocked}
+                                disabled={isTaskMutationLocked}
                               >
                                 {copy.actions.clearImages}
                               </button>
@@ -1544,7 +1574,7 @@ export function BatchPanel({
                                   type="button"
                                   className="ghost-button reference-remove-button"
                                   onClick={() => handleRemoveTaskReferenceImage(task.id, image.id)}
-                                  disabled={isTaskListLocked}
+                                  disabled={isTaskMutationLocked}
                                 >
                                   {copy.actions.removeImage}
                                 </button>
@@ -1578,7 +1608,7 @@ export function BatchPanel({
                         type="button"
                         className="ghost-button"
                         onClick={() => handleDeleteTask(task.id)}
-                        disabled={isTaskListLocked}
+                        disabled={isTaskMutationLocked}
                       >
                         {copy.actions.removeImage}
                       </button>
@@ -1587,7 +1617,7 @@ export function BatchPanel({
                           type="button"
                           className="ghost-button"
                           onClick={() => void handleRetryTask(task)}
-                          disabled={isTaskListLocked}
+                          disabled={isTaskMutationLocked}
                         >
                           {copy.batch.actions.retryTask}
                         </button>

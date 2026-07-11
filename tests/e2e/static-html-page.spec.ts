@@ -42,6 +42,10 @@ test("static page runs a custom two-prompt batch, shows previews, and writes his
 
 test("static single-task retry ignores a rapid double click and persists the merged result", async ({ page }) => {
   let providerCalls = 0;
+  let releaseRetryResponse!: () => void;
+  const retryResponseBarrier = new Promise<void>((resolve) => {
+    releaseRetryResponse = resolve;
+  });
   await page.route("**/images/generations", async (route) => {
     providerCalls += 1;
     if (providerCalls === 1) {
@@ -53,7 +57,7 @@ test("static single-task retry ignores a rapid double click and persists the mer
       return;
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await retryResponseBarrier;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -86,6 +90,7 @@ test("static single-task retry ignores a rapid double click and persists the mer
   await expect(page.getByRole("button", { name: "Pause" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Cancel remaining" })).toBeDisabled();
 
+  releaseRetryResponse();
   await expect(page.locator(".batch-task-list .status-pill.succeeded")).toHaveCount(1, { timeout: 30_000 });
   expect(providerCalls).toBe(2);
 

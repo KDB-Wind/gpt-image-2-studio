@@ -359,6 +359,96 @@ describe("BatchPanel", () => {
     expect(setAppMessage).toHaveBeenLastCalledWith(copy.batch.messages.splitSuccess(2));
   });
 
+  it("locks split snapshot and task mutations while AI planning is pending", async () => {
+    const copy = getTranslations("en-US");
+    const planningDeferred = createDeferred<import("../core/batchTypes").BatchSplitPlanningResult>();
+    splitPromptWithTextModelMock.mockReturnValue(planningDeferred.promise);
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 1 }}
+          runtime={createRuntime()}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+
+    const masterPrompt = getField(copy.batch.fields.masterPrompt, "textarea");
+    const styleLock = getField(copy.batch.fields.styleLock, "textarea");
+    const taskCount = getField(copy.batch.fields.taskCount, 'input[type="number"]');
+    setFieldValue(masterPrompt, "Create the original poster.");
+    setFieldValue(styleLock, "original editorial style");
+    clickButton(copy.batch.actions.createTasks);
+
+    const taskPrompt = getTaskPromptTextareas()[0];
+    const splitButton = queryButton(copy.batch.actions.splitWithTextModel);
+    if (!splitButton) {
+      throw new Error("AI planning button not found.");
+    }
+
+    const dispatchFieldValue = (element: HTMLInputElement | HTMLTextAreaElement, value: string) => {
+      const setter = Object.getOwnPropertyDescriptor(element.constructor.prototype, "value")?.set;
+      setter?.call(element, value);
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+
+    act(() => {
+      splitButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      dispatchFieldValue(masterPrompt, "Create a newer poster.");
+      dispatchFieldValue(styleLock, "newer visual style");
+      dispatchFieldValue(taskCount, "2");
+      dispatchFieldValue(taskPrompt, "Replace the existing task while planning.");
+      queryButton(copy.batch.actions.createTasks)?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      queryButton(copy.batch.actions.clearDraft)?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(splitPromptWithTextModelMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        masterPrompt: "Create the original poster.",
+        count: 1,
+        styleLock: "original editorial style",
+      }),
+    );
+    expect(masterPrompt.value).toBe("Create the original poster.");
+    expect(styleLock.value).toBe("original editorial style");
+    expect(taskCount.value).toBe("1");
+    expect(getTaskPromptTextareas()[0].value).toContain("Create the original poster.");
+    expect(container.querySelectorAll(".batch-task-card")).toHaveLength(1);
+
+    expect(masterPrompt.disabled).toBe(true);
+    expect(styleLock.disabled).toBe(true);
+    expect(taskCount.disabled).toBe(true);
+    expect(container.querySelector<HTMLSelectElement>(".batch-split-card select")?.disabled).toBe(true);
+    expect(queryButton(copy.batch.actions.createTasks)?.disabled).toBe(true);
+    expect(queryButton(copy.batch.actions.clearDraft)?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="batch-start"]')?.disabled).toBe(true);
+    expect(getTaskNameInputs()[0].disabled).toBe(true);
+    expect(getTaskPromptTextareas()[0].disabled).toBe(true);
+    expect(getFileInputByLabel(copy.batch.referenceImages.taskInputLabel(1))?.disabled).toBe(true);
+
+    expect(queryButton(copy.batch.sources.customPrompts)?.disabled).toBe(true);
+    expect(getField(copy.batch.fields.batchTitle, "input").disabled).toBe(false);
+    expect(getField(copy.batch.fields.concurrency, 'input[type="number"]').disabled).toBe(false);
+    expect(getFileInputByLabel(copy.batch.referenceImages.title)?.disabled).toBe(false);
+
+    planningDeferred.resolve({
+      items: [{ title: "Planned task", prompt: "Create the planned poster." }],
+    });
+    await act(async () => {
+      await planningDeferred.promise;
+      await Promise.resolve();
+    });
+
+    expect(getTaskNameInputs()[0].value).toBe("Planned task");
+    expect(getTaskPromptTextareas()[0].value).toContain("Create the planned poster.");
+  });
+
   it("applies the batch style lock when creating repeated prompt tasks", async () => {
     const copy = getTranslations("en-US");
 
