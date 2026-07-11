@@ -1,8 +1,9 @@
-import { act } from "react";
+import { StrictMode, act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_CONFIG } from "../core/config";
+import type { BatchPreviewState } from "../core/batchPreview";
 import { getTranslations } from "../i18n/translations";
 import type { RuntimeAdapter } from "../runtime/types";
 import { BatchPanel } from "./BatchPanel";
@@ -980,6 +981,272 @@ describe("BatchPanel", () => {
     expect(setAppMessage).toHaveBeenCalledWith("");
   });
 
+  it("releases succeeded task previews when clearing a batch", async () => {
+    const copy = getTranslations("en-US");
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    runBatchTasksMock.mockResolvedValue({
+      status: "completed",
+      tasks: [createTestTask({ previewUrl: "blob:batch-clear" })],
+      pauseReason: null,
+    });
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 1 }}
+          runtime={createRuntime()}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+
+    setFieldValue(getField(copy.batch.fields.masterPrompt, "textarea"), "Create a poster.");
+    clickButton(copy.batch.actions.createTasks);
+    await clickButtonAsync(copy.batch.actions.start);
+    clickButton(copy.batch.actions.clearDraft);
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:batch-clear");
+    revokeObjectUrl.mockRestore();
+  });
+
+  it("keeps task creation and updates active through the StrictMode effect rehearsal", async () => {
+    const copy = getTranslations("en-US");
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    runBatchTasksMock.mockResolvedValue({
+      status: "completed",
+      tasks: [
+        createTestTask({ id: "strict-task-1", previewUrl: "blob:strict-batch-1" }),
+        createTestTask({ id: "strict-task-2", index: 1, previewUrl: "blob:strict-batch-2" }),
+      ],
+      pauseReason: null,
+    });
+
+    await act(async () => {
+      root.render(
+        <StrictMode>
+          <BatchPanel
+            config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 2 }}
+            runtime={createRuntime()}
+            language="en-US"
+            referenceImages={[]}
+            onConfigChange={vi.fn()}
+            onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+            requireValidConfig={vi.fn().mockReturnValue(true)}
+            setAppMessage={vi.fn()}
+          />
+        </StrictMode>,
+      );
+    });
+
+    setFieldValue(getField(copy.batch.fields.masterPrompt, "textarea"), "Create a poster.");
+    clickButton(copy.batch.actions.createTasks);
+    expect(container.textContent).toContain(copy.batch.status.pending);
+    await clickButtonAsync(copy.batch.actions.start);
+    await flushPromises();
+
+    expect(container.querySelector('img[src="blob:strict-batch-1"]')).not.toBeNull();
+    expect(container.querySelector('img[src="blob:strict-batch-2"]')).not.toBeNull();
+    act(() => {
+      root.unmount();
+    });
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(2);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:strict-batch-1");
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:strict-batch-2");
+    revokeObjectUrl.mockRestore();
+  });
+
+  it("updates a parent preview before releasing a removed task URL", async () => {
+    const copy = getTranslations("en-US");
+    runBatchTasksMock.mockResolvedValue({
+      status: "completed",
+      tasks: [createTestTask({ previewUrl: "blob:batch-parent-release" })],
+      pauseReason: null,
+    });
+
+    function ParentPreviewWrapper() {
+      const [preview, setPreview] = useState<BatchPreviewState | null>(null);
+      return (
+        <>
+          <output data-testid="parent-batch-preview">{preview?.latestImage?.previewUrl ?? ""}</output>
+          <BatchPanel
+            config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 1 }}
+            runtime={createRuntime()}
+            language="en-US"
+            referenceImages={[]}
+            onConfigChange={vi.fn()}
+            onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+            requireValidConfig={vi.fn().mockReturnValue(true)}
+            setAppMessage={vi.fn()}
+            onBatchPreviewChange={setPreview}
+          />
+        </>
+      );
+    }
+
+    await act(async () => {
+      root.render(<ParentPreviewWrapper />);
+    });
+    setFieldValue(getField(copy.batch.fields.masterPrompt, "textarea"), "Create a poster.");
+    clickButton(copy.batch.actions.createTasks);
+    await clickButtonAsync(copy.batch.actions.start);
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation((url) => {
+      expect(container.querySelector('[data-testid="parent-batch-preview"]')?.textContent).not.toContain(url);
+    });
+
+    clickButton(copy.batch.actions.clearDraft);
+    await flushPromises();
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:batch-parent-release");
+    revokeObjectUrl.mockRestore();
+  });
+
+  it("releases newly completed batch previews after unmount without publishing them", async () => {
+    const copy = getTranslations("en-US");
+    const runDeferred = createDeferred<{
+      status: "completed";
+      tasks: import("../core/batchTypes").BatchTask[];
+      pauseReason: null;
+    }>();
+    const onBatchPreviewChange = vi.fn();
+    const onHistoryChanged = vi.fn().mockResolvedValue(undefined);
+    runBatchTasksMock.mockReturnValue(runDeferred.promise);
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 1 }}
+          runtime={createRuntime()}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={onHistoryChanged}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+          onBatchPreviewChange={onBatchPreviewChange}
+        />,
+      );
+    });
+
+    setFieldValue(getField(copy.batch.fields.masterPrompt, "textarea"), "Create a poster.");
+    clickButton(copy.batch.actions.createTasks);
+    clickButton(copy.batch.actions.start);
+    await flushPromises();
+    onBatchPreviewChange.mockClear();
+    onHistoryChanged.mockClear();
+    act(() => {
+      root.unmount();
+    });
+    runDeferred.resolve({
+      status: "completed",
+      tasks: [createTestTask({ previewUrl: "blob:batch-late-run" })],
+      pauseReason: null,
+    });
+    await flushPromises();
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:batch-late-run");
+    expect(onBatchPreviewChange).not.toHaveBeenCalled();
+    expect(onHistoryChanged).not.toHaveBeenCalled();
+    revokeObjectUrl.mockRestore();
+  });
+
+  it("releases newly retried previews after unmount without publishing them", async () => {
+    const copy = getTranslations("en-US");
+    const retryDeferred = createDeferred<import("../core/batchTypes").BatchTask>();
+    const onBatchPreviewChange = vi.fn();
+    const onHistoryChanged = vi.fn().mockResolvedValue(undefined);
+    runBatchTasksMock.mockResolvedValue({ status: "completed", tasks: createFailedTasks(), pauseReason: null });
+    retrySingleBatchTaskMock.mockReturnValue(retryDeferred.promise);
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 2 }}
+          runtime={createRuntime()}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={onHistoryChanged}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+          onBatchPreviewChange={onBatchPreviewChange}
+        />,
+      );
+    });
+
+    await createAndRunTwoTaskBatch(copy);
+    clickButton(copy.batch.actions.retryTask);
+    await flushPromises();
+    onBatchPreviewChange.mockClear();
+    onHistoryChanged.mockClear();
+    act(() => {
+      root.unmount();
+    });
+    retryDeferred.resolve(
+      createTestTask({
+        id: "task-001",
+        status: "succeeded",
+        previewUrl: "blob:batch-late-retry",
+        outputPath: "outputs/task-one.png",
+      }),
+    );
+    await flushPromises();
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:batch-late-retry");
+    expect(onBatchPreviewChange).not.toHaveBeenCalled();
+    expect(onHistoryChanged).not.toHaveBeenCalled();
+    revokeObjectUrl.mockRestore();
+  });
+
+  it("keeps a succeeded preview for title edits and releases it when its prompt changes", async () => {
+    const copy = getTranslations("en-US");
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    runBatchTasksMock.mockResolvedValue({
+      status: "completed",
+      tasks: [createTestTask({ previewUrl: "blob:batch-edit" })],
+      pauseReason: null,
+    });
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 1 }}
+          runtime={createRuntime()}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+
+    setFieldValue(getField(copy.batch.fields.masterPrompt, "textarea"), "Create a poster.");
+    clickButton(copy.batch.actions.createTasks);
+    await clickButtonAsync(copy.batch.actions.start);
+    setFieldValue(getTaskNameInputs()[0], "Retitled poster");
+
+    expect(revokeObjectUrl).not.toHaveBeenCalled();
+
+    setFieldValue(getTaskPromptTextareas()[0], "Create a different poster.");
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:batch-edit");
+    revokeObjectUrl.mockRestore();
+  });
+
   it("places recovery actions in the execution area instead of a separate prompt workflow panel", async () => {
     const copy = getTranslations("en-US");
 
@@ -1257,6 +1524,14 @@ describe("BatchPanel", () => {
         value: files,
       });
       fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+
+  async function flushPromises() {
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
     });
   }
 });

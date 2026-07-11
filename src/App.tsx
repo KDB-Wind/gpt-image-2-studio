@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 
+import { useCallback } from "react";
 import packageJson from "../package.json";
 import staticVersionManifest from "../static-versions/manifest.json";
 import { AppLogo } from "./components/AppLogo";
@@ -27,6 +28,7 @@ import {
   type AddReferenceImagesResult,
   type ReferenceImageItem,
 } from "./core/referenceImages";
+import { revokeBlobUrl } from "./core/blobUrl";
 import {
   IMAGE_SIZE_PRESETS,
   getImageSizePresetCategory,
@@ -199,16 +201,16 @@ function translateValidationMessages(messages: string[], language: UiLanguage): 
 
 function revokeReferenceImages(images: ReferenceImageItem[]) {
   for (const image of images) {
-    URL.revokeObjectURL(image.previewUrl);
+    revokeBlobUrl(image.previewUrl);
   }
 }
 
-function revokeBatchPreviewImages(preview: BatchPreviewState | null) {
-  for (const image of preview?.images ?? []) {
-    if (image.previewUrl.startsWith("blob:")) {
-      URL.revokeObjectURL(image.previewUrl);
-    }
-  }
+function getSinglePreviewUrl(state: PreviewState): string | undefined {
+  return state.status === "success" ? state.imageUrl : undefined;
+}
+
+function getBatchPreviewUrls(preview: BatchPreviewState | null): string[] {
+  return Array.from(new Set((preview?.images ?? []).map((image) => image.previewUrl)));
 }
 
 function getCustomSizeDraft(value: string) {
@@ -333,6 +335,7 @@ export default function App() {
   const [referenceImages, setReferenceImages] = useState<ReferenceImageItem[]>([]);
   const [previewState, setPreviewState] = useState<PreviewState>({ status: "idle" });
   const [batchPreviewState, setBatchPreviewState] = useState<BatchPreviewState | null>(null);
+  const [batchPreviewReleaseVersion, setBatchPreviewReleaseVersion] = useState(0);
   const [historyBatchPreviewState, setHistoryBatchPreviewState] = useState<BatchPreviewState | null>(null);
   const [historyBatchPreviewTitle, setHistoryBatchPreviewTitle] = useState("");
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
@@ -363,9 +366,30 @@ export default function App() {
   const referenceInputRef = useRef<HTMLInputElement | null>(null);
   const dragDepthRef = useRef(0);
   const referenceImagesRef = useRef<ReferenceImageItem[]>([]);
+  const previewStateRef = useRef<PreviewState>({ status: "idle" });
+  const batchPreviewStateRef = useRef<BatchPreviewState | null>(null);
   const historyBatchPreviewRef = useRef<BatchPreviewState | null>(null);
+  const lightboxImageRef = useRef<LightboxImage | null>(null);
+  const ownedPreviewUrlsRef = useRef(new Set<string>());
+  const batchOwnedPreviewUrlsRef = useRef(new Set<string>());
+  const revokedPreviewUrlsRef = useRef(new Set<string>());
   const isMountedRef = useRef(true);
   const outputDirectoryStateRequestRef = useRef(0);
+  const setBatchPreviewStateWithCleanup = useCallback((nextPreview: BatchPreviewState | null) => {
+    batchPreviewStateRef.current = nextPreview;
+    for (const url of getBatchPreviewUrls(nextPreview)) {
+      batchOwnedPreviewUrlsRef.current.add(url);
+      ownedPreviewUrlsRef.current.delete(url);
+    }
+    setBatchPreviewState(nextPreview);
+  }, []);
+  const getReleasableBatchPreviewUrls = useCallback((urls: string[]) => {
+    const releasableUrls = urls.filter((url) => !isPreviewUrlReferenced(url));
+    for (const url of releasableUrls) {
+      batchOwnedPreviewUrlsRef.current.delete(url);
+    }
+    return releasableUrls;
+  }, []);
 
   const language = resolveLanguage(config.uiLanguage);
   const copy = getTranslations(language);
@@ -470,15 +494,15 @@ export default function App() {
   }, [referenceImages]);
 
   useEffect(() => {
-    historyBatchPreviewRef.current = historyBatchPreviewState;
-  }, [historyBatchPreviewState]);
-
-  useEffect(() => {
+    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
       outputDirectoryStateRequestRef.current += 1;
       revokeReferenceImages(referenceImagesRef.current);
-      revokeBatchPreviewImages(historyBatchPreviewRef.current);
+      for (const url of ownedPreviewUrlsRef.current) {
+        revokePreviewUrl(url);
+      }
+      ownedPreviewUrlsRef.current.clear();
     };
   }, []);
 
@@ -605,11 +629,81 @@ export default function App() {
   }
 
   function setHistoryBatchPreviewWithCleanup(nextPreview: BatchPreviewState | null, title = "") {
-    setHistoryBatchPreviewState((currentPreview) => {
-      revokeBatchPreviewImages(currentPreview);
-      return nextPreview;
-    });
+    if (!isMountedRef.current) {
+      for (const url of getBatchPreviewUrls(nextPreview)) {
+        revokePreviewUrl(url);
+      }
+      return;
+    }
+
+    const currentPreview = historyBatchPreviewRef.current;
+    historyBatchPreviewRef.current = nextPreview;
+    for (const url of getBatchPreviewUrls(nextPreview)) {
+      adoptPreviewUrl(url);
+    }
+    setHistoryBatchPreviewState(nextPreview);
     setHistoryBatchPreviewTitle(title);
+    setBatchPreviewReleaseVersion((currentVersion) => currentVersion + 1);
+    for (const url of getBatchPreviewUrls(currentPreview)) {
+      releaseOwnedPreviewUrl(url);
+    }
+  }
+
+  function setPreviewStateWithCleanup(nextState: PreviewState) {
+    if (!isMountedRef.current) {
+      revokePreviewUrl(getSinglePreviewUrl(nextState));
+      return;
+    }
+
+    const currentState = previewStateRef.current;
+    previewStateRef.current = nextState;
+    const nextUrl = getSinglePreviewUrl(nextState);
+    adoptPreviewUrl(nextUrl);
+    setPreviewState(nextState);
+    setBatchPreviewReleaseVersion((currentVersion) => currentVersion + 1);
+    releaseOwnedPreviewUrl(getSinglePreviewUrl(currentState));
+  }
+
+  function setLightboxImageWithCleanup(nextImage: LightboxImage | null) {
+    const currentImage = lightboxImageRef.current;
+    lightboxImageRef.current = nextImage;
+    setLightboxImage(nextImage);
+    setBatchPreviewReleaseVersion((currentVersion) => currentVersion + 1);
+    releaseOwnedPreviewUrl(currentImage?.src);
+  }
+
+  function releaseOwnedPreviewUrl(url?: string) {
+    if (!url || !ownedPreviewUrlsRef.current.has(url) || isPreviewUrlReferenced(url)) {
+      return;
+    }
+
+    ownedPreviewUrlsRef.current.delete(url);
+    revokePreviewUrl(url);
+  }
+
+  function adoptPreviewUrl(url?: string) {
+    if (url && !batchOwnedPreviewUrlsRef.current.has(url)) {
+      ownedPreviewUrlsRef.current.add(url);
+    }
+  }
+
+  function revokePreviewUrl(url?: string) {
+    if (!url || batchOwnedPreviewUrlsRef.current.has(url) || revokedPreviewUrlsRef.current.has(url)) {
+      return;
+    }
+
+    revokedPreviewUrlsRef.current.add(url);
+    ownedPreviewUrlsRef.current.delete(url);
+    revokeBlobUrl(url);
+  }
+
+  function isPreviewUrlReferenced(url: string): boolean {
+    return (
+      getSinglePreviewUrl(previewStateRef.current) === url ||
+      getBatchPreviewUrls(batchPreviewStateRef.current).includes(url) ||
+      getBatchPreviewUrls(historyBatchPreviewRef.current).includes(url) ||
+      lightboxImageRef.current?.src === url
+    );
   }
 
   function buildReferenceImagesMessage(result: AddReferenceImagesResult): string {
@@ -1028,7 +1122,7 @@ export default function App() {
     }
 
     if (!requireValidConfig(copy.actions.generate)) {
-      setPreviewState({
+      setPreviewStateWithCleanup({
         status: "failed",
         prompt: finalPrompt,
         message: translatedValidationErrors.join(" "),
@@ -1040,7 +1134,8 @@ export default function App() {
     setIsGenerating(true);
     setAppMessage("");
     const startedAt = Date.now();
-    setPreviewState({ status: "running", startedAt, prompt: finalPrompt });
+    setPreviewStateWithCleanup({ status: "running", startedAt, prompt: finalPrompt });
+    let savedPreviewUrl: string | undefined;
 
     try {
       const generatedImages = await generateImages(
@@ -1050,6 +1145,9 @@ export default function App() {
           ? { referenceImages: referenceImages.map((item) => item.file) }
           : undefined,
       );
+      if (!isMountedRef.current) {
+        return;
+      }
       const firstImage = generatedImages[0];
 
       if (!firstImage) {
@@ -1068,9 +1166,18 @@ export default function App() {
         durationMs,
       });
 
+      savedPreviewUrl = savedResult.previewUrl;
+      if (!isMountedRef.current) {
+        revokePreviewUrl(savedPreviewUrl);
+        return;
+      }
+      adoptPreviewUrl(savedPreviewUrl);
       await reloadHistory(runtime);
+      if (!isMountedRef.current) {
+        return;
+      }
       setSelectedHistoryId(savedResult.record.id);
-      setPreviewState({
+      setPreviewStateWithCleanup({
         status: "success",
         prompt: sourcePrompt,
         optimizedPrompt: optimizedPrompt.trim(),
@@ -1082,14 +1189,21 @@ export default function App() {
         saveFallbackReason: savedResult.saveFallbackReason,
       });
     } catch (error) {
-      setPreviewState({
+      if (!isMountedRef.current) {
+        revokePreviewUrl(savedPreviewUrl);
+        return;
+      }
+      setPreviewStateWithCleanup({
         status: "failed",
         prompt: finalPrompt,
         message: getErrorMessage(error),
         durationMs: Date.now() - startedAt,
       });
+      releaseOwnedPreviewUrl(savedPreviewUrl);
     } finally {
-      setIsGenerating(false);
+      if (isMountedRef.current) {
+        setIsGenerating(false);
+      }
     }
   }
 
@@ -1260,8 +1374,13 @@ export default function App() {
     try {
       const imageUrl = await runtime.prepareHistoryPreview(record);
 
+      if (!isMountedRef.current) {
+        revokePreviewUrl(imageUrl ?? undefined);
+        return;
+      }
+
       if (imageUrl) {
-        setPreviewState({
+        setPreviewStateWithCleanup({
           status: "success",
           prompt: record.prompt,
           optimizedPrompt: record.optimizedPrompt,
@@ -1273,13 +1392,16 @@ export default function App() {
         return;
       }
 
-      setPreviewState({
+      setPreviewStateWithCleanup({
         status: "history-unavailable",
         record,
         message: copy.messages.historyPreviewFileMissing,
       });
     } catch (error) {
-      setPreviewState({
+      if (!isMountedRef.current) {
+        return;
+      }
+      setPreviewStateWithCleanup({
         status: "history-unavailable",
         record,
         message: copy.messages.historyPreviewPreparationFailed(getErrorMessage(error)),
@@ -1337,30 +1459,44 @@ export default function App() {
 
     const restoredImages: BatchPreviewImage[] = [];
 
-    for (const [index, record] of item.records.entries()) {
-      const previewUrl = await runtime.prepareHistoryPreview(record);
+    try {
+      for (const [index, record] of item.records.entries()) {
+        const previewUrl = await runtime.prepareHistoryPreview(record);
 
-      if (!previewUrl) {
-        continue;
+        if (!isMountedRef.current) {
+          revokeBatchPreviewUrls([...restoredImages, ...(previewUrl ? [{ previewUrl }] : [])]);
+          return;
+        }
+
+        if (!previewUrl) {
+          continue;
+        }
+
+        restoredImages.push({
+          id: record.id,
+          index: record.batch?.taskIndex ?? index,
+          title: record.batch?.taskTitle ?? record.outputPath.split(/[\\/]/).pop() ?? record.prompt,
+          prompt: record.optimizedPrompt || record.prompt,
+          previewUrl,
+          outputPath: record.outputPath,
+          durationMs: record.durationMs,
+          completedAt: record.createdAt,
+        });
+        adoptPreviewUrl(previewUrl);
       }
-
-      restoredImages.push({
-        id: record.id,
-        index: record.batch?.taskIndex ?? index,
-        title: record.batch?.taskTitle ?? record.outputPath.split(/[\\/]/).pop() ?? record.prompt,
-        prompt: record.optimizedPrompt || record.prompt,
-        previewUrl,
-        outputPath: record.outputPath,
-        durationMs: record.durationMs,
-        completedAt: record.createdAt,
-      });
+    } catch {
+      releaseBatchPreviewUrls(restoredImages);
+      if (isMountedRef.current) {
+        setHistoryBatchPreviewWithCleanup(null);
+      }
+      return;
     }
 
     if (restoredImages.length === 0) {
       setHistoryBatchPreviewWithCleanup(null);
       const fallbackRecord = item.records[0];
       if (fallbackRecord) {
-        setPreviewState({
+        setPreviewStateWithCleanup({
           status: "history-unavailable",
           record: fallbackRecord,
           message: copy.messages.historyPreviewFileMissing,
@@ -1399,6 +1535,18 @@ export default function App() {
       },
       item.title,
     );
+  }
+
+  function revokeBatchPreviewUrls(images: Array<Pick<BatchPreviewImage, "previewUrl">>) {
+    for (const url of new Set(images.map((image) => image.previewUrl))) {
+      revokePreviewUrl(url);
+    }
+  }
+
+  function releaseBatchPreviewUrls(images: Array<Pick<BatchPreviewImage, "previewUrl">>) {
+    for (const url of new Set(images.map((image) => image.previewUrl))) {
+      releaseOwnedPreviewUrl(url);
+    }
   }
 
   async function fileFromPreviewUrl(previewUrl: string, fallbackName: string): Promise<File | null> {
@@ -1463,7 +1611,7 @@ export default function App() {
 
   function handlePreviewImageError(successState: Extract<PreviewState, { status: "success" }>) {
     if (successState.source === "history") {
-      setPreviewState({
+      setPreviewStateWithCleanup({
         status: "history-unavailable",
         record: successState.record,
         message: copy.messages.historyPreviewUnavailable,
@@ -1471,7 +1619,7 @@ export default function App() {
       return;
     }
 
-    setPreviewState({
+    setPreviewStateWithCleanup({
       status: "failed",
       prompt: successState.prompt,
       message: copy.messages.generatedPreviewLoadFailed,
@@ -1837,7 +1985,9 @@ export default function App() {
                 }}
                 requireValidConfig={requireValidConfig}
                 setAppMessage={setAppMessage}
-                onBatchPreviewChange={setBatchPreviewState}
+                onBatchPreviewChange={setBatchPreviewStateWithCleanup}
+                onBatchPreviewRelease={getReleasableBatchPreviewUrls}
+                batchPreviewReleaseVersion={batchPreviewReleaseVersion}
                 renderOutputOptions={renderQuickOutputOptions}
               />
             </div>
@@ -2411,7 +2561,7 @@ export default function App() {
                       type="button"
                       className="preview-frame preview-frame-button"
                       onClick={() =>
-                        setLightboxImage({
+                        setLightboxImageWithCleanup({
                           src: activeBatchPreview.latestImage!.previewUrl,
                           title: activeBatchPreview.latestImage!.title,
                           prompt: activeBatchPreview.latestImage!.prompt,
@@ -2474,7 +2624,7 @@ export default function App() {
                               type="button"
                               className="batch-preview-thumb-button"
                               onClick={() =>
-                                setLightboxImage({
+                                setLightboxImageWithCleanup({
                                   src: image.previewUrl,
                                   title: image.title,
                                   prompt: image.prompt,
@@ -2591,7 +2741,7 @@ export default function App() {
                     type="button"
                     className="preview-frame preview-frame-button"
                     onClick={() =>
-                      setLightboxImage({
+                      setLightboxImageWithCleanup({
                         src: previewState.imageUrl,
                         title: previewState.customName || previewState.record.outputPath.split(/[\\/]/).pop() || copy.cards.savedImage,
                         prompt: previewState.optimizedPrompt || previewState.prompt,
@@ -2944,11 +3094,11 @@ export default function App() {
       <Dialog
         open={Boolean(lightboxImage)}
         title={lightboxImage?.title ?? copy.actions.viewLarge}
-        onClose={() => setLightboxImage(null)}
+        onClose={() => setLightboxImageWithCleanup(null)}
         size="wide"
         className="lightbox-modal"
         footer={
-          <button type="button" className="primary-button" onClick={() => setLightboxImage(null)}>
+          <button type="button" className="primary-button" onClick={() => setLightboxImageWithCleanup(null)}>
             {copy.actions.close}
           </button>
         }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 
 import { buildBatchManifest, summarizeBatchTasks } from "../core/batchManifest";
+import { revokeBlobUrl } from "../core/blobUrl";
 import { notifyBatchComplete, restoreDocumentTitle, updateBatchDocumentTitle } from "../core/batchNotifications";
 import { buildBatchPreview, type BatchPreviewState } from "../core/batchPreview";
 import {
@@ -57,6 +58,8 @@ type BatchPanelProps = {
   requireValidConfig: (actionLabel: string) => boolean;
   setAppMessage: (message: string) => void;
   onBatchPreviewChange?: (preview: BatchPreviewState | null) => void;
+  onBatchPreviewRelease?: (urls: string[]) => string[];
+  batchPreviewReleaseVersion?: number;
   renderOutputOptions?: (disabled: boolean) => ReactNode;
 };
 
@@ -69,6 +72,8 @@ export function BatchPanel({
   requireValidConfig,
   setAppMessage,
   onBatchPreviewChange,
+  onBatchPreviewRelease,
+  batchPreviewReleaseVersion,
   renderOutputOptions,
 }: BatchPanelProps) {
   const copy = getTranslations(language);
@@ -109,6 +114,11 @@ export function BatchPanel({
   const taskReferenceInputRefs = useRef(new Map<string, HTMLInputElement>());
   const taskReferenceDragDepthRef = useRef<Record<string, number>>({});
   const taskReferenceImagesByIdRef = useRef<Record<string, ReferenceImageItem[]>>({});
+  const isMountedRef = useRef(true);
+  const ownedTaskPreviewUrlsRef = useRef(new Set<string>());
+  const pendingTaskPreviewReleasesRef = useRef(new Set<string>());
+  const revokedTaskPreviewUrlsRef = useRef(new Set<string>());
+  const [previewReleaseVersion, setPreviewReleaseVersion] = useState(0);
 
   const executionConfig: BatchExecutionConfig = useMemo(
     () =>
@@ -145,7 +155,23 @@ export function BatchPanel({
 
   useEffect(() => {
     onBatchPreviewChange?.(buildBatchPreview({ status, tasks }));
+    if (pendingTaskPreviewReleasesRef.current.size > 0) {
+      setPreviewReleaseVersion((currentVersion) => currentVersion + 1);
+    }
   }, [onBatchPreviewChange, status, tasks]);
+
+  useEffect(() => {
+    if (previewReleaseVersion === 0 || !isMountedRef.current) {
+      return;
+    }
+
+    const pendingUrls = Array.from(pendingTaskPreviewReleasesRef.current);
+    const releasableUrls = onBatchPreviewRelease ? onBatchPreviewRelease(pendingUrls) : pendingUrls;
+    for (const url of releasableUrls) {
+      pendingTaskPreviewReleasesRef.current.delete(url);
+    }
+    revokeTaskPreviewUrlsOnce(releasableUrls);
+  }, [batchPreviewReleaseVersion, onBatchPreviewRelease, previewReleaseVersion]);
 
   useEffect(() => {
     batchReferenceImagesRef.current = batchReferenceImages;
@@ -156,7 +182,16 @@ export function BatchPanel({
   }, [taskReferenceImagesById]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
+      revokeTaskPreviewUrlsOnce([
+        ...ownedTaskPreviewUrlsRef.current,
+        ...pendingTaskPreviewReleasesRef.current,
+        ...latestTasksRef.current.map((task) => task.previewUrl),
+      ]);
+      ownedTaskPreviewUrlsRef.current.clear();
+      pendingTaskPreviewReleasesRef.current.clear();
       revokeReferenceImages(batchReferenceImagesRef.current);
       revokeTaskReferenceImages(taskReferenceImagesByIdRef.current);
     };
@@ -173,10 +208,38 @@ export function BatchPanel({
   }, [config.batchDefaultTaskCount, isRunning, isSplitting, tasks.length]);
 
   function commitTasks(update: BatchTask[] | ((current: BatchTask[]) => BatchTask[])): BatchTask[] {
-    const nextTasks = typeof update === "function" ? update(latestTasksRef.current) : update;
+    const currentTasks = latestTasksRef.current;
+    const nextTasks = typeof update === "function" ? update(currentTasks) : update;
+    if (!isMountedRef.current) {
+      revokeTaskPreviewUrlsOnce(nextTasks.map((task) => task.previewUrl));
+      return currentTasks;
+    }
+
+    for (const task of nextTasks) {
+      if (task.previewUrl) {
+        ownedTaskPreviewUrlsRef.current.add(task.previewUrl);
+      }
+    }
+    const removedPreviewUrls = getReleasedTaskPreviewUrls(currentTasks, nextTasks);
+    for (const url of removedPreviewUrls) {
+      pendingTaskPreviewReleasesRef.current.add(url);
+    }
     latestTasksRef.current = nextTasks;
     setTasks(nextTasks);
     return nextTasks;
+  }
+
+  function revokeTaskPreviewUrlsOnce(urls: Iterable<string>) {
+    for (const url of new Set(urls)) {
+      if (!url || revokedTaskPreviewUrlsRef.current.has(url)) {
+        continue;
+      }
+
+      revokedTaskPreviewUrlsRef.current.add(url);
+      ownedTaskPreviewUrlsRef.current.delete(url);
+      pendingTaskPreviewReleasesRef.current.delete(url);
+      revokeBlobUrl(url);
+    }
   }
 
   function hasTaskRetryLock(): boolean {
@@ -203,7 +266,9 @@ export function BatchPanel({
     const nextIds = new Set(retryingTaskIdsRef.current);
     nextIds.delete(taskId);
     retryingTaskIdsRef.current = nextIds;
-    setRetryingTaskIds(nextIds);
+    if (isMountedRef.current) {
+      setRetryingTaskIds(nextIds);
+    }
   }
 
   function resetBatchIdentity() {
@@ -851,6 +916,9 @@ export function BatchPanel({
     });
 
     await runtime.saveBatchManifest(manifest);
+    if (!isMountedRef.current) {
+      return;
+    }
     setCompletedAt(finishedAt);
     setStatus(nextStatus);
   }
@@ -896,6 +964,10 @@ export function BatchPanel({
         shouldPause: () => pauseRef.current,
       });
 
+      if (!isMountedRef.current) {
+        revokeTaskPreviewUrlsOnce(result.tasks.map((task) => task.previewUrl));
+        return;
+      }
       commitTasks(result.tasks);
       if (result.pauseReason?.failureCategory === "cost_risk") {
         setPauseMessage(copy.batch.messages.costRiskPaused);
@@ -904,7 +976,13 @@ export function BatchPanel({
       }
 
       await persistManifest(result.status, result.tasks, nextStartedAt);
+      if (!isMountedRef.current) {
+        return;
+      }
       await onHistoryChanged();
+      if (!isMountedRef.current) {
+        return;
+      }
       const nextSummary = summarizeBatchTasks(result.tasks);
       const message = copy.batch.messages.batchComplete(
         nextSummary.succeeded,
@@ -914,10 +992,14 @@ export function BatchPanel({
       setAppMessage(message);
       await notifyBatchComplete(copy.batch.title, message);
     } catch (error) {
-      setStatus("paused");
-      setPauseMessage(safeErrorMessage(error));
+      if (isMountedRef.current) {
+        setStatus("paused");
+        setPauseMessage(safeErrorMessage(error));
+      }
     } finally {
-      restoreDocumentTitle();
+      if (isMountedRef.current) {
+        restoreDocumentTitle();
+      }
     }
   }
 
@@ -977,9 +1059,16 @@ export function BatchPanel({
         referenceImages: getReferenceImagesForTask(latestTask),
         saveBatchImage: runtime.saveBatchImage.bind(runtime),
       });
+      if (!isMountedRef.current) {
+        revokeTaskPreviewUrlsOnce([retried.previewUrl]);
+        return;
+      }
       const finalTasks = mergeRetriedBatchTask(latestTasksRef.current, retried);
       commitTasks(finalTasks);
       await persistManifest("completed", finalTasks, nextStartedAt);
+      if (!isMountedRef.current) {
+        return;
+      }
       await onHistoryChanged();
     } finally {
       releaseTaskRetry(task.id);
@@ -1654,7 +1743,7 @@ function resizePromptDrafts(current: string[], count: number): string[] {
 
 function revokeReferenceImages(images: ReferenceImageItem[]) {
   for (const image of images) {
-    URL.revokeObjectURL(image.previewUrl);
+    revokeBlobUrl(image.previewUrl);
   }
 }
 
@@ -1662,6 +1751,13 @@ function revokeTaskReferenceImages(imagesById: Record<string, ReferenceImageItem
   for (const images of Object.values(imagesById)) {
     revokeReferenceImages(images);
   }
+}
+
+function getReleasedTaskPreviewUrls(currentTasks: BatchTask[], nextTasks: BatchTask[]): string[] {
+  const retainedUrls = new Set(nextTasks.map((task) => task.previewUrl));
+  return Array.from(
+    new Set(currentTasks.map((task) => task.previewUrl).filter((url) => url && !retainedUrls.has(url))),
+  );
 }
 
 function formatFileSize(bytes: number, language: UiLanguage): string {

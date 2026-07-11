@@ -1,11 +1,14 @@
-import { act } from "react";
+import { StrictMode, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import * as apiClient from "./core/apiClient";
 import { DEFAULT_CONFIG, mergeConfig } from "./core/config";
 import type { ImageRecord } from "./core/history";
 import { getTranslations } from "./i18n/translations";
+import * as runtimeModule from "./runtime";
+import type { RuntimeAdapter, SaveImageResult } from "./runtime/types";
 
 const REMEMBERED_UI_API_KEY = ["remembered", "ui", "provider", "key", "123456789"].join("-");
 
@@ -34,6 +37,482 @@ describe("App batch workspace", () => {
     container.remove();
     window.localStorage.clear();
     window.sessionStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("releases the old generated preview when a new single-image preview replaces it", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([
+      createSaveImageResult("blob:single-first"),
+      createSaveImageResult("blob:single-second"),
+    ]);
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.spyOn(apiClient, "generateImages").mockResolvedValue([{ base64: "first-image" }]);
+
+    await renderApp();
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create a first poster.");
+    await clickButtonAsync(copy.actions.generate);
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create a second poster.");
+    await clickButtonAsync(copy.actions.generate);
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:single-first");
+  });
+
+  it("releases a generated preview when its image element reports an error", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([createSaveImageResult("blob:single-failed")]);
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.spyOn(apiClient, "generateImages").mockResolvedValue([{ base64: "image" }]);
+
+    await renderApp();
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create a poster.");
+    await clickButtonAsync(copy.actions.generate);
+
+    const previewImage = container.querySelector<HTMLImageElement>(".preview-success img");
+    if (!previewImage) {
+      throw new Error("Generated preview image not found.");
+    }
+    act(() => {
+      previewImage.dispatchEvent(new Event("error"));
+    });
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:single-failed");
+  });
+
+  it("releases a saved preview when refreshing history fails", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([createSaveImageResult("blob:single-history-failure")]);
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.spyOn(apiClient, "generateImages").mockResolvedValue([{ base64: "image" }]);
+
+    await renderApp();
+    vi.mocked(runtime.loadHistory).mockRejectedValueOnce(new Error("History refresh failed."));
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create a poster.");
+    await clickButtonAsync(copy.actions.generate);
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:single-history-failure");
+  });
+
+  it("releases its generated preview on unmount", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([createSaveImageResult("blob:single-unmount")]);
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.spyOn(apiClient, "generateImages").mockResolvedValue([{ base64: "image" }]);
+
+    await renderApp();
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create a poster.");
+    await clickButtonAsync(copy.actions.generate);
+    act(() => {
+      root.unmount();
+    });
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:single-unmount");
+  });
+
+  it("keeps generation active through the StrictMode effect rehearsal and releases its preview on final unmount", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([createSaveImageResult("blob:strict-single-unmount")]);
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.spyOn(apiClient, "generateImages").mockResolvedValue([{ base64: "image" }]);
+
+    await renderApp(true);
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create a poster.");
+    await clickButtonAsync(copy.actions.generate);
+
+    expect(container.querySelector('.preview-success img[src="blob:strict-single-unmount"]')).not.toBeNull();
+    act(() => {
+      root.unmount();
+    });
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:strict-single-unmount");
+  });
+
+  it("does not save a generated preview when generation resolves after unmount", async () => {
+    const copy = getTranslations("en-US");
+    const generatedImages = createDeferred<Awaited<ReturnType<typeof apiClient.generateImages>>>();
+    const runtime = createPreviewRuntime([createSaveImageResult("blob:single-late-generation")]);
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.spyOn(apiClient, "generateImages").mockReturnValue(generatedImages.promise);
+
+    await renderApp();
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create a poster.");
+    clickButton(copy.actions.generate);
+    act(() => {
+      root.unmount();
+    });
+    generatedImages.resolve([{ base64: "image" }]);
+    await flushPromises();
+
+    expect(runtime.saveImage).not.toHaveBeenCalled();
+    expect(revokeObjectUrl).not.toHaveBeenCalled();
+  });
+
+  it("releases a saved preview when saving resolves after unmount", async () => {
+    const copy = getTranslations("en-US");
+    const savedImage = createDeferred<SaveImageResult>();
+    const runtime = createPreviewRuntime([]);
+    runtime.saveImage = vi.fn().mockReturnValue(savedImage.promise);
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.spyOn(apiClient, "generateImages").mockResolvedValue([{ base64: "image" }]);
+
+    await renderApp();
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create a poster.");
+    clickButton(copy.actions.generate);
+    await flushPromises();
+    act(() => {
+      root.unmount();
+    });
+    savedImage.resolve(createSaveImageResult("blob:single-late-save"));
+    await flushPromises();
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:single-late-save");
+  });
+
+  it("releases a history preview when preparation resolves after unmount", async () => {
+    const copy = getTranslations("en-US");
+    const preparedPreview = createDeferred<string | null>();
+    const record = createHistoryRecord({ id: "history-late-preview" });
+    const runtime = createPreviewRuntime([], [record]);
+    runtime.prepareHistoryPreview = vi.fn().mockReturnValue(preparedPreview.promise);
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+    clickButton(copy.tabs.history);
+    clickButton(copy.actions.inspect);
+    act(() => {
+      root.unmount();
+    });
+    preparedPreview.resolve("blob:history-late-preview");
+    await flushPromises();
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:history-late-preview");
+  });
+
+  it("releases a history batch preview when preparation resolves after unmount", async () => {
+    const copy = getTranslations("en-US");
+    const preparedPreview = createDeferred<string | null>();
+    const record = createHistoryRecord({
+      id: "history-batch-late-preview",
+      batch: {
+        id: "batch-late-preview",
+        title: "Late preview batch",
+        createdAt: "2026-05-24T00:00:00.000Z",
+        taskId: "task-late-preview",
+        taskIndex: 0,
+        taskTitle: "Late preview",
+      },
+    });
+    const runtime = createPreviewRuntime([], [record]);
+    runtime.prepareHistoryPreview = vi.fn().mockReturnValue(preparedPreview.promise);
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+    clickButton(copy.tabs.history);
+    clickButton(copy.actions.inspectBatch);
+    act(() => {
+      root.unmount();
+    });
+    preparedPreview.resolve("blob:history-batch-late-preview");
+    await flushPromises();
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:history-batch-late-preview");
+  });
+
+  it("releases restored history batch previews when a later preview fails", async () => {
+    const copy = getTranslations("en-US");
+    const firstRecord = createHistoryRecord({
+      id: "history-batch-first",
+      batch: {
+        id: "batch-partial-preview",
+        title: "Partial preview batch",
+        createdAt: "2026-05-24T00:00:00.000Z",
+        taskId: "task-first",
+        taskIndex: 0,
+        taskTitle: "First preview",
+      },
+    });
+    const secondRecord = createHistoryRecord({
+      id: "history-batch-second",
+      createdAt: "2026-05-24T00:02:00.000Z",
+      batch: {
+        id: "batch-partial-preview",
+        title: "Partial preview batch",
+        createdAt: "2026-05-24T00:00:00.000Z",
+        taskId: "task-second",
+        taskIndex: 1,
+        taskTitle: "Second preview",
+      },
+    });
+    const runtime = createPreviewRuntime([], [firstRecord, secondRecord]);
+    runtime.prepareHistoryPreview = vi
+      .fn()
+      .mockResolvedValueOnce("blob:history-batch-partial")
+      .mockRejectedValueOnce(new Error("Second preview failed."));
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+    clickButton(copy.tabs.history);
+    clickButton(copy.actions.inspectBatch);
+    await flushPromises();
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:history-batch-partial");
+    expect(container.querySelector('img[src="blob:history-batch-partial"]')).toBeNull();
+  });
+
+  it("keeps a batch preview URL alive while its lightbox is open", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([]);
+    runtime.loadConfig = vi.fn().mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      apiKey: "test-key",
+      uiLanguage: "en-US",
+      hasDismissedWelcome: true,
+      batchDefaultTaskCount: 1,
+      batchDefaultIntervalSeconds: 0,
+    });
+    runtime.saveBatchImage = vi.fn().mockResolvedValue({
+      record: createHistoryRecord({ id: "batch-lightbox-record", outputPath: "outputs/batch-lightbox.png" }),
+      previewUrl: "blob:batch-lightbox",
+      outputPath: "outputs/batch-lightbox.png",
+      saveMode: "browser-download",
+    });
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.spyOn(apiClient, "generateImages").mockResolvedValue([{ base64: "image" }]);
+
+    await renderApp();
+    clickButton(copy.tabs.batch);
+    setFieldValue(getField<HTMLTextAreaElement>(copy.batch.fields.masterPrompt, "textarea"), "Create a poster.");
+    clickButton(copy.batch.actions.createTasks);
+    await clickButtonAsync(copy.batch.actions.start);
+    await flushPromises();
+    await flushEffects();
+
+    const previewButton = container.querySelector<HTMLButtonElement>(".batch-preview .preview-frame-button");
+    if (!previewButton) {
+      throw new Error("Batch preview button not found.");
+    }
+    act(() => {
+      previewButton.click();
+    });
+    clickButton(copy.batch.actions.clearDraft);
+    await flushPromises();
+
+    expect(container.textContent).toContain(copy.batch.emptyTasks);
+    expect(container.querySelector('.lightbox-content img[src="blob:batch-lightbox"]')).not.toBeNull();
+    expect(revokeObjectUrl).not.toHaveBeenCalled();
+
+    clickButton(copy.actions.close);
+    await flushPromises();
+    act(() => {
+      root.unmount();
+    });
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:batch-lightbox");
+  });
+
+  it("keeps BatchPanel as the sole owner when its URL is borrowed by history and single previews", async () => {
+    const copy = getTranslations("en-US");
+    const record = createHistoryRecord({
+      id: "batch-borrowed-record",
+      outputPath: "outputs/batch-borrowed.png",
+      batch: {
+        id: "batch-borrowed-preview",
+        title: "Borrowed preview batch",
+        createdAt: "2026-05-24T00:00:00.000Z",
+        taskId: "task-borrowed-preview",
+        taskIndex: 0,
+        taskTitle: "Borrowed preview",
+      },
+    });
+    const runtime = createPreviewRuntime([], [record]);
+    runtime.loadConfig = vi.fn().mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      apiKey: "test-key",
+      uiLanguage: "en-US",
+      hasDismissedWelcome: true,
+      batchDefaultTaskCount: 1,
+      batchDefaultIntervalSeconds: 0,
+    });
+    runtime.saveBatchImage = vi.fn().mockResolvedValue({
+      record,
+      previewUrl: "blob:batch-borrowed",
+      outputPath: record.outputPath,
+      saveMode: "browser-download",
+    });
+    runtime.prepareHistoryPreview = vi.fn().mockResolvedValue("blob:batch-borrowed");
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.spyOn(apiClient, "generateImages").mockResolvedValue([{ base64: "image" }]);
+
+    await renderApp();
+    clickButton(copy.tabs.batch);
+    setFieldValue(getField<HTMLTextAreaElement>(copy.batch.fields.masterPrompt, "textarea"), "Create a poster.");
+    clickButton(copy.batch.actions.createTasks);
+    await clickButtonAsync(copy.batch.actions.start);
+    await flushEffects();
+
+    clickButton(copy.tabs.history);
+    await clickButtonAsync(copy.actions.inspectBatch);
+    await flushPromises();
+    clickButton(copy.actions.expandBatch);
+    clickButton(copy.actions.inspect);
+    await flushPromises();
+
+    clickButton(copy.tabs.batch);
+    clickButton(copy.batch.actions.clearDraft);
+    await flushPromises();
+
+    const previewImage = container.querySelector<HTMLImageElement>('.preview-success img[src="blob:batch-borrowed"]');
+    if (!previewImage) {
+      throw new Error("Borrowed single preview image not found.");
+    }
+    act(() => {
+      previewImage.dispatchEvent(new Event("error"));
+    });
+    await flushPromises();
+    act(() => {
+      root.unmount();
+    });
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:batch-borrowed");
+  });
+
+  it("does not retain App ownership after partial history restoration borrows a batch URL", async () => {
+    const copy = getTranslations("en-US");
+    const firstRecord = createHistoryRecord({
+      id: "batch-partial-borrowed-first",
+      outputPath: "outputs/batch-partial-borrowed-first.png",
+      batch: {
+        id: "batch-partial-borrowed",
+        title: "Partial borrowed preview batch",
+        createdAt: "2026-05-24T00:00:00.000Z",
+        taskId: "task-partial-borrowed-first",
+        taskIndex: 0,
+        taskTitle: "First borrowed preview",
+      },
+    });
+    const secondRecord = createHistoryRecord({
+      id: "batch-partial-borrowed-second",
+      outputPath: "outputs/batch-partial-borrowed-second.png",
+      batch: {
+        id: "batch-partial-borrowed",
+        title: "Partial borrowed preview batch",
+        createdAt: "2026-05-24T00:00:00.000Z",
+        taskId: "task-partial-borrowed-second",
+        taskIndex: 1,
+        taskTitle: "Second borrowed preview",
+      },
+    });
+    const runtime = createPreviewRuntime([], [firstRecord, secondRecord]);
+    runtime.loadConfig = vi.fn().mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      apiKey: "test-key",
+      uiLanguage: "en-US",
+      hasDismissedWelcome: true,
+      batchDefaultTaskCount: 1,
+      batchDefaultIntervalSeconds: 0,
+    });
+    runtime.saveBatchImage = vi.fn().mockResolvedValue({
+      record: firstRecord,
+      previewUrl: "blob:batch-partial-borrowed",
+      outputPath: firstRecord.outputPath,
+      saveMode: "browser-download",
+    });
+    runtime.prepareHistoryPreview = vi
+      .fn()
+      .mockResolvedValueOnce("blob:batch-partial-borrowed")
+      .mockRejectedValueOnce(new Error("Second preview failed."));
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.spyOn(apiClient, "generateImages").mockResolvedValue([{ base64: "image" }]);
+
+    await renderApp();
+    clickButton(copy.tabs.batch);
+    setFieldValue(getField<HTMLTextAreaElement>(copy.batch.fields.masterPrompt, "textarea"), "Create a poster.");
+    clickButton(copy.batch.actions.createTasks);
+    await clickButtonAsync(copy.batch.actions.start);
+    await flushEffects();
+
+    clickButton(copy.tabs.history);
+    await clickButtonAsync(copy.actions.inspectBatch);
+    await flushPromises();
+
+    clickButton(copy.tabs.batch);
+    clickButton(copy.batch.actions.clearDraft);
+    await flushPromises();
+    act(() => {
+      root.unmount();
+    });
+
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:batch-partial-borrowed");
+  });
+
+  it("does not revoke a shared single preview when history batch restoration later fails", async () => {
+    const copy = getTranslations("en-US");
+    const firstRecord = createHistoryRecord({
+      id: "history-shared-first",
+      batch: {
+        id: "batch-shared-preview",
+        title: "Shared preview batch",
+        createdAt: "2026-05-24T00:00:00.000Z",
+        taskId: "task-shared-first",
+        taskIndex: 0,
+        taskTitle: "First shared preview",
+      },
+    });
+    const secondRecord = createHistoryRecord({
+      id: "history-shared-second",
+      createdAt: "2026-05-24T00:02:00.000Z",
+      batch: {
+        id: "batch-shared-preview",
+        title: "Shared preview batch",
+        createdAt: "2026-05-24T00:00:00.000Z",
+        taskId: "task-shared-second",
+        taskIndex: 1,
+        taskTitle: "Second shared preview",
+      },
+    });
+    const runtime = createPreviewRuntime([createSaveImageResult("blob:shared-preview")], [firstRecord, secondRecord]);
+    runtime.prepareHistoryPreview = vi
+      .fn()
+      .mockResolvedValueOnce("blob:shared-preview")
+      .mockRejectedValueOnce(new Error("Second preview failed."));
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.spyOn(apiClient, "generateImages").mockResolvedValue([{ base64: "image" }]);
+
+    await renderApp();
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create a poster.");
+    await clickButtonAsync(copy.actions.generate);
+    clickButton(copy.tabs.history);
+    clickButton(copy.actions.inspectBatch);
+    await flushPromises();
+
+    expect(container.querySelector('.preview-success img[src="blob:shared-preview"]')).not.toBeNull();
+    expect(revokeObjectUrl).not.toHaveBeenCalled();
   });
 
   it("keeps batch draft fields mounted when switching between tabs", async () => {
@@ -404,6 +883,28 @@ describe("App batch workspace", () => {
     });
   }
 
+  async function clickButtonAsync(label: string) {
+    const button = Array.from(container.querySelectorAll("button")).find(
+      (candidate) => candidate.textContent?.trim() === label,
+    );
+
+    if (!button) {
+      throw new Error(`Button not found: ${label}`);
+    }
+
+    await act(async () => {
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+  }
+
+  async function renderApp(strictMode = false) {
+    await act(async () => {
+      root.render(strictMode ? <StrictMode><App /></StrictMode> : <App />);
+    });
+    await flushEffects();
+  }
+
   function getField<T extends HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
     labelText: string,
     selector: string,
@@ -460,6 +961,63 @@ function createHistoryRecord(overrides: Partial<ImageRecord>): ImageRecord {
     durationMs: 1000,
     ...overrides,
   };
+}
+
+async function flushPromises() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+function createPreviewRuntime(saveResults: SaveImageResult[], history: ImageRecord[] = []): RuntimeAdapter {
+  return {
+    mode: "web",
+    loadConfig: vi.fn().mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      apiKey: "test-key",
+      uiLanguage: "en-US",
+      hasDismissedWelcome: true,
+    }),
+    saveConfig: vi.fn().mockResolvedValue(undefined),
+    loadHistory: vi.fn().mockResolvedValue(history),
+    deleteHistoryRecords: vi.fn().mockResolvedValue([]),
+    saveImage: vi.fn().mockImplementation(async () => {
+      const result = saveResults.shift();
+      if (!result) {
+        throw new Error("No preview save result configured.");
+      }
+      return result;
+    }),
+    saveBatchImage: vi.fn(),
+    saveBatchManifest: vi.fn().mockResolvedValue("batch.json"),
+    chooseOutputDirectory: vi.fn().mockResolvedValue(null),
+    prepareHistoryPreview: vi.fn().mockResolvedValue(null),
+    prepareHistoryFile: vi.fn().mockResolvedValue(null),
+    getOutputDirectoryState: vi.fn().mockResolvedValue({ status: "not-authorized" }),
+    testOutputDirectory: vi.fn().mockResolvedValue({ ok: true }),
+    openOutputPath: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createSaveImageResult(previewUrl: string): SaveImageResult {
+  return {
+    previewUrl,
+    saveMode: "browser-download",
+    record: createHistoryRecord({ id: previewUrl, outputPath: `${previewUrl}.png` }),
+  };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, resolve, reject };
 }
 
 function setSelectValue(element: HTMLSelectElement | undefined, value: string) {
