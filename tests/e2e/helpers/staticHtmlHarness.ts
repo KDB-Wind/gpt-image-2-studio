@@ -63,9 +63,28 @@ export async function openCleanStaticPage(page: Page, config?: Partial<AppConfig
   await page.evaluate(
     ({ configKey, historyKey, batchDraftKey, batchManifestKey, nextConfig }) => {
       localStorage.removeItem(historyKey);
-      localStorage.removeItem(batchDraftKey);
       localStorage.removeItem(batchManifestKey);
       localStorage.setItem(configKey, JSON.stringify(nextConfig));
+      localStorage.setItem(
+        batchDraftKey,
+        JSON.stringify({
+          schemaVersion: 1,
+          id: "batch-e2e-clean",
+          title: "",
+          source: "same-prompt",
+          status: "draft",
+          createdAt: new Date(0).toISOString(),
+          startedAt: "",
+          completedAt: "",
+          masterPrompt: "",
+          styleLock: "",
+          customPromptDrafts: Array.from({ length: nextConfig.batchDefaultTaskCount }, () => ""),
+          taskCount: nextConfig.batchDefaultTaskCount,
+          splitTemplateId: "basic",
+          customSplitSystemPrompt: "",
+          tasks: [],
+        }),
+      );
     },
     {
       configKey: CONFIG_KEY,
