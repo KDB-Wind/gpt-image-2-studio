@@ -1,7 +1,11 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { isDirectExecution, validateVersionManifest } from "./archive-static-version.mjs";
+import {
+  extractEmbeddedVersionManifest,
+  isDirectExecution,
+  validateVersionManifest,
+} from "./archive-static-version.mjs";
 
 const defaultRootDir = resolve(".");
 
@@ -28,6 +32,12 @@ function assertSameVersionSet(label, actual, expected) {
   if (JSON.stringify([...actual].sort()) !== JSON.stringify([...expected].sort())) {
     throw new Error(`${label} archives do not match the manifest. Expected: ${expected.join(", ")}; found: ${actual.join(", ")}.`);
   }
+}
+
+function extractLegacyEmbeddedPackageVersion(html) {
+  return html.match(
+    /\bname\s*:\s*([`'"])chat-to-image\1\s*,\s*version\s*:\s*([`'"])([^`'"]+)\2/,
+  )?.[3];
 }
 
 export function assertStaticVersionArchivesMatch({ rootDir = defaultRootDir, distDir = join(rootDir, "dist-static") } = {}) {
@@ -59,6 +69,35 @@ export function assertVersionManifestAndArchives({ rootDir = defaultRootDir, dis
   const expectedVersions = sourceManifest.versions;
   assertSameVersionSet("Source", listArchiveVersions(join(rootDir, "static-versions", "versions")), expectedVersions);
   assertSameVersionSet("Dist", listArchiveVersions(join(distDir, "versions")), expectedVersions);
+
+  for (const version of expectedVersions) {
+    const archivePath = join(rootDir, "static-versions", "versions", `v${version}`, "index.html");
+    const archiveHtml = readFileSync(archivePath, "utf8");
+    let embeddedManifest;
+
+    try {
+      embeddedManifest = extractEmbeddedVersionManifest(archiveHtml);
+    } catch (error) {
+      if (version === sourceManifest.latestStable) {
+        throw error;
+      }
+
+      if (extractLegacyEmbeddedPackageVersion(archiveHtml) !== version) {
+        throw new Error(`Legacy source archive v${version} must embed its own package version.`);
+      }
+
+      continue;
+    }
+
+    if (!embeddedManifest.versions.includes(version)) {
+      throw new Error(`Source archive embedded manifest for v${version} must include its own version.`);
+    }
+
+    if (version === sourceManifest.latestStable && embeddedManifest.latestStable !== version) {
+      throw new Error(`Latest source archive v${version} embedded manifest must identify itself as latestStable.`);
+    }
+  }
+
   assertStaticVersionArchivesMatch({ rootDir, distDir });
 }
 

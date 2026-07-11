@@ -1,4 +1,5 @@
 import * as nodeFs from "node:fs";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -48,6 +49,19 @@ export function validateVersionManifest(manifest) {
   }
 
   return manifest;
+}
+
+export function extractEmbeddedVersionManifest(html) {
+  const manifestMatch = html.match(
+    /\blatestStable\s*:\s*([`'"])([^`'"]+)\1\s*,\s*versions\s*:\s*\[([^\]]*)\]/,
+  );
+
+  if (!manifestMatch) {
+    throw new Error("Static archive does not contain an embedded version manifest.");
+  }
+
+  const versions = [...manifestMatch[3].matchAll(/([`'"])([^`'"]+)\1/g)].map((match) => match[2]);
+  return validateVersionManifest({ latestStable: manifestMatch[2], versions });
 }
 
 function readManifest(rootDir, fs) {
@@ -316,7 +330,13 @@ function recoverStaleTransaction({
   return false;
 }
 
-export function archiveStaticVersion({ rootDir = defaultRootDir, fs: fsOverrides = {}, now = Date.now(), processKill = process.kill } = {}) {
+export function archiveStaticVersion({
+  rootDir = defaultRootDir,
+  fs: fsOverrides = {},
+  now = Date.now(),
+  processKill = process.kill,
+  prepareReleaseHtml,
+} = {}) {
   const fs = { ...nodeFs, ...fsOverrides };
   const packageJson = JSON.parse(fs.readFileSync(join(rootDir, "package.json"), "utf8"));
   const version = packageJson.version;
@@ -347,6 +367,8 @@ export function archiveStaticVersion({ rootDir = defaultRootDir, fs: fsOverrides
   let temporaryArchiveCreated = false;
   let archiveCreated = false;
   let manifestCommitted = false;
+  let manifestPrepared = false;
+  let originalManifest;
   let transactionMarkerCreated = false;
   let lockAcquired = false;
 
@@ -354,10 +376,7 @@ export function archiveStaticVersion({ rootDir = defaultRootDir, fs: fsOverrides
     acquireArchiveLock({ fs, lockPath, transaction, now, processKill });
     lockAcquired = true;
     const { manifest } = readManifest(rootDir, fs);
-
-    if (!fs.existsSync(releaseHtmlPath)) {
-      throw new Error(`Latest inlined HTML is missing: ${releaseHtmlPath}`);
-    }
+    originalManifest = manifest;
 
     const nextVersions = [...new Set([version, ...manifest.versions])].sort(rcompare);
     const nextManifest = validateVersionManifest({ latestStable: version, versions: nextVersions });
@@ -413,6 +432,30 @@ export function archiveStaticVersion({ rootDir = defaultRootDir, fs: fsOverrides
     versionsDirExisted = fs.existsSync(versionsDir);
     writeTransactionMarker({ fs, markerPath, transaction });
     transactionMarkerCreated = true;
+
+    if (prepareReleaseHtml) {
+      assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
+      writeManifestAtomically({
+        fs,
+        manifestPath,
+        manifest: nextManifest,
+        beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId }),
+      });
+      manifestPrepared = true;
+      prepareReleaseHtml({ rootDir, version, manifest: nextManifest });
+    }
+
+    if (!fs.existsSync(releaseHtmlPath)) {
+      throw new Error(`Latest inlined HTML is missing: ${releaseHtmlPath}`);
+    }
+
+    if (prepareReleaseHtml) {
+      const embeddedManifest = extractEmbeddedVersionManifest(fs.readFileSync(releaseHtmlPath, "utf8"));
+      if (embeddedManifest.latestStable !== version || !embeddedManifest.versions.includes(version)) {
+        throw new Error(`Prepared static HTML must embed v${version} as latestStable and include itself.`);
+      }
+    }
+
     fs.mkdirSync(archiveDir, { recursive: true });
     fs.copyFileSync(releaseHtmlPath, temporaryArchivePath, fs.constants.COPYFILE_EXCL);
     temporaryArchiveCreated = true;
@@ -423,13 +466,15 @@ export function archiveStaticVersion({ rootDir = defaultRootDir, fs: fsOverrides
     fs.unlinkSync(temporaryArchivePath);
     temporaryArchiveCreated = false;
     assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
-    writeManifestAtomically({
-      fs,
-      manifestPath,
-      manifest: nextManifest,
-      temporaryManifestPath,
-      beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId }),
-    });
+    if (!manifestPrepared) {
+      writeManifestAtomically({
+        fs,
+        manifestPath,
+        manifest: nextManifest,
+        temporaryManifestPath,
+        beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId }),
+      });
+    }
     manifestCommitted = true;
     assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
     removeTransactionMarkerIfOwned({ fs, markerPath, transactionId: transaction.transactionId });
@@ -459,6 +504,16 @@ export function archiveStaticVersion({ rootDir = defaultRootDir, fs: fsOverrides
     if (archiveCreated && !manifestCommitted) {
       assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
       fs.rmSync(archivePath, { force: true });
+    }
+
+    if (manifestPrepared && !manifestCommitted && originalManifest) {
+      assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
+      writeManifestAtomically({
+        fs,
+        manifestPath,
+        manifest: originalManifest,
+        beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId }),
+      });
     }
 
     if (transactionMarkerCreated) {
@@ -492,9 +547,33 @@ export function archiveStaticVersion({ rootDir = defaultRootDir, fs: fsOverrides
   }
 }
 
+export function runStaticBuildCommand({
+  rootDir,
+  spawnSyncImpl = spawnSync,
+  execPath = process.execPath,
+  npmExecPath = process.env.npm_execpath,
+}) {
+  if (!npmExecPath) {
+    throw new Error("npm_execpath is unavailable; run the archive through npm run archive:static.");
+  }
+
+  const result = spawnSyncImpl(execPath, [npmExecPath, "run", "build:static"], {
+    cwd: rootDir,
+    stdio: "inherit",
+  });
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  if (result.status !== 0) {
+    throw new Error(`Static build failed with exit code ${result.status}.`);
+  }
+}
+
 if (isDirectExecution(import.meta.url, process.argv[1])) {
   try {
-    archiveStaticVersion();
+    archiveStaticVersion({ prepareReleaseHtml: ({ rootDir }) => runStaticBuildCommand({ rootDir }) });
     console.log("Static version archive created.");
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);

@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import * as archiveStaticVersionModule from "./archive-static-version.mjs";
 import {
   archiveStaticVersion,
   isDirectExecution,
@@ -35,7 +36,15 @@ function writeSourceArchive(rootDir, version, contents) {
   return archivePath;
 }
 
-function createSiteFixture({ sourceContents = "<html>archive</html>\n", distContents = sourceContents } = {}) {
+function versionedArchiveHtml({ latestStable, versions }) {
+  const quotedVersions = versions.map((version) => `\`${version}\``).join(",");
+  return `<html><script>const manifest={latestStable:\`${latestStable}\`,versions:[${quotedVersions}]}</script></html>\n`;
+}
+
+function createSiteFixture({
+  sourceContents = versionedArchiveHtml({ latestStable: "1.0.0", versions: ["1.0.0"] }),
+  distContents = sourceContents,
+} = {}) {
   const rootDir = createTempRoot();
   const distDir = join(rootDir, "dist-static");
   const manifest = { latestStable: "1.0.0", versions: ["1.0.0"] };
@@ -53,6 +62,118 @@ function createSiteFixture({ sourceContents = "<html>archive</html>\n", distCont
 }
 
 describe("static version archives", () => {
+  it("runs the static build through the current Node and npm CLI paths", () => {
+    const calls = [];
+    const runStaticBuildCommand = archiveStaticVersionModule.runStaticBuildCommand;
+
+    expect(typeof runStaticBuildCommand).toBe("function");
+    runStaticBuildCommand({
+      rootDir: "C:\\repo",
+      execPath: "C:\\node\\node.exe",
+      npmExecPath: "C:\\node\\node_modules\\npm\\bin\\npm-cli.js",
+      spawnSyncImpl: (command, args, options) => {
+        calls.push({ command, args, options });
+        return { status: 0 };
+      },
+    });
+
+    expect(calls).toEqual([
+      {
+        command: "C:\\node\\node.exe",
+        args: ["C:\\node\\node_modules\\npm\\bin\\npm-cli.js", "run", "build:static"],
+        options: { cwd: "C:\\repo", stdio: "inherit" },
+      },
+    ]);
+  });
+
+  it("builds after advancing the manifest so a new archive embeds itself", () => {
+    const rootDir = createTempRoot();
+    const manifestPath = join(rootDir, "static-versions", "manifest.json");
+    const releaseHtmlPath = join(rootDir, "dist-static", "gpt-image-2-studio-lite.html");
+
+    writeJson(join(rootDir, "package.json"), { version: "1.2.3" });
+    writeJson(manifestPath, { latestStable: "1.2.2", versions: ["1.2.2"] });
+    writeSourceArchive(
+      rootDir,
+      "1.2.2",
+      versionedArchiveHtml({ latestStable: "1.2.2", versions: ["1.2.2"] }),
+    );
+    mkdirSync(join(releaseHtmlPath, ".."), { recursive: true });
+    writeFileSync(
+      releaseHtmlPath,
+      versionedArchiveHtml({ latestStable: "1.2.2", versions: ["1.2.2"] }),
+      "utf8",
+    );
+
+    archiveStaticVersion({
+      rootDir,
+      prepareReleaseHtml: ({ manifest }) => {
+        expect(JSON.parse(readFileSync(manifestPath, "utf8"))).toEqual(manifest);
+        writeFileSync(releaseHtmlPath, versionedArchiveHtml(manifest), "utf8");
+      },
+    });
+
+    expect(readFileSync(join(rootDir, "static-versions", "versions", "v1.2.3", "index.html"), "utf8")).toContain(
+      "latestStable:`1.2.3`,versions:[`1.2.3`,`1.2.2`]",
+    );
+  });
+
+  it("rejects a second prepared archive attempt before rebuilding or changing bytes", () => {
+    const rootDir = createTempRoot();
+    const manifestPath = join(rootDir, "static-versions", "manifest.json");
+    const releaseHtmlPath = join(rootDir, "dist-static", "gpt-image-2-studio-lite.html");
+    const archivePath = join(rootDir, "static-versions", "versions", "v1.2.3", "index.html");
+    let buildCount = 0;
+
+    writeJson(join(rootDir, "package.json"), { version: "1.2.3" });
+    writeJson(manifestPath, { latestStable: "1.2.2", versions: ["1.2.2"] });
+    writeSourceArchive(
+      rootDir,
+      "1.2.2",
+      versionedArchiveHtml({ latestStable: "1.2.2", versions: ["1.2.2"] }),
+    );
+    mkdirSync(join(releaseHtmlPath, ".."), { recursive: true });
+
+    const prepareReleaseHtml = ({ manifest }) => {
+      buildCount += 1;
+      writeFileSync(releaseHtmlPath, versionedArchiveHtml(manifest), "utf8");
+    };
+
+    archiveStaticVersion({ rootDir, prepareReleaseHtml });
+    const beforeArchiveHash = sha256(archivePath);
+    const beforeManifestHash = sha256(manifestPath);
+
+    expect(() => archiveStaticVersion({ rootDir, prepareReleaseHtml })).toThrow(/already exists/);
+    expect(buildCount).toBe(1);
+    expect(sha256(archivePath)).toBe(beforeArchiveHash);
+    expect(sha256(manifestPath)).toBe(beforeManifestHash);
+  });
+
+  it("rolls back the manifest when the prepared static build fails", () => {
+    const rootDir = createTempRoot();
+    const manifestPath = join(rootDir, "static-versions", "manifest.json");
+    const beforeManifest = { latestStable: "1.2.2", versions: ["1.2.2"] };
+
+    writeJson(join(rootDir, "package.json"), { version: "1.2.3" });
+    writeJson(manifestPath, beforeManifest);
+    writeSourceArchive(
+      rootDir,
+      "1.2.2",
+      versionedArchiveHtml({ latestStable: "1.2.2", versions: ["1.2.2"] }),
+    );
+
+    expect(() =>
+      archiveStaticVersion({
+        rootDir,
+        prepareReleaseHtml: () => {
+          throw new Error("static build failed");
+        },
+      }),
+    ).toThrow(/static build failed/);
+    expect(JSON.parse(readFileSync(manifestPath, "utf8"))).toEqual(beforeManifest);
+    expect(existsSync(join(rootDir, "static-versions", "versions", "v1.2.3", "index.html"))).toBe(false);
+  });
+
   it("archives the latest inlined HTML and updates the manifest on the first archive", () => {
     const rootDir = createTempRoot();
     const releaseHtmlPath = join(rootDir, "dist-static", "gpt-image-2-studio-lite.html");
@@ -621,6 +742,41 @@ describe("static version archives", () => {
     expect(() => runStaticSiteCheck(fixture)).toThrow(/byte-identical/);
   });
 
+  it("rejects a source archive whose embedded manifest does not include its own version", () => {
+    const fixture = createSiteFixture({
+      sourceContents: versionedArchiveHtml({ latestStable: "0.9.0", versions: ["0.9.0"] }),
+    });
+    writeFileSync(
+      join(fixture.distDir, "versions", "v1.0.0", "index.html"),
+      versionedArchiveHtml({ latestStable: "0.9.0", versions: ["0.9.0"] }),
+      "utf8",
+    );
+
+    expect(() => runStaticSiteCheck(fixture)).toThrow(/embedded manifest.*1\.0\.0/i);
+  });
+
+  it("accepts a legacy non-latest archive that embeds its own package version", () => {
+    const rootDir = createTempRoot();
+    const distDir = join(rootDir, "dist-static");
+    const manifest = { latestStable: "1.0.0", versions: ["1.0.0", "0.9.0"] };
+    const currentArchive = versionedArchiveHtml(manifest);
+    const legacyArchive = '<html><script>const packageJson={name:`chat-to-image`,version:`0.9.0`}</script></html>\n';
+    const appHtml = '<!doctype html><link rel="icon" href="data:image/svg+xml,test"><script>viewBox:"0 0 1024 1024"</script>';
+
+    writeJson(join(rootDir, "static-versions", "manifest.json"), manifest);
+    writeSourceArchive(rootDir, "1.0.0", currentArchive);
+    writeSourceArchive(rootDir, "0.9.0", legacyArchive);
+    writeJson(join(distDir, "versions", "manifest.json"), manifest);
+    mkdirSync(join(distDir, "versions", "v1.0.0"), { recursive: true });
+    mkdirSync(join(distDir, "versions", "v0.9.0"), { recursive: true });
+    writeFileSync(join(distDir, "versions", "v1.0.0", "index.html"), currentArchive, "utf8");
+    writeFileSync(join(distDir, "versions", "v0.9.0", "index.html"), legacyArchive, "utf8");
+    writeFileSync(join(distDir, "index.html"), appHtml, "utf8");
+    writeFileSync(join(distDir, "gpt-image-2-studio-lite.html"), appHtml, "utf8");
+
+    expect(() => runStaticSiteCheck({ rootDir, distDir })).not.toThrow();
+  });
+
   it("rejects a manifest that references a missing source archive", () => {
     const rootDir = createTempRoot();
     const distDir = join(rootDir, "dist-static");
@@ -657,7 +813,8 @@ describe("static version archives", () => {
 
   it("does not scan immutable historical archive contents for package markers", () => {
     const fixture = createSiteFixture({
-      sourceContents: '<html><script>license:"ISC";vitest run;@tauri-apps/api</script></html>\n',
+      sourceContents:
+        '<html><script>const manifest={latestStable:`1.0.0`,versions:[`1.0.0`]};license:"ISC";vitest run;@tauri-apps/api</script></html>\n',
     });
 
     expect(() => runStaticSiteCheck(fixture)).not.toThrow();

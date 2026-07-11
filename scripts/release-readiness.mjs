@@ -141,7 +141,26 @@ export function checkTauriWindowsBundleConfig(config) {
   return errors;
 }
 
-export function checkPackageReleaseMetadata(packageJson, packageLock) {
+function cargoTomlPackageVersion(cargoToml) {
+  const packageHeader = "[package]";
+  const packageStart = cargoToml?.indexOf(packageHeader) ?? -1;
+  if (packageStart < 0) {
+    return undefined;
+  }
+
+  const afterHeader = cargoToml.slice(packageStart + packageHeader.length);
+  const nextSection = afterHeader.search(/^\[/m);
+  const packageSection = nextSection >= 0 ? afterHeader.slice(0, nextSection) : afterHeader;
+  return packageSection?.match(/^version\s*=\s*"([^"]+)"\s*$/m)?.[1];
+}
+
+function cargoLockPackageVersion(cargoLock, packageName) {
+  const packageBlocks = cargoLock?.split(/^\[\[package\]\]\s*$/m).slice(1) ?? [];
+  const packageBlock = packageBlocks.find((block) => block.match(/^name\s*=\s*"([^"]+)"\s*$/m)?.[1] === packageName);
+  return packageBlock?.match(/^version\s*=\s*"([^"]+)"\s*$/m)?.[1];
+}
+
+export function checkPackageReleaseMetadata(packageJson, packageLock, tauriConfig, cargoToml, cargoLock) {
   const errors = [];
 
   if (packageJson?.license !== "MIT") {
@@ -154,6 +173,18 @@ export function checkPackageReleaseMetadata(packageJson, packageLock) {
 
   if (packageLock?.packages?.[""]?.license !== "MIT") {
     errors.push("package-lock.json root license must be MIT.");
+  }
+
+  if (tauriConfig?.version !== packageJson?.version) {
+    errors.push("src-tauri/tauri.conf.json version must match package.json.");
+  }
+
+  if (cargoTomlPackageVersion(cargoToml) !== packageJson?.version) {
+    errors.push("src-tauri/Cargo.toml package version must match package.json.");
+  }
+
+  if (cargoLockPackageVersion(cargoLock, packageJson?.name) !== packageJson?.version) {
+    errors.push("src-tauri/Cargo.lock package version must match package.json.");
   }
 
   return errors;
@@ -188,6 +219,8 @@ export function runReleaseReadiness(rootDir) {
   const ciWorkflowPath = join(rootDir, ".github", "workflows", "ci.yml");
   const pagesWorkflowPath = join(rootDir, ".github", "workflows", "pages.yml");
   const tauriConfigPath = join(rootDir, "src-tauri", "tauri.conf.json");
+  const cargoTomlPath = join(rootDir, "src-tauri", "Cargo.toml");
+  const cargoLockPath = join(rootDir, "src-tauri", "Cargo.lock");
   const packageJsonPath = join(rootDir, "package.json");
   const packageLockPath = join(rootDir, "package-lock.json");
   const packageJson = readJson(packageJsonPath);
@@ -195,8 +228,6 @@ export function runReleaseReadiness(rootDir) {
 
   if (!existsSync(packageLockPath)) {
     errors.push("package-lock.json is missing.");
-  } else {
-    errors.push(...checkPackageReleaseMetadata(packageJson, readJson(packageLockPath)));
   }
 
   if (!existsSync(releaseWorkflowPath)) {
@@ -219,6 +250,26 @@ export function runReleaseReadiness(rootDir) {
     errors.push("src-tauri/tauri.conf.json is missing.");
   } else {
     errors.push(...checkTauriWindowsBundleConfig(readJson(tauriConfigPath)));
+  }
+
+  if (!existsSync(cargoTomlPath)) {
+    errors.push("src-tauri/Cargo.toml is missing.");
+  }
+
+  if (!existsSync(cargoLockPath)) {
+    errors.push("src-tauri/Cargo.lock is missing.");
+  }
+
+  if (existsSync(packageLockPath) && existsSync(tauriConfigPath) && existsSync(cargoTomlPath) && existsSync(cargoLockPath)) {
+    errors.push(
+      ...checkPackageReleaseMetadata(
+        packageJson,
+        readJson(packageLockPath),
+        readJson(tauriConfigPath),
+        readText(cargoTomlPath),
+        readText(cargoLockPath),
+      ),
+    );
   }
 
   errors.push(...checkPublicProjectDocs(rootDir, releaseVersion));

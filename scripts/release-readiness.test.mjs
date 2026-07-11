@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import {
+  checkPackageReleaseMetadata,
   checkReleaseWorkflow,
   checkPagesWorkflow,
   checkTauriWindowsBundleConfig,
@@ -12,6 +13,49 @@ import {
 } from "./release-readiness.mjs";
 
 describe("release readiness checks", () => {
+  it("requires package, Tauri, Cargo.toml, and Cargo.lock versions to agree", () => {
+    const packageJson = { version: "1.2.3", license: "MIT" };
+    const packageLock = {
+      version: "1.2.3",
+      packages: { "": { version: "1.2.3", license: "MIT" } },
+    };
+    const tauriConfig = { version: "1.2.2" };
+    const cargoToml = '[package]\nname = "chat-to-image"\nversion = "1.2.1"\n';
+    const cargoLock = '[[package]]\nname = "chat-to-image"\nversion = "1.2.0"\n';
+
+    expect(checkPackageReleaseMetadata(packageJson, packageLock, tauriConfig, cargoToml, cargoLock)).toEqual(
+      expect.arrayContaining([
+        "src-tauri/tauri.conf.json version must match package.json.",
+        "src-tauri/Cargo.toml package version must match package.json.",
+        "src-tauri/Cargo.lock package version must match package.json.",
+      ]),
+    );
+  });
+
+  it("keeps every release metadata source on the current package version", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+    const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+    const tauriConfig = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
+    const cargoToml = readFileSync("src-tauri/Cargo.toml", "utf8");
+    const cargoLock = readFileSync("src-tauri/Cargo.lock", "utf8");
+
+    expect(checkPackageReleaseMetadata(packageJson, packageLock, tauriConfig, cargoToml, cargoLock)).toEqual([]);
+  });
+
+  it("marks the remaining July 6 plans as historical", () => {
+    const historicalPlans = [
+      "2026-07-06-static-html-page-e2e-automation-and-save-dir.md",
+      "2026-07-06-static-html-e2e-remediation.md",
+      "2026-07-06-static-html-e2e-page-hardening.md",
+      "2026-07-06-static-html-e2e-hardening.md",
+    ];
+
+    for (const fileName of historicalPlans) {
+      const contents = readFileSync(join("docs", "superpowers", "plans", fileName), "utf8");
+      expect(contents).toContain("本文已被 2026-07-11 独立审计与修复取代");
+    }
+  });
+
   it("requires MIT package metadata and matching lockfile release metadata", () => {
     const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
     const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8"));
