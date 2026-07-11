@@ -184,6 +184,104 @@ function cleanupTransaction({ fs, markerPath, transaction, archivePath, manifest
   removeTransactionMarkerIfOwned({ fs, markerPath, transactionId: transaction.transactionId });
 }
 
+function preparedTransactionPaths(rootDir, version) {
+  return {
+    manifestPath: join(rootDir, "static-versions", "manifest.json"),
+    archivePath: join(rootDir, "static-versions", "versions", `v${version}`, "index.html"),
+    distManifestPath: join(rootDir, "dist-static", "versions", "manifest.json"),
+    distArchivePath: join(rootDir, "dist-static", "versions", `v${version}`, "index.html"),
+  };
+}
+
+function assertExpectedPreparedTransaction(transaction, rootDir, version) {
+  const expectedPaths = preparedTransactionPaths(rootDir, version);
+
+  if (transaction.mode !== "prepared-release") {
+    return undefined;
+  }
+
+  const previousManifest = validateVersionManifest(transaction.previousManifest);
+  if (previousManifest.versions.includes(version)) {
+    throw new Error(`Prepared transaction previous manifest must not include ${version}.`);
+  }
+
+  for (const [field, expectedPath] of Object.entries(expectedPaths)) {
+    if (typeof transaction[field] !== "string" || resolve(transaction[field]) !== resolve(expectedPath)) {
+      throw new Error(`Prepared transaction path ${field} is outside the expected current-version archive roots.`);
+    }
+  }
+
+  for (const [candidatePath, basePath] of [
+    [transaction.temporaryArchivePath, expectedPaths.archivePath],
+    [transaction.temporaryManifestPath, expectedPaths.manifestPath],
+  ]) {
+    if (!isSafeTransactionTempPath(candidatePath, basePath)) {
+      throw new Error("Prepared transaction temporary path is outside the expected current-version archive roots.");
+    }
+  }
+
+  return { previousManifest, ...expectedPaths };
+}
+
+function removeArchiveFileAndEmptyDirectory(fs, archivePath) {
+  fs.rmSync(archivePath, { force: true });
+  try {
+    fs.rmdirSync(dirname(archivePath));
+  } catch {
+    // Preserve a version directory if another expected file exists in it.
+  }
+}
+
+function recoverPreparedTransactionBeforeManifest({
+  fs,
+  rootDir,
+  version,
+  markerPath,
+  transaction,
+  now,
+  processKill,
+  lockPath,
+  ownerTransactionId,
+}) {
+  const preparedState = assertExpectedPreparedTransaction(transaction, rootDir, version);
+  if (!preparedState) {
+    return false;
+  }
+
+  if (isTransactionActive(transaction, { now, processKill })) {
+    throw new Error(`Static version archive transaction is in progress for ${version}.`);
+  }
+
+  assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId });
+  removeArchiveFileAndEmptyDirectory(fs, preparedState.archivePath);
+  removeArchiveFileAndEmptyDirectory(fs, preparedState.distArchivePath);
+
+  writeManifestAtomically({
+    fs,
+    manifestPath: preparedState.manifestPath,
+    manifest: preparedState.previousManifest,
+    beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId }),
+  });
+
+  if (fs.existsSync(dirname(preparedState.distManifestPath))) {
+    writeManifestAtomically({
+      fs,
+      manifestPath: preparedState.distManifestPath,
+      manifest: preparedState.previousManifest,
+      beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId }),
+    });
+  }
+
+  cleanupTransaction({
+    fs,
+    markerPath,
+    transaction,
+    archivePath: preparedState.archivePath,
+    manifestPath: preparedState.manifestPath,
+  });
+  return true;
+}
+
 function readTransaction(fs, markerPath, version) {
   let transaction;
 
@@ -350,6 +448,7 @@ export function archiveStaticVersion({
   const archiveDir = dirname(archivePath);
   const versionsDir = dirname(archiveDir);
   const manifestPath = join(rootDir, "static-versions", "manifest.json");
+  const { distManifestPath, distArchivePath } = preparedTransactionPaths(rootDir, version);
   const markerPath = transactionMarkerPath(rootDir, version);
   const lockPath = archiveLockPath(rootDir);
   const temporaryArchivePath = temporaryPath(archivePath);
@@ -375,6 +474,22 @@ export function archiveStaticVersion({
   try {
     acquireArchiveLock({ fs, lockPath, transaction, now, processKill });
     lockAcquired = true;
+
+    if (fs.existsSync(markerPath)) {
+      const previousTransaction = readTransaction(fs, markerPath, version);
+      recoverPreparedTransactionBeforeManifest({
+        fs,
+        rootDir,
+        version,
+        markerPath,
+        transaction: previousTransaction,
+        now,
+        processKill,
+        lockPath,
+        ownerTransactionId: transaction.transactionId,
+      });
+    }
+
     const { manifest } = readManifest(rootDir, fs);
     originalManifest = manifest;
 
@@ -430,6 +545,18 @@ export function archiveStaticVersion({
 
     archiveDirExisted = fs.existsSync(archiveDir);
     versionsDirExisted = fs.existsSync(versionsDir);
+
+    if (prepareReleaseHtml) {
+      Object.assign(transaction, {
+        mode: "prepared-release",
+        previousManifest: manifest,
+        manifestPath,
+        archivePath,
+        distManifestPath,
+        distArchivePath,
+      });
+    }
+
     writeTransactionMarker({ fs, markerPath, transaction });
     transactionMarkerCreated = true;
 

@@ -174,6 +174,100 @@ describe("static version archives", () => {
     expect(existsSync(join(rootDir, "static-versions", "versions", "v1.2.3", "index.html"))).toBe(false);
   });
 
+  it("recovers an interrupted prepared transaction before strict manifest validation and retries successfully", () => {
+    const rootDir = createTempRoot();
+    const version = "1.2.3";
+    const previousManifest = { latestStable: "1.2.2", versions: ["1.2.2"] };
+    const nextManifest = { latestStable: version, versions: [version, "1.2.2"] };
+    const manifestPath = join(rootDir, "static-versions", "manifest.json");
+    const archivePath = join(rootDir, "static-versions", "versions", `v${version}`, "index.html");
+    const distManifestPath = join(rootDir, "dist-static", "versions", "manifest.json");
+    const distArchivePath = join(rootDir, "dist-static", "versions", `v${version}`, "index.html");
+    const markerPath = join(rootDir, "static-versions", `.archive-v${version}.txn`);
+    const releaseHtmlPath = join(rootDir, "dist-static", "gpt-image-2-studio-lite.html");
+
+    writeJson(join(rootDir, "package.json"), { version });
+    writeJson(manifestPath, nextManifest);
+    writeSourceArchive(
+      rootDir,
+      "1.2.2",
+      versionedArchiveHtml({ latestStable: "1.2.2", versions: ["1.2.2"] }),
+    );
+    writeJson(distManifestPath, nextManifest);
+    mkdirSync(join(distArchivePath, ".."), { recursive: true });
+    writeFileSync(distArchivePath, "partial current archive", "utf8");
+    writeJson(markerPath, {
+      mode: "prepared-release",
+      transactionId: "interrupted-prepared-release",
+      pid: process.pid,
+      createdAt: Date.now() - TRANSACTION_LEASE_MS - 1,
+      version,
+      previousManifest,
+      manifestPath,
+      archivePath,
+      distManifestPath,
+      distArchivePath,
+      temporaryArchivePath: `${archivePath}.interrupted.tmp`,
+      temporaryManifestPath: `${manifestPath}.interrupted.tmp`,
+    });
+
+    archiveStaticVersion({
+      rootDir,
+      prepareReleaseHtml: ({ manifest }) => {
+        expect(JSON.parse(readFileSync(manifestPath, "utf8"))).toEqual(manifest);
+        expect(existsSync(distArchivePath)).toBe(false);
+        writeFileSync(releaseHtmlPath, versionedArchiveHtml(manifest), "utf8");
+      },
+    });
+
+    expect(existsSync(markerPath)).toBe(false);
+    expect(JSON.parse(readFileSync(manifestPath, "utf8"))).toEqual(nextManifest);
+    expect(readFileSync(archivePath, "utf8")).toContain("latestStable:`1.2.3`");
+  });
+
+  it("rejects an interrupted transaction whose recorded paths escape the expected archive roots", () => {
+    const rootDir = createTempRoot();
+    const version = "1.2.3";
+    const previousManifest = { latestStable: "1.2.2", versions: ["1.2.2"] };
+    const nextManifest = { latestStable: version, versions: [version, "1.2.2"] };
+    const manifestPath = join(rootDir, "static-versions", "manifest.json");
+    const archivePath = join(rootDir, "static-versions", "versions", `v${version}`, "index.html");
+    const distManifestPath = join(rootDir, "dist-static", "versions", "manifest.json");
+    const markerPath = join(rootDir, "static-versions", `.archive-v${version}.txn`);
+    const outsidePath = join(rootDir, "..", "outside-v1.2.3", "index.html");
+
+    writeJson(join(rootDir, "package.json"), { version });
+    writeJson(manifestPath, nextManifest);
+    writeSourceArchive(
+      rootDir,
+      "1.2.2",
+      versionedArchiveHtml({ latestStable: "1.2.2", versions: ["1.2.2"] }),
+    );
+    mkdirSync(join(outsidePath, ".."), { recursive: true });
+    writeFileSync(outsidePath, "must remain", "utf8");
+    writeJson(markerPath, {
+      mode: "prepared-release",
+      transactionId: "malformed-prepared-release",
+      pid: process.pid,
+      createdAt: Date.now() - TRANSACTION_LEASE_MS - 1,
+      version,
+      previousManifest,
+      manifestPath,
+      archivePath,
+      distManifestPath,
+      distArchivePath: outsidePath,
+      temporaryArchivePath: `${archivePath}.interrupted.tmp`,
+      temporaryManifestPath: `${manifestPath}.interrupted.tmp`,
+    });
+
+    expect(() => archiveStaticVersion({ rootDir, prepareReleaseHtml: () => undefined })).toThrow(
+      /transaction path.*expected current-version archive roots/i,
+    );
+    expect(readFileSync(outsidePath, "utf8")).toBe("must remain");
+    expect(JSON.parse(readFileSync(manifestPath, "utf8"))).toEqual(nextManifest);
+    expect(existsSync(markerPath)).toBe(true);
+  });
+
   it("archives the latest inlined HTML and updates the manifest on the first archive", () => {
     const rootDir = createTempRoot();
     const releaseHtmlPath = join(rootDir, "dist-static", "gpt-image-2-studio-lite.html");
