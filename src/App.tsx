@@ -39,7 +39,7 @@ import {
 } from "./core/imageOptions";
 import { getTranslations, resolveLanguage, type UiLanguage } from "./i18n/translations";
 import { getRuntimeAdapter } from "./runtime";
-import type { OutputDirectoryState, RuntimeAdapter } from "./runtime/types";
+import type { OutputDirectoryState, RuntimeAdapter, RuntimeStorageCapabilities } from "./runtime/types";
 
 const APP_VERSION = packageJson.version;
 const RECOMMENDED_RELAY_URL = "https://ruoli.dev/register?aff=mR35";
@@ -324,6 +324,7 @@ function Dialog({ open, title, onClose, children, footer, size = "regular", clas
 export default function App() {
   const [runtime, setRuntime] = useState<RuntimeAdapter | null>(null);
   const [outputDirectoryState, setOutputDirectoryState] = useState<OutputDirectoryState | null>(null);
+  const [storageCapabilities, setStorageCapabilities] = useState<RuntimeStorageCapabilities | null>(null);
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [persistedConfig, setPersistedConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [history, setHistory] = useState<ImageRecord[]>([]);
@@ -414,6 +415,9 @@ export default function App() {
   );
   const effectivePrompt = optimizedPrompt.trim() || prompt.trim();
   const canOpenOutput = runtime?.mode === "desktop";
+  const isMemoryOnlyWebRuntime =
+    runtime?.mode === "web" && storageCapabilities?.local === false && storageCapabilities.session === false;
+  const canRememberWebApiKey = runtime?.mode === "web" && storageCapabilities?.local !== false;
   const selectedRecord = useMemo(
     () => history.find((record) => record.id === selectedHistoryId) ?? null,
     [history, selectedHistoryId],
@@ -512,12 +516,24 @@ export default function App() {
     async function loadApp() {
       try {
         const adapter = await getRuntimeAdapter();
-        const [loadedConfig, loadedHistory, loadedOutputDirectoryState] = await Promise.all([
+        const storageCapabilitiesPromise = adapter.mode === "web"
+          ? adapter.getStorageCapabilities
+            ? adapter.getStorageCapabilities().catch(() => ({ local: false, session: false }))
+            : Promise.resolve({ local: true, session: true })
+          : Promise.resolve(null);
+        const [loadedConfig, loadedHistory, loadedOutputDirectoryState, loadedStorageCapabilities] = await Promise.all([
           adapter.loadConfig(),
           adapter.loadHistory(),
           adapter.getOutputDirectoryState().catch(() => null),
+          storageCapabilitiesPromise,
         ]);
-        const mergedConfig = mergeConfig(loadedConfig);
+        const mergedConfig = mergeConfig({
+          ...loadedConfig,
+          rememberApiKey:
+            adapter.mode === "web" && loadedStorageCapabilities?.local === false
+              ? false
+              : loadedConfig.rememberApiKey,
+        });
         const nextLanguage = resolveLanguage(mergedConfig.uiLanguage);
         const nextCopy = getTranslations(nextLanguage);
         const customSizeDraft = getCustomSizeDraft(mergedConfig.defaultSize);
@@ -528,6 +544,7 @@ export default function App() {
 
         setRuntime(adapter);
         setOutputDirectoryState(loadedOutputDirectoryState);
+        setStorageCapabilities(loadedStorageCapabilities);
         setConfig(mergedConfig);
         setPersistedConfig(mergedConfig);
         setHistory(loadedHistory);
@@ -2101,11 +2118,18 @@ export default function App() {
                           data-testid="settings-remember-api-key"
                           type="checkbox"
                           checked={config.rememberApiKey}
+                          disabled={!canRememberWebApiKey}
                           onChange={(event) => updateConfig("rememberApiKey", event.currentTarget.checked)}
                         />
                         <span>{copy.fields.rememberApiKey}</span>
                       </label>
-                      <p className="inline-note">{copy.notes.apiKeyStorageHint}</p>
+                      <p className="inline-note">
+                        {isMemoryOnlyWebRuntime
+                          ? copy.notes.apiKeyMemoryOnlyHint
+                          : storageCapabilities?.local === false
+                            ? copy.notes.apiKeySessionOnlyHint
+                            : copy.notes.apiKeyStorageHint}
+                      </p>
                     </>
                   ) : null}
 

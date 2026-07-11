@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { BatchTask } from "../core/batchTypes";
+import { MAX_BATCH_TASK_COUNT, type BatchTask } from "../core/batchTypes";
 import { DEFAULT_CONFIG } from "../core/config";
 import { __resetWebAdapterForTests, isSameOutputDirectoryHandle, webAdapter } from "./webAdapter";
 
@@ -187,6 +187,33 @@ describe("webAdapter history deletion", () => {
     });
   });
 
+  it("reports storage capability from successful read and write probes", async () => {
+    const adapter = webAdapter as typeof webAdapter & {
+      getStorageCapabilities(): Promise<{ local: boolean; session: boolean }>;
+    };
+
+    await expect(adapter.getStorageCapabilities()).resolves.toEqual({ local: true, session: true });
+  });
+
+  it("reports memory-only storage and clears remember preference when browser storage is denied", async () => {
+    const adapter = webAdapter as typeof webAdapter & {
+      getStorageCapabilities(): Promise<{ local: boolean; session: boolean }>;
+    };
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("Access is denied for this document.", "SecurityError");
+    });
+    vi.spyOn(window, "sessionStorage", "get").mockImplementation(() => {
+      throw new DOMException("Access is denied for this document.", "SecurityError");
+    });
+
+    await expect(adapter.getStorageCapabilities()).resolves.toEqual({ local: false, session: false });
+    await webAdapter.saveConfig({ ...DEFAULT_CONFIG, apiKey: MEMORY_API_KEY, rememberApiKey: true });
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      apiKey: MEMORY_API_KEY,
+      rememberApiKey: false,
+    });
+  });
+
   it("persists a sanitized versioned batch workspace and restores it", async () => {
     const adapter = webAdapter as typeof webAdapter & {
       loadBatchWorkspace(): Promise<unknown>;
@@ -201,6 +228,7 @@ describe("webAdapter history deletion", () => {
           previewUrl: "blob:generated-secret-preview",
           saveFallbackReason: "Failed at https://provider.example/image.png?token=private-token",
         }),
+        createWorkspaceTask({ id: "task-2", index: 1, prompt: "Launch beta" }),
       ],
     });
 
@@ -217,7 +245,10 @@ describe("webAdapter history deletion", () => {
       schemaVersion: 1,
       masterPrompt: "Create two launch posters",
       taskCount: 2,
-      tasks: [expect.objectContaining({ status: "succeeded", previewUrl: "" })],
+      tasks: [
+        expect.objectContaining({ status: "succeeded", previewUrl: "" }),
+        expect.objectContaining({ id: "task-2", index: 1 }),
+      ],
     });
   });
 
@@ -275,6 +306,72 @@ describe("webAdapter history deletion", () => {
       masterPrompt: "Create two launch posters",
       taskCount: 2,
     });
+  });
+
+  it("bounds malformed current-version batch workspaces and keeps count, prompts, and tasks consistent", async () => {
+    const adapter = webAdapter as typeof webAdapter & {
+      loadBatchWorkspace(): Promise<unknown>;
+    };
+    const oversizedTasks = Array.from({ length: MAX_BATCH_TASK_COUNT * 5 }, (_, index) =>
+      createWorkspaceTask({
+        id: `task-${index}`,
+        index: MAX_BATCH_TASK_COUNT * 10 - index,
+        prompt: `Prompt ${index}`,
+        status: index === 0 ? ("tampered" as BatchTask["status"]) : "pending",
+      }),
+    );
+    localStorage.setItem(
+      "chat-to-image.batch.draft.v1",
+      JSON.stringify(
+        createBatchWorkspace({
+          taskCount: 1,
+          customPromptDrafts: [
+            ...Array.from({ length: MAX_BATCH_TASK_COUNT * 5 }, (_, index) => `Draft ${index}`),
+            { invalid: true },
+          ],
+          tasks: [
+            { status: "succeeded", prompt: "missing id" },
+            null,
+            ...oversizedTasks,
+          ],
+        }),
+      ),
+    );
+
+    const restored = await adapter.loadBatchWorkspace() as {
+      taskCount: number;
+      customPromptDrafts: string[];
+      tasks: BatchTask[];
+    };
+    expect(restored.taskCount).toBe(MAX_BATCH_TASK_COUNT);
+    expect(restored.customPromptDrafts).toHaveLength(MAX_BATCH_TASK_COUNT);
+    expect(restored.tasks).toHaveLength(MAX_BATCH_TASK_COUNT);
+    expect(restored.tasks.map((task) => task.index)).toEqual(
+      Array.from({ length: MAX_BATCH_TASK_COUNT }, (_, index) => index),
+    );
+    expect(restored.tasks[0]).toMatchObject({ id: "task-0", status: "pending" });
+
+    localStorage.setItem(
+      "chat-to-image.batch.draft.v1",
+      JSON.stringify(
+        createBatchWorkspace({
+          taskCount: MAX_BATCH_TASK_COUNT,
+          customPromptDrafts: Array.from({ length: MAX_BATCH_TASK_COUNT }, (_, index) => `Draft ${index}`),
+          tasks: [
+            createWorkspaceTask({ id: "short-1", index: 8 }),
+            createWorkspaceTask({ id: "short-2", index: 9 }),
+          ],
+        }),
+      ),
+    );
+    const shortRestored = await adapter.loadBatchWorkspace() as {
+      taskCount: number;
+      customPromptDrafts: string[];
+      tasks: BatchTask[];
+    };
+    expect(shortRestored.taskCount).toBe(2);
+    expect(shortRestored.customPromptDrafts).toHaveLength(2);
+    expect(shortRestored.tasks.map((task) => task.index)).toEqual([0, 1]);
   });
 
   it("deletes selected history records from local storage and returns the remaining records", async () => {
@@ -693,7 +790,10 @@ function createBatchWorkspace(overrides: Record<string, unknown> = {}) {
     taskCount: 2,
     splitTemplateId: "basic",
     customSplitSystemPrompt: "",
-    tasks: [createWorkspaceTask()],
+    tasks: [
+      createWorkspaceTask(),
+      createWorkspaceTask({ id: "task-2", index: 1, title: "Launch beta", prompt: "Launch beta" }),
+    ],
     ...overrides,
   };
 }

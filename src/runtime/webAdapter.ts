@@ -5,7 +5,13 @@ import { sanitizeBatchWorkspace } from "../core/batchWorkspace";
 import { buildImageFileName, formatDateFolder } from "../core/fileNames";
 import { safeErrorMessage } from "../core/errorSanitizer";
 import { sortHistoryNewestFirst, type ImageRecord } from "../core/history";
-import type { OutputDirectoryState, RuntimeAdapter, SaveImageInput, SaveImageResult } from "./types";
+import type {
+  OutputDirectoryState,
+  RuntimeAdapter,
+  RuntimeStorageCapabilities,
+  SaveImageInput,
+  SaveImageResult,
+} from "./types";
 
 const CONFIG_KEY = "chat-to-image.config.v1";
 const SESSION_API_KEY = "chat-to-image.api-key.session.v1";
@@ -35,6 +41,30 @@ function getBrowserStorage(kind: "local" | "session" = "local"): Storage | null 
 
 function getMemoryStorage(kind: "local" | "session") {
   return kind === "session" ? memorySessionStorageFallback : memoryStorageFallback;
+}
+
+function canReadWriteBrowserStorage(kind: "local" | "session"): boolean {
+  const storage = getBrowserStorage(kind);
+  if (!storage) {
+    return false;
+  }
+
+  const probeKey = `chat-to-image.storage-probe.${kind}`;
+  try {
+    storage.setItem(probeKey, "available");
+    const available = storage.getItem(probeKey) === "available";
+    storage.removeItem(probeKey);
+    return available;
+  } catch {
+    return false;
+  }
+}
+
+function getWebStorageCapabilities(): RuntimeStorageCapabilities {
+  return {
+    local: canReadWriteBrowserStorage("local"),
+    session: canReadWriteBrowserStorage("session"),
+  };
 }
 
 function readStoredValue<T>(key: string, fallback: T, kind: "local" | "session" = "local"): T {
@@ -518,6 +548,7 @@ export const webAdapter: RuntimeAdapter = {
   mode: "web",
 
   async loadConfig() {
+    const storageCapabilities = getWebStorageCapabilities();
     const storedValue = readStoredValue<unknown>(CONFIG_KEY, DEFAULT_CONFIG);
     const storedConfig = storedValue && typeof storedValue === "object" && !Array.isArray(storedValue)
       ? storedValue as Partial<AppConfig>
@@ -526,28 +557,32 @@ export const webAdapter: RuntimeAdapter = {
     const { apiKey: _legacyApiKey, ...persistableConfig } = storedConfig;
     const mergedConfig = mergeConfig({ ...persistableConfig, apiKey: "" });
     const sessionApiKey = readStoredValue<string>(SESSION_API_KEY, "", "session");
-    const persistentApiKey = mergedConfig.rememberApiKey
+    const rememberApiKey = mergedConfig.rememberApiKey && storageCapabilities.local;
+    const persistentApiKey = rememberApiKey
       ? readStoredValue<string>(PERSISTENT_API_KEY, "")
       : "";
     const apiKey = sessionApiKey || persistentApiKey || legacyApiKey;
 
-    if (!mergedConfig.rememberApiKey) {
+    if (!rememberApiKey) {
       removeStoredValue(PERSISTENT_API_KEY);
     }
 
     if (legacyApiKey) {
       writeStoredValue(SESSION_API_KEY, legacyApiKey, "session");
-      if (mergedConfig.rememberApiKey) {
+      if (rememberApiKey) {
         writeStoredValue(PERSISTENT_API_KEY, legacyApiKey);
       }
       writeStoredValue(CONFIG_KEY, persistableConfig);
     }
 
-    return { ...mergedConfig, apiKey };
+    return { ...mergedConfig, apiKey, rememberApiKey };
   },
 
   async saveConfig(config: AppConfig) {
-    const { apiKey, ...persistableConfig } = config;
+    const storageCapabilities = getWebStorageCapabilities();
+    const rememberApiKey = config.rememberApiKey && storageCapabilities.local;
+    const { apiKey, ...configWithoutApiKey } = config;
+    const persistableConfig = { ...configWithoutApiKey, rememberApiKey };
     writeStoredValue(CONFIG_KEY, persistableConfig);
 
     if (apiKey) {
@@ -556,7 +591,7 @@ export const webAdapter: RuntimeAdapter = {
       removeStoredValue(SESSION_API_KEY, "session");
     }
 
-    if (config.rememberApiKey && apiKey) {
+    if (rememberApiKey && apiKey) {
       writeStoredValue(PERSISTENT_API_KEY, apiKey);
     } else {
       removeStoredValue(PERSISTENT_API_KEY);
@@ -592,6 +627,10 @@ export const webAdapter: RuntimeAdapter = {
     await persistDirectoryHandle(directoryHandle);
     await clearPersistedReadyOutputDirectory();
     return directoryHandle.name;
+  },
+
+  async getStorageCapabilities() {
+    return getWebStorageCapabilities();
   },
 
   async loadBatchWorkspace() {

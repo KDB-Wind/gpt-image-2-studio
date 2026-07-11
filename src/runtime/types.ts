@@ -40,10 +40,16 @@ export type OutputDirectoryState =
   | { status: "permission-required"; name: string }
   | { status: "ready"; name: string; lastTestedAt: string };
 
+export type RuntimeStorageCapabilities = {
+  local: boolean;
+  session: boolean;
+};
+
 export type RuntimeAdapter = {
   mode: "web" | "desktop";
   loadConfig(): Promise<AppConfig>;
   saveConfig(config: AppConfig): Promise<void>;
+  getStorageCapabilities?(): Promise<RuntimeStorageCapabilities>;
   loadHistory(): Promise<ImageRecord[]>;
   deleteHistoryRecords(recordIds: string[]): Promise<ImageRecord[]>;
   prepareHistoryPreview(record: ImageRecord): Promise<string | null>;

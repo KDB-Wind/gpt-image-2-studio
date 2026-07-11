@@ -378,6 +378,8 @@ type TranslationBundle = {
     compressionUnavailable: string;
     imageResponseModeHint: string;
     apiKeyStorageHint: string;
+    apiKeySessionOnlyHint: string;
+    apiKeyMemoryOnlyHint: string;
   };
   welcome: {
     title: string;
@@ -845,6 +847,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       compressionHint: "output_compression 仅对 JPEG / WebP 生效；数值越高通常画质越高、文件也越大。",
       compressionUnavailable: "PNG 不使用压缩参数。",
       apiKeyStorageHint: "默认只在当前浏览器会话中保存。仅在你信任的个人设备上启用长期保存。",
+      apiKeySessionOnlyHint: "API key 可保留到当前浏览器会话结束；其他设置只保留在页面内存中，且无法长期记住 API key。",
+      apiKeyMemoryOnlyHint: "浏览器存储当前不可用。配置和 API key 只保留在这个已打开页面的内存中，刷新或关闭页面后即丢失。",
       imageResponseModeHint:
         "默认遵循 OpenAI 官方 GPT Image 行为，不发送 response_format。仅当中转站或供应商明确要求时，才启用“中转站强制 base64”。",
     },
@@ -1355,6 +1359,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       imageResponseModeHint:
         "The default follows official OpenAI GPT Image behavior and omits response_format. Enable force-base64 only when a relay or provider explicitly requires it.",
       apiKeyStorageHint: "By default the key lasts only for this browser session. Enable long-term storage only on a trusted personal device.",
+      apiKeySessionOnlyHint: "The API key can last for this browser session, while other settings remain page-memory only. Long-term API key storage is unavailable.",
+      apiKeyMemoryOnlyHint: "Browser storage is unavailable. Settings and the API key remain in memory only for this open page and are lost on refresh or close.",
     },
     welcome: {
       title: "Welcome to Local Image Studio",

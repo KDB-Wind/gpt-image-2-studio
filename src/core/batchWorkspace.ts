@@ -1,6 +1,7 @@
 import { summarizeSensitiveError } from "./providerErrors";
 import {
   clampBatchTaskCount,
+  MAX_BATCH_TASK_COUNT,
   type BatchFailureCategory,
   type BatchSource,
   type BatchSplitTemplateId,
@@ -31,10 +32,18 @@ export function sanitizeBatchWorkspace(value: unknown): BatchWorkspace | null {
   }
 
   const tasks = Array.isArray(value.tasks)
-    ? value.tasks.map(sanitizeBatchWorkspaceTask).filter((task): task is BatchTask => task !== null)
+    ? value.tasks
+        .map(sanitizeBatchWorkspaceTask)
+        .filter((task): task is BatchTask => task !== null)
+        .slice(0, MAX_BATCH_TASK_COUNT)
+        .map((task, index) => ({ ...task, index }))
     : [];
   const storedStatus = validValue(value.status, VALID_BATCH_STATUSES, "draft");
-  const taskCount = clampBatchTaskCount(value.taskCount, Math.max(tasks.length, 1));
+  const storedTaskCount = clampBatchTaskCount(value.taskCount, Math.max(tasks.length, 1));
+  const taskCount = tasks.length > 0 ? tasks.length : storedTaskCount;
+  const customPromptDrafts = Array.isArray(value.customPromptDrafts)
+    ? value.customPromptDrafts.filter((item): item is string => typeof item === "string").slice(0, MAX_BATCH_TASK_COUNT)
+    : [];
 
   return {
     schemaVersion: BATCH_WORKSPACE_SCHEMA_VERSION,
@@ -47,9 +56,7 @@ export function sanitizeBatchWorkspace(value: unknown): BatchWorkspace | null {
     completedAt: stringValue(value.completedAt),
     masterPrompt: stringValue(value.masterPrompt),
     styleLock: stringValue(value.styleLock),
-    customPromptDrafts: Array.isArray(value.customPromptDrafts)
-      ? value.customPromptDrafts.filter((item): item is string => typeof item === "string").slice(0, taskCount)
-      : [],
+    customPromptDrafts: resizePromptDrafts(customPromptDrafts, taskCount),
     taskCount,
     splitTemplateId: validValue(value.splitTemplateId, VALID_SPLIT_TEMPLATE_IDS, "basic"),
     customSplitSystemPrompt: stringValue(value.customSplitSystemPrompt),
@@ -58,7 +65,13 @@ export function sanitizeBatchWorkspace(value: unknown): BatchWorkspace | null {
 }
 
 function sanitizeBatchWorkspaceTask(value: unknown): BatchTask | null {
-  if (!isRecord(value)) {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    !value.id.trim() ||
+    typeof value.prompt !== "string" ||
+    !value.prompt.trim()
+  ) {
     return null;
   }
 
@@ -85,6 +98,14 @@ function sanitizeBatchWorkspaceTask(value: unknown): BatchTask | null {
     startedAt: status === "pending" ? "" : stringValue(value.startedAt),
     completedAt: status === "pending" ? "" : stringValue(value.completedAt),
   };
+}
+
+function resizePromptDrafts(prompts: string[], taskCount: number): string[] {
+  if (prompts.length >= taskCount) {
+    return prompts.slice(0, taskCount);
+  }
+
+  return [...prompts, ...Array.from({ length: taskCount - prompts.length }, () => "")];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

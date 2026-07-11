@@ -869,6 +869,35 @@ describe("App batch workspace", () => {
     );
   });
 
+  it("shows memory-only storage truthfully and disables long-term API key storage", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([]) as RuntimeAdapter & {
+      getStorageCapabilities(): Promise<{ local: boolean; session: boolean }>;
+    };
+    runtime.loadConfig = vi.fn().mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      apiKey: "test-value-not-a-secret",
+      rememberApiKey: true,
+      uiLanguage: "en-US",
+      hasDismissedWelcome: true,
+    });
+    runtime.getStorageCapabilities = vi.fn().mockResolvedValue({ local: false, session: false });
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+    clickButton(copy.tabs.settings);
+
+    const rememberToggle = container.querySelector<HTMLInputElement>('[data-testid="settings-remember-api-key"]');
+    expect(rememberToggle?.disabled).toBe(true);
+    expect(rememberToggle?.checked).toBe(false);
+    expect(container.textContent).toContain("memory only for this open page");
+    expect(container.textContent).not.toContain("browser session");
+    expect(container.textContent).not.toContain("long-term storage");
+  });
+
   function clickButton(label: string) {
     const button = Array.from(container.querySelectorAll("button")).find(
       (candidate) => candidate.textContent?.trim() === label,
