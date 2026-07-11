@@ -374,6 +374,56 @@ describe("webAdapter history deletion", () => {
     expect(shortRestored.tasks.map((task) => task.index)).toEqual([0, 1]);
   });
 
+  it("repairs duplicate task IDs deterministically without collapsing task-keyed state", async () => {
+    const adapter = webAdapter as typeof webAdapter & {
+      loadBatchWorkspace(): Promise<unknown>;
+    };
+    localStorage.setItem(
+      "chat-to-image.batch.draft.v1",
+      JSON.stringify(
+        createBatchWorkspace({
+          taskCount: 4,
+          customPromptDrafts: ["Draft A", "Draft B", "Draft C", "Draft D"],
+          tasks: [
+            createWorkspaceTask({ id: "shared-task", index: 0, prompt: "Prompt A" }),
+            createWorkspaceTask({ id: "shared-task", index: 1, prompt: "Prompt B" }),
+            createWorkspaceTask({ id: "shared-task-2", index: 2, prompt: "Prompt C" }),
+            createWorkspaceTask({ id: "shared-task", index: 3, prompt: "Prompt D" }),
+          ],
+        }),
+      ),
+    );
+
+    const firstRestore = await adapter.loadBatchWorkspace() as {
+      taskCount: number;
+      tasks: BatchTask[];
+    };
+    const secondRestore = await adapter.loadBatchWorkspace() as {
+      taskCount: number;
+      tasks: BatchTask[];
+    };
+    const taskIds = firstRestore.tasks.map((task) => task.id);
+    const taskReferencesById = Object.fromEntries(
+      firstRestore.tasks.map((task) => [task.id, task.prompt]),
+    );
+
+    expect(firstRestore.taskCount).toBe(4);
+    expect(firstRestore.tasks.map((task) => task.prompt)).toEqual([
+      "Prompt A",
+      "Prompt B",
+      "Prompt C",
+      "Prompt D",
+    ]);
+    expect(new Set(taskIds).size).toBe(4);
+    expect(secondRestore.tasks.map((task) => task.id)).toEqual(taskIds);
+    expect(Object.values(taskReferencesById)).toEqual([
+      "Prompt A",
+      "Prompt B",
+      "Prompt C",
+      "Prompt D",
+    ]);
+  });
+
   it("deletes selected history records from local storage and returns the remaining records", async () => {
     const first = await webAdapter.saveImage({
       image: { base64: ONE_PIXEL_PNG },

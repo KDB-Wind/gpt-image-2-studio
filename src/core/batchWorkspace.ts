@@ -32,11 +32,12 @@ export function sanitizeBatchWorkspace(value: unknown): BatchWorkspace | null {
   }
 
   const tasks = Array.isArray(value.tasks)
-    ? value.tasks
-        .map(sanitizeBatchWorkspaceTask)
-        .filter((task): task is BatchTask => task !== null)
-        .slice(0, MAX_BATCH_TASK_COUNT)
-        .map((task, index) => ({ ...task, index }))
+    ? makeTaskIdsUnique(
+        value.tasks
+          .map(sanitizeBatchWorkspaceTask)
+          .filter((task): task is BatchTask => task !== null)
+          .slice(0, MAX_BATCH_TASK_COUNT),
+      ).map((task, index) => ({ ...task, index }))
     : [];
   const storedStatus = validValue(value.status, VALID_BATCH_STATUSES, "draft");
   const storedTaskCount = clampBatchTaskCount(value.taskCount, Math.max(tasks.length, 1));
@@ -65,13 +66,12 @@ export function sanitizeBatchWorkspace(value: unknown): BatchWorkspace | null {
 }
 
 function sanitizeBatchWorkspaceTask(value: unknown): BatchTask | null {
-  if (
-    !isRecord(value) ||
-    typeof value.id !== "string" ||
-    !value.id.trim() ||
-    typeof value.prompt !== "string" ||
-    !value.prompt.trim()
-  ) {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const id = typeof value.id === "string" ? value.id.trim() : "";
+  if (!id || typeof value.prompt !== "string" || !value.prompt.trim()) {
     return null;
   }
 
@@ -80,7 +80,7 @@ function sanitizeBatchWorkspaceTask(value: unknown): BatchTask | null {
   const failureCategory = validNullableValue(value.failureCategory, VALID_FAILURE_CATEGORIES);
 
   return {
-    id: stringValue(value.id),
+    id,
     index: nonNegativeInteger(value.index),
     title: stringValue(value.title),
     prompt: stringValue(value.prompt),
@@ -98,6 +98,27 @@ function sanitizeBatchWorkspaceTask(value: unknown): BatchTask | null {
     startedAt: status === "pending" ? "" : stringValue(value.startedAt),
     completedAt: status === "pending" ? "" : stringValue(value.completedAt),
   };
+}
+
+function makeTaskIdsUnique(tasks: BatchTask[]): BatchTask[] {
+  const reservedIds = new Set(tasks.map((task) => task.id));
+  const usedIds = new Set<string>();
+
+  return tasks.map((task) => {
+    if (!usedIds.has(task.id)) {
+      usedIds.add(task.id);
+      return task;
+    }
+
+    let suffix = 2;
+    let nextId = `${task.id}-${suffix}`;
+    while (usedIds.has(nextId) || reservedIds.has(nextId)) {
+      suffix += 1;
+      nextId = `${task.id}-${suffix}`;
+    }
+    usedIds.add(nextId);
+    return { ...task, id: nextId };
+  });
 }
 
 function resizePromptDrafts(prompts: string[], taskCount: number): string[] {
