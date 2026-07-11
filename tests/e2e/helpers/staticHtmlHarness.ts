@@ -1,9 +1,57 @@
 import { expect, type Page } from "@playwright/test";
+import { Buffer } from "node:buffer";
+import { deflateSync } from "node:zlib";
 
 import { DEFAULT_CONFIG, type AppConfig } from "../../../src/core/config";
 
 export const ONE_PIXEL_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+
+function crc32(bytes: Buffer): number {
+  let crc = 0xffffffff;
+
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+  }
+
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function createPngChunk(type: string, data: Buffer): Buffer {
+  const typeBytes = Buffer.from(type, "ascii");
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const checksum = Buffer.alloc(4);
+  checksum.writeUInt32BE(crc32(Buffer.concat([typeBytes, data])));
+  return Buffer.concat([length, typeBytes, data, checksum]);
+}
+
+export function createProviderSafePngBuffer(width = 64, height = 64): Buffer {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+
+  const row = Buffer.alloc(1 + width * 4);
+  for (let offset = 1; offset < row.length; offset += 4) {
+    row[offset] = 64;
+    row[offset + 1] = 160;
+    row[offset + 2] = 96;
+    row[offset + 3] = 255;
+  }
+
+  const pixels = Buffer.concat(Array.from({ length: height }, () => row));
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    createPngChunk("IHDR", header),
+    createPngChunk("IDAT", deflateSync(pixels)),
+    createPngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
 
 const CONFIG_KEY = "chat-to-image.config.v1";
 const HISTORY_KEY = "chat-to-image.history.v1";

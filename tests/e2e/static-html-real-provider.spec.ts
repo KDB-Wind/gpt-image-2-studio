@@ -1,10 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { Buffer } from "node:buffer";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { ONE_PIXEL_PNG_BASE64, openCleanStaticPage } from "./helpers/staticHtmlHarness";
+import { createProviderSafePngBuffer, openCleanStaticPage } from "./helpers/staticHtmlHarness";
 
 function requireE2eEnv(name: string): string {
   const value = process.env[name];
@@ -51,6 +50,7 @@ async function openRealProviderPage(page: Parameters<typeof openCleanStaticPage>
     apiKey: requireE2eEnv("E2E_API_KEY"),
     textModel: requireE2eEnv("E2E_TEXT_MODEL"),
     imageModel: requireE2eEnv("E2E_IMAGE_MODEL"),
+    imageResponseMode: "force-base64",
   });
 }
 
@@ -74,7 +74,7 @@ test.describe("real provider static page smoke", () => {
 
     const tempDir = mkdtempSync(join(tmpdir(), "gpt-image-2-e2e-"));
     const referencePath = join(tempDir, "reference.png");
-    writeFileSync(referencePath, Buffer.from(ONE_PIXEL_PNG_BASE64, "base64"));
+    writeFileSync(referencePath, createProviderSafePngBuffer());
 
     await page.getByRole("tab", { name: "单图" }).click();
     await page.getByRole("tablist", { name: "生成模式" }).getByRole("tab", { name: "图生图" }).click();

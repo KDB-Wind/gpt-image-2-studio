@@ -164,6 +164,9 @@ type TranslationBundle = {
     testImageEdit: string;
     testImageEditBusy: string;
     checkUpdates: string;
+    openLatestVersion: string;
+    openArchivedVersion: string;
+    viewMinimalApiExample: string;
     startUsing: string;
     skip: string;
     close: string;
@@ -213,6 +216,7 @@ type TranslationBundle = {
     defaultQuality: string;
     defaultFormat: string;
     defaultCompression: string;
+    imageResponseMode: string;
     customWidth: string;
     customHeight: string;
     editInstructions: string;
@@ -237,6 +241,8 @@ type TranslationBundle = {
     formatWebp: string;
     enabled: string;
     disabled: string;
+    imageResponseModeOfficial: string;
+    imageResponseModeForceBase64: string;
   };
   quickOptions: {
     title: string;
@@ -294,6 +300,8 @@ type TranslationBundle = {
     dateGroups: string;
     totalRecords: string;
     currentVersion: string;
+    latestVersion: string;
+    archivedVersion: string;
     mode: string;
     sourceImages: string;
     size: string;
@@ -347,6 +355,7 @@ type TranslationBundle = {
     outputDirectoryStatusTitle: string;
     outputDirectoryStatusBody: (directory: string, testAction: string) => string;
     currentVersionManualUpdate: string;
+    versionSwitchHint: string;
     referenceImageHint: string;
     imageToImageModeDescription: string;
     imageEditTestDescription: string;
@@ -356,6 +365,7 @@ type TranslationBundle = {
     customSizeHint: string;
     compressionHint: string;
     compressionUnavailable: string;
+    imageResponseModeHint: string;
   };
   welcome: {
     title: string;
@@ -599,6 +609,9 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       testImageEdit: "测试图生图",
       testImageEditBusy: "测试中...",
       checkUpdates: "检查更新",
+      openLatestVersion: "打开最新版",
+      openArchivedVersion: "打开当前固定版",
+      viewMinimalApiExample: "查看最小 API 调用示例",
       startUsing: "开始使用",
       skip: "跳过",
       close: "关闭",
@@ -648,6 +661,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       defaultQuality: "默认质量",
       defaultFormat: "默认格式",
       defaultCompression: "默认压缩",
+      imageResponseMode: "图片响应兼容模式",
       customWidth: "自定义宽度",
       customHeight: "自定义高度",
       editInstructions: "修改要求",
@@ -672,6 +686,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       formatWebp: "WebP",
       enabled: "开启",
       disabled: "关闭",
+      imageResponseModeOfficial: "官方 GPT Image 模式",
+      imageResponseModeForceBase64: "中转站强制 base64",
     },
     quickOptions: {
       title: "图片参数",
@@ -713,7 +729,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       welcomeQuickStart: "快速开始",
       referenceImages: "当前参考图",
       openSourceTitle: "开源与反馈",
-      openSourceHint: "源码托管在 GitHub。如果这个工具帮到了你，欢迎顺手 Star，也可以提交 Issue 反馈问题。",
+      openSourceHint:
+        "想了解这个页面背后实际发送了什么请求？可以查看最小 API 调用示例，也可以把它改造成自己的脚本或工作流。",
       editFromImageTitle: "基于此图继续修改",
     },
     labels: {
@@ -729,6 +746,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       dateGroups: "日期分组",
       totalRecords: "总记录数",
       currentVersion: "当前版本",
+      latestVersion: "最新版",
+      archivedVersion: "固定版",
       mode: "生成模式",
       sourceImages: "参考图",
       size: "尺寸",
@@ -785,7 +804,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       outputDirectoryStatusTitle: "保存目录状态",
       outputDirectoryStatusBody: (directory, testAction) =>
         `当前记录目录：${directory}。在保存目录测试通过前，图片可能会回退为浏览器下载，历史预览也可能无法恢复。请点击“${testAction}”，确认浏览器能写入并读回图片。`,
-      currentVersionManualUpdate: "本版本只提供手动更新提示，不会自动下载或安装新版本。",
+      currentVersionManualUpdate: "首页始终指向最新版；如果需要稳定使用旧版，可以从这里打开固定版本。",
+      versionSwitchHint: "固定版路径会随发版保留，适合在新版本测试期间临时回退。",
       referenceImageHint: "这些参考图会和提示词一起发送给图像模型，推荐不超过 4 张。",
       imageToImageModeDescription: "图生图会把多张参考图和提示词一起发送到 `/images/edits`。",
       imageEditTestDescription: "“测试图生图”会使用内置的极小参考图，验证当前图像模型是否支持图生图接口。",
@@ -796,6 +816,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       customSizeHint: "自定义尺寸适合高级用法；只要满足约束就可以尝试，但兼容服务商不支持时仍会返回接口错误。",
       compressionHint: "output_compression 仅对 JPEG / WebP 生效；数值越高通常画质越高、文件也越大。",
       compressionUnavailable: "PNG 不使用压缩参数。",
+      imageResponseModeHint:
+        "默认遵循 OpenAI 官方 GPT Image 行为，不发送 response_format。仅当中转站或供应商明确要求时，才启用“中转站强制 base64”。",
     },
     welcome: {
       title: "欢迎来到本地生图工作台",
@@ -1076,6 +1098,9 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       testImageEdit: "Test image-to-image",
       testImageEditBusy: "Testing...",
       checkUpdates: "Check updates",
+      openLatestVersion: "Open latest version",
+      openArchivedVersion: "Open this fixed version",
+      viewMinimalApiExample: "View minimal API example",
       startUsing: "Start using",
       skip: "Skip",
       close: "Close",
@@ -1125,6 +1150,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       defaultQuality: "Default quality",
       defaultFormat: "Default format",
       defaultCompression: "Default compression",
+      imageResponseMode: "Image response compatibility mode",
       customWidth: "Custom width",
       customHeight: "Custom height",
       editInstructions: "Edit instructions",
@@ -1150,6 +1176,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       formatWebp: "WebP",
       enabled: "Enabled",
       disabled: "Disabled",
+      imageResponseModeOfficial: "Official GPT Image mode",
+      imageResponseModeForceBase64: "Relay/provider force base64",
     },
     quickOptions: {
       title: "Image options",
@@ -1192,7 +1220,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       referenceImages: "Reference images",
       openSourceTitle: "Open source & feedback",
       openSourceHint:
-        "The source code is hosted on GitHub. If the tool helps you, a Star or Issue report is appreciated.",
+        "Want to see what this page sends behind the scenes? Read the minimal API example and adapt it into your own script or workflow.",
       editFromImageTitle: "Continue editing from this image",
     },
     labels: {
@@ -1208,6 +1236,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       dateGroups: "Date groups",
       totalRecords: "Total records",
       currentVersion: "Current version",
+      latestVersion: "Latest version",
+      archivedVersion: "Fixed version",
       mode: "Mode",
       sourceImages: "Source images",
       size: "Size",
@@ -1265,7 +1295,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       outputDirectoryStatusTitle: "Output folder status",
       outputDirectoryStatusBody: (directory, testAction) =>
         `Recorded folder: ${directory}. Images may fall back to browser downloads until the folder test passes. Use ${testAction} to confirm this browser can write and restore previews.`,
-      currentVersionManualUpdate: "This release only shows manual update guidance. It does not download updates automatically.",
+      currentVersionManualUpdate: "The homepage always points to the latest version. Open a fixed version here if you need a stable fallback.",
+      versionSwitchHint: "Fixed version URLs are kept after release, so you can temporarily roll back while a newer version is being tested.",
       referenceImageHint: "These images are sent to the image model together with the prompt. Staying at 4 or fewer is recommended.",
       imageToImageModeDescription: "Image-to-image sends multiple reference images and the prompt together to `/images/edits`.",
       imageEditTestDescription: "Test image-to-image uses a tiny built-in reference image to check whether the current image model supports the edit endpoint.",
@@ -1276,6 +1307,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       customSizeHint: "Custom sizes are for advanced use. Any size that meets the limits can be tried, but a compatible provider may still reject unsupported values.",
       compressionHint: "output_compression only applies to JPEG and WebP. Higher values usually mean higher quality and larger files.",
       compressionUnavailable: "PNG does not use a compression parameter.",
+      imageResponseModeHint:
+        "The default follows official OpenAI GPT Image behavior and omits response_format. Enable force-base64 only when a relay or provider explicitly requires it.",
     },
     welcome: {
       title: "Welcome to Local Image Studio",

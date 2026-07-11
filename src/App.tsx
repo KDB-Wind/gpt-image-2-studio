@@ -40,6 +40,9 @@ import type { RuntimeAdapter } from "./runtime/types";
 const APP_VERSION = packageJson.version;
 const RECOMMENDED_RELAY_URL = "https://ruoli.dev/register?aff=mR35";
 const GITHUB_PROJECT_URL = "https://github.com/KDB-Wind/gpt-image-2-studio";
+const GITHUB_PAGES_URL = "https://kdb-wind.github.io/gpt-image-2-studio/";
+const ARCHIVED_VERSION_URL = `${GITHUB_PAGES_URL}versions/v${APP_VERSION}/`;
+const MINIMAL_API_EXAMPLE_URL = `${GITHUB_PROJECT_URL}#最小-api-调用示例`;
 const DEFAULT_CUSTOM_SIZE = { width: "1024", height: "1024" };
 
 type AppTab = "generate" | "batch" | "history" | "settings";
@@ -1591,6 +1594,7 @@ export default function App() {
                       type="file"
                       accept="image/*"
                       multiple
+                      data-testid="single-reference-input"
                       className="hidden-file-input"
                       onChange={handleReferenceImageChange}
                     />
@@ -1660,6 +1664,7 @@ export default function App() {
                 <label className="field">
                   <span>{copy.fields.prompt}</span>
                   <textarea
+                    data-testid="single-prompt"
                     className="prompt-textarea"
                     value={prompt}
                     onChange={(event) => handlePromptChange(event.target.value)}
@@ -1716,6 +1721,7 @@ export default function App() {
                   <button
                     type="button"
                     className="primary-button"
+                    data-testid="single-generate"
                     onClick={handleGenerate}
                     disabled={isGenerating || isLoadingApp || !runtime || isOptimizing}
                   >
@@ -1875,6 +1881,7 @@ export default function App() {
                     <label className="field">
                       <span>{copy.fields.baseUrl}</span>
                       <input
+                        data-testid="settings-base-url"
                         value={config.baseUrl}
                         onChange={(event) => updateConfig("baseUrl", event.target.value)}
                         placeholder="https://example.com/v1"
@@ -1884,6 +1891,7 @@ export default function App() {
                     <label className="field">
                       <span>{copy.fields.apiKey}</span>
                       <input
+                        data-testid="settings-api-key"
                         value={config.apiKey}
                         onChange={(event) => updateConfig("apiKey", event.target.value)}
                         placeholder="sk-..."
@@ -1897,6 +1905,7 @@ export default function App() {
                     <label className="field">
                       <span>{copy.fields.textModel}</span>
                       <input
+                        data-testid="settings-text-model"
                         value={config.textModel}
                         onChange={(event) => updateConfig("textModel", event.target.value)}
                       />
@@ -1905,6 +1914,7 @@ export default function App() {
                     <label className="field">
                       <span>{copy.fields.imageModel}</span>
                       <input
+                        data-testid="settings-image-model"
                         value={config.imageModel}
                         onChange={(event) => updateConfig("imageModel", event.target.value)}
                       />
@@ -2047,6 +2057,19 @@ export default function App() {
                       </select>
                     </label>
 
+                    <label className="field">
+                      <span>{copy.fields.imageResponseMode}</span>
+                      <select
+                        value={config.imageResponseMode}
+                        onChange={(event) =>
+                          updateConfig("imageResponseMode", event.target.value as AppConfig["imageResponseMode"])
+                        }
+                      >
+                        <option value="official">{copy.options.imageResponseModeOfficial}</option>
+                        <option value="force-base64">{copy.options.imageResponseModeForceBase64}</option>
+                      </select>
+                    </label>
+
                     {showCompressionControls ? (
                       <label className="field">
                         <span>{copy.fields.defaultCompression}</span>
@@ -2082,6 +2105,7 @@ export default function App() {
                       {copy.validation[sizeValidation.warning] ?? sizeValidation.warning}
                     </p>
                   ) : null}
+                  <p className="panel-note">{copy.notes.imageResponseModeHint}</p>
                 </section>
 
                 <section className="settings-section">
@@ -2154,6 +2178,7 @@ export default function App() {
                     <button
                       type="button"
                       className="primary-button"
+                      data-testid="settings-save"
                       onClick={handleSaveSettings}
                       disabled={isSavingSettings || !runtime}
                     >
@@ -2183,6 +2208,22 @@ export default function App() {
                     <div>
                       <dt>{copy.labels.currentVersion}</dt>
                       <dd>{APP_VERSION}</dd>
+                    </div>
+                    <div>
+                      <dt>{copy.labels.latestVersion}</dt>
+                      <dd>
+                        <a href={GITHUB_PAGES_URL} target="_blank" rel="noreferrer">
+                          {copy.labels.latestVersion}
+                        </a>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{copy.labels.archivedVersion}</dt>
+                      <dd>
+                        <a href={ARCHIVED_VERSION_URL} target="_blank" rel="noreferrer">
+                          v{APP_VERSION}
+                        </a>
+                      </dd>
                     </div>
                     <div>
                       <dt>{copy.app.statusLabel}</dt>
@@ -2224,7 +2265,14 @@ export default function App() {
                     >
                       {copy.actions.checkUpdates}
                     </button>
+                    <a className="secondary-button link-button" href={GITHUB_PAGES_URL} target="_blank" rel="noreferrer">
+                      {copy.actions.openLatestVersion}
+                    </a>
+                    <a className="secondary-button link-button" href={ARCHIVED_VERSION_URL} target="_blank" rel="noreferrer">
+                      {copy.actions.openArchivedVersion}
+                    </a>
                   </div>
+                  <p className="microcopy">{copy.notes.versionSwitchHint}</p>
                 </section>
 
                 <section className="settings-section open-source-card">
@@ -2234,6 +2282,14 @@ export default function App() {
                   </div>
 
                   <div className="action-row">
+                    <a
+                      className="secondary-button link-button"
+                      href={MINIMAL_API_EXAMPLE_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {copy.actions.viewMinimalApiExample}
+                    </a>
                     <a
                       className="secondary-button link-button"
                       href={GITHUB_PROJECT_URL}

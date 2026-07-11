@@ -1,5 +1,5 @@
 import { isCompressionFormat, type ImageOutputFormat, type ImageQuality } from "./imageOptions";
-import { normalizeBaseUrl, type AppConfig } from "./config";
+import { normalizeBaseUrl, type AppConfig, type ImageResponseMode } from "./config";
 
 export type TextRequestInput = {
   model: string;
@@ -23,6 +23,7 @@ export type ImageRequestInput = {
   n: number;
   outputFormat: ImageOutputFormat;
   outputCompression: number;
+  responseMode: ImageResponseMode;
 };
 
 export type ImageEditRequestInput = ImageRequestInput & {
@@ -96,6 +97,7 @@ export function buildImageGenerationRequest({
   n,
   outputFormat,
   outputCompression,
+  responseMode,
 }: ImageRequestInput) {
   const payload: Record<string, string | number> = {
     model,
@@ -105,6 +107,10 @@ export function buildImageGenerationRequest({
     n,
     output_format: outputFormat,
   };
+
+  if (responseMode === "force-base64") {
+    payload.response_format = "b64_json";
+  }
 
   if (isCompressionFormat(outputFormat)) {
     payload.output_compression = outputCompression;
@@ -121,6 +127,7 @@ export function buildImageEditRequest({
   n,
   outputFormat,
   outputCompression,
+  responseMode,
   referenceImages,
 }: ImageEditRequestInput) {
   const payload = new FormData();
@@ -129,13 +136,16 @@ export function buildImageEditRequest({
   payload.set("size", size);
   payload.set("quality", quality);
   payload.set("n", String(n));
+  if (responseMode === "force-base64") {
+    payload.set("response_format", "b64_json");
+  }
   payload.set("output_format", outputFormat);
   if (isCompressionFormat(outputFormat)) {
     payload.set("output_compression", String(outputCompression));
   }
 
   for (const image of referenceImages) {
-    payload.append("image[]", image, image.name);
+    payload.append("image", image, image.name);
   }
 
   return payload;
@@ -394,6 +404,7 @@ export async function generateImages(
           n: config.defaultCount,
           outputFormat: config.defaultFormat,
           outputCompression: config.defaultCompression,
+          responseMode: config.imageResponseMode,
           referenceImages,
         }),
       })
@@ -407,6 +418,7 @@ export async function generateImages(
           n: config.defaultCount,
           outputFormat: config.defaultFormat,
           outputCompression: config.defaultCompression,
+          responseMode: config.imageResponseMode,
         }),
       });
 

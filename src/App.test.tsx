@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import App from "./App";
-import { DEFAULT_CONFIG } from "./core/config";
+import { DEFAULT_CONFIG, mergeConfig } from "./core/config";
 import type { ImageRecord } from "./core/history";
 import { getTranslations } from "./i18n/translations";
 
@@ -206,6 +206,13 @@ describe("App batch workspace", () => {
     expect(container.textContent).toContain(copy.cards.openSourceTitle);
     expect(container.textContent).toContain(copy.cards.openSourceHint);
     expect(container.querySelector('a[href="https://github.com/KDB-Wind/gpt-image-2-studio"]')).not.toBeNull();
+    expect(
+      container.querySelector('a[href="https://github.com/KDB-Wind/gpt-image-2-studio#最小-api-调用示例"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('a[href="https://kdb-wind.github.io/gpt-image-2-studio/"]')).not.toBeNull();
+    expect(
+      container.querySelector('a[href="https://kdb-wind.github.io/gpt-image-2-studio/versions/v0.1.4/"]'),
+    ).not.toBeNull();
   });
 
   it("groups batch history records into an expandable batch card", async () => {
@@ -314,6 +321,40 @@ describe("App batch workspace", () => {
     expect(container.textContent).toContain("Timeout accepts 60-600 seconds");
   });
 
+  it("renders and persists the image response compatibility mode setting", async () => {
+    const copy = getTranslations("en-US");
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    clickButton(copy.tabs.settings);
+
+    const modeSelect = getField<HTMLSelectElement>(copy.fields.imageResponseMode, "select");
+
+    expect(modeSelect.value).toBe("official");
+    expect(Array.from(modeSelect.options).map((option) => option.textContent)).toEqual([
+      copy.options.imageResponseModeOfficial,
+      copy.options.imageResponseModeForceBase64,
+    ]);
+    expect(container.textContent).toContain(copy.notes.imageResponseModeHint);
+
+    setSelectValue(modeSelect, "force-base64");
+    expect(modeSelect.value).toBe("force-base64");
+
+    clickButton(copy.actions.save);
+    await flushEffects();
+
+    const savedConfig = JSON.parse(window.localStorage.getItem("chat-to-image.config.v1") ?? "{}");
+    expect(savedConfig.imageResponseMode).toBe("force-base64");
+  });
+
+  it("migrates an unknown stored image response mode back to official", () => {
+    expect(DEFAULT_CONFIG.imageResponseMode).toBe("official");
+    expect(mergeConfig({ imageResponseMode: "provider-specific" as never }).imageResponseMode).toBe("official");
+  });
+
   function clickButton(label: string) {
     const button = Array.from(container.querySelectorAll("button")).find(
       (candidate) => candidate.textContent?.trim() === label,
@@ -328,7 +369,10 @@ describe("App batch workspace", () => {
     });
   }
 
-  function getField<T extends HTMLInputElement | HTMLTextAreaElement>(labelText: string, selector: string): T {
+  function getField<T extends HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+    labelText: string,
+    selector: string,
+  ): T {
     const label = Array.from(container.querySelectorAll("label.field")).find(
       (candidate) => candidate.querySelector("span")?.textContent === labelText,
     );

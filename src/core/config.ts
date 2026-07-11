@@ -1,4 +1,5 @@
 export type UiLanguage = "zh-CN" | "en-US";
+export type ImageResponseMode = "official" | "force-base64";
 
 import {
   DEFAULT_BATCH_TASK_COUNT,
@@ -27,6 +28,7 @@ export type AppConfig = {
   defaultQuality: ImageQuality;
   defaultFormat: ImageOutputFormat;
   defaultCompression: number;
+  imageResponseMode: ImageResponseMode;
   uiLanguage: UiLanguage;
   hasDismissedWelcome: boolean;
   batchDefaultTaskCount: number;
@@ -57,6 +59,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   defaultQuality: "auto",
   defaultFormat: "png",
   defaultCompression: 90,
+  imageResponseMode: "official",
   uiLanguage: "zh-CN",
   hasDismissedWelcome: false,
   batchDefaultTaskCount: DEFAULT_BATCH_TASK_COUNT,
@@ -86,6 +89,9 @@ export function mergeConfig(value: Partial<AppConfig> | null | undefined): AppCo
   };
 
   merged.baseUrl = normalizeBaseUrl(asString(merged.baseUrl) || DEFAULT_CONFIG.baseUrl);
+  merged.imageResponseMode = isImageResponseMode(merged.imageResponseMode)
+    ? merged.imageResponseMode
+    : DEFAULT_CONFIG.imageResponseMode;
   merged.uiLanguage = isUiLanguage(merged.uiLanguage) ? merged.uiLanguage : DEFAULT_CONFIG.uiLanguage;
   merged.hasDismissedWelcome = asBoolean(merged.hasDismissedWelcome, DEFAULT_CONFIG.hasDismissedWelcome);
   merged.batchDefaultTaskCount = clampBatchTaskCount(asNumber(merged.batchDefaultTaskCount));
@@ -191,6 +197,10 @@ function asBoolean(value: unknown, fallback: boolean): boolean {
 
 function isUiLanguage(value: unknown): value is UiLanguage {
   return value === "zh-CN" || value === "en-US";
+}
+
+function isImageResponseMode(value: unknown): value is ImageResponseMode {
+  return value === "official" || value === "force-base64";
 }
 
 function isBatchSplitTemplateId(value: unknown): value is BatchSplitTemplateId {

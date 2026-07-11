@@ -74,6 +74,46 @@ describe("buildChatCompletionsRequest", () => {
 });
 
 describe("buildImageGenerationRequest", () => {
+  it("omits response_format in official mode while preserving output format and compression", () => {
+    const payload = buildImageGenerationRequest({
+      model: "gpt-image-2",
+      prompt: "A cinematic skyline at dusk.",
+      size: "1024x1024",
+      quality: "high",
+      n: 2,
+      outputFormat: "webp",
+      outputCompression: 85,
+      responseMode: "official",
+    });
+
+    expect(payload).toEqual({
+      model: "gpt-image-2",
+      prompt: "A cinematic skyline at dusk.",
+      size: "1024x1024",
+      quality: "high",
+      n: 2,
+      output_format: "webp",
+      output_compression: 85,
+    });
+  });
+
+  it("adds b64_json only when force-base64 mode is explicit", () => {
+    const payload = buildImageGenerationRequest({
+      model: "gpt-image-2",
+      prompt: "A cinematic skyline at dusk.",
+      size: "1024x1024",
+      quality: "high",
+      n: 1,
+      outputFormat: "png",
+      outputCompression: 90,
+      responseMode: "force-base64",
+    });
+
+    expect(payload.response_format).toBe("b64_json");
+    expect(payload.output_format).toBe("png");
+    expect(payload.output_compression).toBeUndefined();
+  });
+
   it("builds an image generation payload from explicit options", () => {
     expect(
       buildImageGenerationRequest({
@@ -84,6 +124,7 @@ describe("buildImageGenerationRequest", () => {
         n: 2,
         outputFormat: "webp",
         outputCompression: 85,
+        responseMode: "force-base64",
       }),
     ).toEqual({
       model: "gpt-image-2",
@@ -91,6 +132,7 @@ describe("buildImageGenerationRequest", () => {
       size: "1024x1024",
       quality: "high",
       n: 2,
+      response_format: "b64_json",
       output_format: "webp",
       output_compression: 85,
     });
@@ -106,6 +148,7 @@ describe("buildImageGenerationRequest", () => {
         n: 1,
         outputFormat: "png",
         outputCompression: 90,
+        responseMode: "force-base64",
       }),
     ).toEqual({
       model: "gpt-image-2",
@@ -113,12 +156,52 @@ describe("buildImageGenerationRequest", () => {
       size: "1024x1024",
       quality: "high",
       n: 1,
+      response_format: "b64_json",
       output_format: "png",
     });
   });
 });
 
 describe("buildImageEditRequest", () => {
+  it("omits response_format in official mode while preserving compression and repeated image fields", () => {
+    const payload = buildImageEditRequest({
+      model: "gpt-image-2",
+      prompt: "Blend details from all references into one scene.",
+      size: "1024x1024",
+      quality: "high",
+      n: 1,
+      outputFormat: "jpeg",
+      outputCompression: 72,
+      responseMode: "official",
+      referenceImages: [
+        new File(["one"], "one.png", { type: "image/png" }),
+        new File(["two"], "two.png", { type: "image/png" }),
+      ],
+    });
+
+    expect(payload.get("response_format")).toBeNull();
+    expect(payload.get("output_format")).toBe("jpeg");
+    expect(payload.get("output_compression")).toBe("72");
+    expect(payload.getAll("image").map((item) => (item as File).name)).toEqual(["one.png", "two.png"]);
+  });
+
+  it("adds b64_json only when force-base64 mode is explicit", () => {
+    const payload = buildImageEditRequest({
+      model: "gpt-image-2",
+      prompt: "Keep the subject and change the background.",
+      size: "1024x1024",
+      quality: "high",
+      n: 1,
+      outputFormat: "png",
+      outputCompression: 90,
+      responseMode: "force-base64",
+      referenceImages: [new File(["reference"], "reference.png", { type: "image/png" })],
+    });
+
+    expect(payload.get("response_format")).toBe("b64_json");
+    expect(payload.getAll("image")).toHaveLength(1);
+  });
+
   it("builds a multipart image edit payload with a reference image", () => {
     const referenceImage = new File(["reference"], "reference.png", {
       type: "image/png",
@@ -132,6 +215,7 @@ describe("buildImageEditRequest", () => {
       n: 1,
       outputFormat: "png",
       outputCompression: 90,
+      responseMode: "force-base64",
       referenceImages: [referenceImage],
     });
 
@@ -140,16 +224,19 @@ describe("buildImageEditRequest", () => {
     expect(payload.get("size")).toBe("1024x1024");
     expect(payload.get("quality")).toBe("high");
     expect(payload.get("n")).toBe("1");
+    expect(payload.get("response_format")).toBe("b64_json");
     expect(payload.get("output_format")).toBe("png");
     expect(payload.has("output_compression")).toBe(false);
 
-    const images = payload.getAll("image[]");
+    expect(payload.getAll("image[]")).toHaveLength(0);
+
+    const images = payload.getAll("image");
     expect(images).toHaveLength(1);
     expect(images[0]).toBeInstanceOf(File);
     expect((images[0] as File).name).toBe("reference.png");
   });
 
-  it("appends multiple reference images under image[]", () => {
+  it("appends multiple reference images under repeated image fields", () => {
     const payload = buildImageEditRequest({
       model: "gpt-image-2",
       prompt: "Blend details from all references into one scene.",
@@ -158,6 +245,7 @@ describe("buildImageEditRequest", () => {
       n: 1,
       outputFormat: "jpeg",
       outputCompression: 72,
+      responseMode: "force-base64",
       referenceImages: [
         new File(["one"], "one.png", { type: "image/png" }),
         new File(["two"], "two.png", { type: "image/png" }),
@@ -165,8 +253,10 @@ describe("buildImageEditRequest", () => {
       ],
     });
 
+    expect(payload.get("response_format")).toBe("b64_json");
     expect(payload.get("output_compression")).toBe("72");
-    expect(payload.getAll("image[]").map((item) => (item as File).name)).toEqual([
+    expect(payload.getAll("image[]")).toHaveLength(0);
+    expect(payload.getAll("image").map((item) => (item as File).name)).toEqual([
       "one.png",
       "two.png",
       "three.png",
@@ -527,6 +617,7 @@ describe("testImageModel", () => {
     defaultCount: 1,
     defaultFormat: "png",
     defaultCompression: 90,
+    imageResponseMode: "force-base64",
   };
 
   afterEach(() => {
@@ -539,7 +630,7 @@ describe("testImageModel", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            data: [{ url: "https://example.com/swatch.png" }],
+            data: [{ b64_json: "YmFzZTY0LXN3YXRjaA==" }],
           }),
           {
             status: 200,
@@ -550,23 +641,20 @@ describe("testImageModel", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(testImageModel(config)).resolves.toEqual([
-      { url: "https://example.com/swatch.png" },
-    ]);
+    await expect(testImageModel(config)).resolves.toEqual([{ base64: "YmFzZTY0LXN3YXRjaA==" }]);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [requestUrl, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(requestUrl).toBe("https://api.example.com/v1/images/generations");
-    expect(requestInit.body).toBe(
-      JSON.stringify({
-        model: "gpt-image-1",
-        prompt: "A plain single-color square swatch image.",
-        size: "1024x1024",
-        quality: "medium",
-        n: 1,
-        output_format: "png",
-      }),
-    );
+    expect(JSON.parse(requestInit.body as string)).toEqual({
+      model: "gpt-image-1",
+      prompt: "A plain single-color square swatch image.",
+      size: "1024x1024",
+      quality: "medium",
+      n: 1,
+      output_format: "png",
+      response_format: "b64_json",
+    });
   });
 });
 
@@ -582,6 +670,7 @@ describe("generateImages", () => {
     defaultCount: 1,
     defaultFormat: "png",
     defaultCompression: 90,
+    imageResponseMode: "force-base64",
   };
 
   afterEach(() => {
@@ -594,7 +683,7 @@ describe("generateImages", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            data: [{ url: "https://example.com/edited.png" }],
+            data: [{ b64_json: "YmFzZTY0LWVkaXQ=" }],
           }),
           {
             status: 200,
@@ -613,7 +702,7 @@ describe("generateImages", () => {
       generateImages(config, "Turn this into a bright watercolor poster.", {
         referenceImages: [referenceImage],
       }),
-    ).resolves.toEqual([{ url: "https://example.com/edited.png" }]);
+    ).resolves.toEqual([{ base64: "YmFzZTY0LWVkaXQ=" }]);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [requestUrl, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -626,7 +715,9 @@ describe("generateImages", () => {
     const formData = requestInit.body as FormData;
     expect(formData.get("model")).toBe("gpt-image-2");
     expect(formData.get("prompt")).toBe("Turn this into a bright watercolor poster.");
-    expect(formData.getAll("image[]")).toHaveLength(1);
+    expect(formData.get("response_format")).toBe("b64_json");
+    expect(formData.getAll("image[]")).toHaveLength(0);
+    expect(formData.getAll("image")).toHaveLength(1);
   });
 });
 
@@ -642,6 +733,7 @@ describe("testImageEditModel", () => {
     defaultCount: 1,
     defaultFormat: "png",
     defaultCompression: 90,
+    imageResponseMode: "force-base64",
   };
 
   afterEach(() => {
@@ -654,7 +746,7 @@ describe("testImageEditModel", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            data: [{ url: "https://example.com/edited-test.png" }],
+            data: [{ b64_json: "YmFzZTY0LWVkaXQtdGVzdA==" }],
           }),
           {
             status: 200,
@@ -665,9 +757,7 @@ describe("testImageEditModel", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(testImageEditModel(config)).resolves.toEqual([
-      { url: "https://example.com/edited-test.png" },
-    ]);
+    await expect(testImageEditModel(config)).resolves.toEqual([{ base64: "YmFzZTY0LWVkaXQtdGVzdA==" }]);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [requestUrl, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -676,7 +766,9 @@ describe("testImageEditModel", () => {
 
     const formData = requestInit.body as FormData;
     expect(formData.get("prompt")).toBe("Apply a minimal visible edit for a connectivity test.");
-    const images = formData.getAll("image[]");
+    expect(formData.get("response_format")).toBe("b64_json");
+    expect(formData.getAll("image[]")).toHaveLength(0);
+    const images = formData.getAll("image");
     expect(images).toHaveLength(1);
     expect(images[0]).toBeInstanceOf(File);
     expect((images[0] as File).name).toBe("connectivity-reference.png");
@@ -688,7 +780,7 @@ describe("testImageEditModel", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            data: [{ url: "https://example.com/edited-test.png" }],
+            data: [{ b64_json: "YmFzZTY0LWVkaXQtdGVzdA==" }],
           }),
           {
             status: 200,
@@ -703,7 +795,9 @@ describe("testImageEditModel", () => {
 
     const [, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
     const formData = requestInit.body as FormData;
-    const image = formData.getAll("image[]")[0] as File;
+    expect(formData.get("response_format")).toBe("b64_json");
+    expect(formData.getAll("image[]")).toHaveLength(0);
+    const image = formData.getAll("image")[0] as File;
     const dimensions = await readPngDimensions(image);
 
     expect(dimensions).toEqual({ width: 64, height: 64 });
