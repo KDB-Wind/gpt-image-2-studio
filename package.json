@@ -13,6 +13,7 @@
     "archive:static": "node scripts/archive-static-version.mjs",
     "site:check": "node scripts/static-site-check.mjs",
     "secret:scan": "node scripts/secret-scan.mjs",
+    "secret:scan:release": "node scripts/secret-scan.mjs --release-artifacts",
     "site:verify": "npm run build:static && npm run site:check && npm run secret:scan",
     "e2e:install": "playwright install chromium",
     "e2e:static": "npm run e2e:static:mock",

@@ -27,23 +27,74 @@ function commandIndex(workflowText, command, useLast = false) {
   return useLast ? workflowText.lastIndexOf(command) : workflowText.indexOf(command);
 }
 
+function shellScriptBodies(workflowText) {
+  const lines = workflowText.split(/\r?\n/);
+  const bodies = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(/^(\s*)run:\s*(.*)$/);
+    if (!match) {
+      continue;
+    }
+
+    if (match[2] !== "|") {
+      bodies.push(match[2]);
+      continue;
+    }
+
+    const indentation = match[1].length;
+    const body = [];
+    for (index += 1; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (line.trim() && line.match(/^\s*/)[0].length <= indentation) {
+        index -= 1;
+        break;
+      }
+      body.push(line);
+    }
+    bodies.push(body.join("\n"));
+  }
+
+  return bodies;
+}
+
+function commandIndices(workflowText, command) {
+  const indices = [];
+  let offset = 0;
+  while (offset < workflowText.length) {
+    const index = workflowText.indexOf(command, offset);
+    if (index < 0) {
+      break;
+    }
+    indices.push(index);
+    offset = index + command.length;
+  }
+  return indices;
+}
+
 export function checkReleaseWorkflow(workflowText) {
   const checks = [
     [/v\*\.\*\.\*/, "Release workflow must trigger on v*.*.* tags."],
     [/workflow_dispatch:/, "Release workflow must support manual dispatch."],
     [/permissions:\s*[\s\S]*contents:\s*write/, "Release workflow must grant contents: write."],
     [/runs-on:\s*windows-latest/, "Release workflow must build on windows-latest."],
+    [/release-metadata:\s*[\s\S]*outputs:\s*[\s\S]*tag:\s*\$\{\{\s*steps\.[^.]+\.outputs\.tag\s*\}\}/, "Release workflow must resolve and expose a validated tag before checkout."],
+    [/-notmatch\s+\$semverTagPattern/, "Release workflow must strictly validate the requested v<SemVer> tag."],
+    [/\\Av\(0\|\[1-9\]\\d\*\)[\s\S]*\\z/, "Release workflow must use strict SemVer tag validation."],
     [/actions\/checkout@v4/, "Release workflow must check out the repository."],
+    [/ref:\s*refs\/tags\/\$\{\{\s*needs\.[^.]+\.outputs\.tag\s*\}\}/, "Release workflow must check out the validated tag ref."],
+    [/git rev-parse HEAD[\s\S]*git rev-list -n 1/, "Release workflow must verify checked-out HEAD equals the validated tag commit."],
     [/actions\/setup-node@v4/, "Release workflow must install Node.js."],
     [/dtolnay\/rust-toolchain@stable/, "Release workflow must install Rust stable."],
     [/npm ci/, "Release workflow must install dependencies with npm ci."],
     [/node -p ["']require\(["']\.\/package\.json["']\)\.version["']/, "Release workflow must read the version from package.json."],
     [/\$expectedTag\s*=\s*["']v\$version["']/, "Release workflow must derive the expected tag from the package version."],
-    [/\$tag\s*-ne\s*\$expectedTag/, "Release workflow must fail when the tag does not match v<package version>."],
+    [/\$env:RELEASE_TAG\s*-ne\s*\$expectedTag/, "Release workflow must fail when the tag does not match v<package version>."],
     [/\$releaseNotes\s*=\s*["']docs\/release-notes\/v\$version\.md["']/, "Release workflow must derive the release-notes path from package metadata."],
     [/Test-Path\s+-LiteralPath\s+\$releaseNotes/, "Release workflow must fail when derived release notes are missing."],
     [/release_notes=\$releaseNotes/, "Release workflow must expose the derived release-notes path."],
     [/npm run secret:scan/, "Release workflow must run the unified secret scan."],
+    [/npm run secret:scan:release/, "Release workflow must scan ignored release artifacts."],
     [/npm run release:check/, "Release workflow must run the release readiness check."],
     [/npm run test:run/, "Release workflow must run tests before packaging."],
     [/npm run build/, "Release workflow must build the frontend before packaging."],
@@ -55,6 +106,7 @@ export function checkReleaseWorkflow(workflowText) {
     [/actions\/upload-artifact@v4[\s\S]*path:\s*\|[\s\S]*SHA256SUMS\.txt/, "Release workflow must upload SHA256SUMS.txt as a workflow artifact."],
     [/actions\/upload-artifact@v4[\s\S]*retention-days:\s*\d+/, "Release workflow must set artifact retention-days for installer artifacts."],
     [/softprops\/action-gh-release@v2/, "Release workflow must create or update a GitHub Release."],
+    [/tag_name:\s*\$\{\{\s*needs\.[^.]+\.outputs\.tag\s*\}\}/, "Release workflow must publish the same validated tag that was checked out."],
     [/body_path:\s*\$\{\{\s*steps\.release_metadata\.outputs\.release_notes\s*\}\}/, "Release workflow must use the derived release-notes path."],
     [/softprops\/action-gh-release@v2[\s\S]*files:\s*\|[\s\S]*dist-static\/gpt-image-2-studio-lite\.html/, "Release workflow must attach the single-file HTML asset to the draft GitHub Release."],
     [/softprops\/action-gh-release@v2[\s\S]*files:\s*\|[\s\S]*SHA256SUMS\.txt/, "Release workflow must attach SHA256SUMS.txt to the draft GitHub Release."],
@@ -68,18 +120,36 @@ export function checkReleaseWorkflow(workflowText) {
     errors.push("Release workflow must derive the release-notes path from package metadata.");
   }
 
+  if (shellScriptBodies(workflowText).some((body) => /\$\{\{\s*(?:inputs\.|github\.event\.|github\.ref_name)/.test(body))) {
+    errors.push("Release workflow must not interpolate untrusted GitHub expressions inside shell script bodies.");
+  }
+
+  const resolverJob = workflowText.match(/\n  release-metadata:\s*\n([\s\S]*?)(?=\n  [A-Za-z0-9_-]+:\s*\n)/)?.[1] ?? "";
+  if (!resolverJob || /actions\/checkout@/.test(resolverJob)) {
+    errors.push("Release tag resolution must run without checking out repository content.");
+  }
+
   const staticBuildIndex = commandIndex(workflowText, "npm run build:static");
   const desktopBuildIndex = commandIndex(workflowText, "npm run desktop:build");
-  const secretScanIndex = commandIndex(workflowText, "npm run secret:scan", true);
+  const releaseScanIndices = commandIndices(workflowText, "npm run secret:scan:release");
   const checksumIndex = commandIndex(workflowText, "Get-FileHash");
-  if (
-    staticBuildIndex >= 0
-    && desktopBuildIndex >= 0
-    && secretScanIndex >= 0
-    && (secretScanIndex < Math.max(staticBuildIndex, desktopBuildIndex)
-      || (checksumIndex >= 0 && secretScanIndex > checksumIndex))
-  ) {
-    errors.push("Release workflow must scan built release assets before checksums and upload.");
+  const firstReleaseScan = releaseScanIndices[0] ?? -1;
+  const finalReleaseScan = releaseScanIndices.at(-1) ?? -1;
+  if (staticBuildIndex >= 0 && desktopBuildIndex >= 0) {
+    if (firstReleaseScan < staticBuildIndex || firstReleaseScan > desktopBuildIndex) {
+      errors.push("Release workflow must scan frontend release artifacts before desktop packaging.");
+    }
+    if (releaseScanIndices.length < 2 || finalReleaseScan < desktopBuildIndex || (checksumIndex >= 0 && finalReleaseScan > checksumIndex)) {
+      errors.push("Release workflow must scan final desktop release artifacts before checksums and upload.");
+    }
+  }
+
+  const checkoutIndex = commandIndex(workflowText, "actions/checkout@v4");
+  const headVerificationIndex = commandIndex(workflowText, "git rev-parse HEAD");
+  const installIndex = commandIndex(workflowText, "npm ci");
+  if (checkoutIndex >= 0 && headVerificationIndex >= 0 && installIndex >= 0
+    && (headVerificationIndex < checkoutIndex || headVerificationIndex > installIndex)) {
+    errors.push("Release workflow must verify the validated tag commit before installing or building.");
   }
 
   return errors;
@@ -165,6 +235,10 @@ export function checkPackageReleaseMetadata(packageJson, packageLock, tauriConfi
 
   if (packageJson?.license !== "MIT") {
     errors.push("package.json license must be MIT.");
+  }
+
+  if (packageJson?.scripts?.["secret:scan:release"] !== "node scripts/secret-scan.mjs --release-artifacts") {
+    errors.push("package.json must expose the release artifact secret scan script.");
   }
 
   if (packageLock?.version !== packageJson?.version || packageLock?.packages?.[""]?.version !== packageJson?.version) {

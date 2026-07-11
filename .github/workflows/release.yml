@@ -14,14 +14,50 @@ permissions:
   contents: write
 
 jobs:
+  release-metadata:
+    name: Resolve release tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Validate requested tag
+        id: tag
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_TAG: ${{ inputs.tag_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          $tag = if ($env:EVENT_NAME -eq "workflow_dispatch") { $env:DISPATCH_TAG } else { $env:REF_NAME }
+          $semverIdentifier = '(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)'
+          $semverTagPattern = "\Av(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-$semverIdentifier(?:\.$semverIdentifier)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\z"
+          if ($tag -notmatch $semverTagPattern) {
+            throw "Release tag must be v followed by a valid SemVer version."
+          }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
   windows-installer:
     name: Windows installer
+    needs: release-metadata
     runs-on: windows-latest
     env:
       CARGO_TERM_COLOR: always
+      RELEASE_TAG: ${{ needs.release-metadata.outputs.tag }}
     steps:
-      - name: Checkout
+      - name: Checkout validated release tag
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: refs/tags/${{ needs.release-metadata.outputs.tag }}
+
+      - name: Verify checked-out tag commit
+        shell: pwsh
+        run: |
+          $headCommit = git rev-parse HEAD
+          $tagCommit = git rev-list -n 1 $env:RELEASE_TAG --
+          if (-not $tagCommit -or $headCommit -ne $tagCommit) {
+            throw "Checked-out HEAD does not match the validated release tag commit."
+          }
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -45,15 +81,9 @@ jobs:
         shell: pwsh
         run: |
           $version = node -p "require('./package.json').version"
-          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $tag = "${{ inputs.tag_name }}"
-          } else {
-            $tag = "${{ github.ref_name }}"
-          }
-
           $expectedTag = "v$version"
-          if ($tag -ne $expectedTag) {
-            throw "Release tag $tag does not match package version $expectedTag."
+          if ($env:RELEASE_TAG -ne $expectedTag) {
+            throw "Validated release tag does not match package version."
           }
 
           $releaseNotes = "docs/release-notes/v$version.md"
@@ -61,12 +91,14 @@ jobs:
             throw "Release notes are missing: $releaseNotes"
           }
 
-          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "release_notes=$releaseNotes" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Check release readiness
         run: npm run release:check
+
+      - name: Scan source for secrets
+        run: npm run secret:scan
 
       - name: Run frontend tests
         run: npm run test:run
@@ -77,6 +109,9 @@ jobs:
       - name: Build single-file HTML
         run: npm run build:static
 
+      - name: Scan frontend release artifacts for secrets
+        run: npm run secret:scan:release
+
       - name: Check Tauri Rust code
         run: cargo check --manifest-path src-tauri/Cargo.toml
 
@@ -86,8 +121,8 @@ jobs:
       - name: Build Windows installers
         run: npm run desktop:build
 
-      - name: Scan source and built release artifacts for secrets
-        run: npm run secret:scan
+      - name: Scan final release artifacts for secrets
+        run: npm run secret:scan:release
 
       - name: Generate release checksums
         shell: pwsh
@@ -118,8 +153,8 @@ jobs:
       - name: Create draft GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.release_metadata.outputs.tag }}
-          name: GPT-Image-2 Studio ${{ steps.release_metadata.outputs.tag }}
+          tag_name: ${{ needs.release-metadata.outputs.tag }}
+          name: GPT-Image-2 Studio ${{ needs.release-metadata.outputs.tag }}
           body_path: ${{ steps.release_metadata.outputs.release_notes }}
           draft: true
           prerelease: false

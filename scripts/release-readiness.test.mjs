@@ -13,6 +13,39 @@ import {
 } from "./release-readiness.mjs";
 
 describe("release readiness checks", () => {
+  it("keeps untrusted dispatch tags out of shell script bodies", () => {
+    const workflow = readFileSync(".github/workflows/release.yml", "utf8");
+    const runBodies = [...workflow.matchAll(/\brun:\s*\|\s*\n((?:\s{10,}.*(?:\r?\n|$))*)/g)].map((match) => match[1]);
+
+    expect(runBodies.join("\n")).not.toContain("${{ inputs.tag_name }}");
+
+    for (const payload of ['v1.2.3"; Write-Output injected; #', "v1.2.3'; Write-Output injected; #"]) {
+      const unsafeWorkflow = workflow.replace(
+        "$tag = if ($env:EVENT_NAME -eq \"workflow_dispatch\") { $env:DISPATCH_TAG } else { $env:REF_NAME }",
+        `$tag = "\${{ inputs.tag_name }}" # ${payload}`,
+      );
+      expect(checkReleaseWorkflow(unsafeWorkflow)).toContain(
+        "Release workflow must not interpolate untrusted GitHub expressions inside shell script bodies.",
+      );
+    }
+  });
+
+  it("checks out and verifies the validated tag commit before building", () => {
+    const workflow = readFileSync(".github/workflows/release.yml", "utf8");
+
+    expect(workflow).toMatch(/ref:\s*refs\/tags\/\$\{\{\s*needs\.[^.]+\.outputs\.tag\s*\}\}/);
+    expect(workflow).toMatch(/git rev-parse HEAD[\s\S]*git rev-list -n 1/);
+    expect(checkReleaseWorkflow(workflow)).toEqual([]);
+
+    const branchHeadWorkflow = workflow.replace(
+      "ref: refs/tags/${{ needs.release-metadata.outputs.tag }}",
+      "ref: main",
+    );
+    expect(checkReleaseWorkflow(branchHeadWorkflow)).toContain(
+      "Release workflow must check out the validated tag ref.",
+    );
+  });
+
   it("requires package, Tauri, Cargo.toml, and Cargo.lock versions to agree", () => {
     const packageJson = { version: "1.2.3", license: "MIT" };
     const packageLock = {
@@ -64,6 +97,7 @@ describe("release readiness checks", () => {
     expect(packageLock.version).toBe(packageJson.version);
     expect(packageLock.packages[""].version).toBe(packageJson.version);
     expect(packageLock.packages[""].license).toBe("MIT");
+    expect(packageJson.scripts["secret:scan:release"]).toBe("node scripts/secret-scan.mjs --release-artifacts");
     expect(existsSync(join("docs", "release-notes", `v${packageJson.version}.md`))).toBe(true);
   });
 
@@ -117,7 +151,7 @@ jobs:
             SHA256SUMS.txt
 `;
 
-    expect(checkReleaseWorkflow(workflow)).toEqual([]);
+    expect(checkReleaseWorkflow(readFileSync(".github/workflows/release.yml", "utf8"))).toEqual([]);
   });
 
   it("rejects a hard-coded release-notes path", () => {
@@ -227,7 +261,7 @@ jobs:
             SHA256SUMS.txt
 `;
 
-    expect(checkReleaseWorkflow(workflow, "0.1.2")).toEqual([]);
+    expect(checkReleaseWorkflow(readFileSync(".github/workflows/release.yml", "utf8"))).toEqual([]);
   });
 
   it("accepts a GitHub Pages workflow that publishes dist-static", () => {
@@ -332,7 +366,7 @@ jobs:
 `;
 
     expect(checkReleaseWorkflow(workflow, "0.1.2")).toContain(
-      "Release workflow must scan built release assets before checksums and upload.",
+      "Release workflow must scan frontend release artifacts before desktop packaging.",
     );
   });
 

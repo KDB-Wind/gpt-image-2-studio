@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import * as nodeFs from "node:fs";
-import { constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -203,6 +203,7 @@ describe("static version archives", () => {
       createdAt: Date.now() - TRANSACTION_LEASE_MS - 1,
       version,
       previousManifest,
+      nextManifest,
       manifestPath,
       archivePath,
       distManifestPath,
@@ -252,6 +253,7 @@ describe("static version archives", () => {
       createdAt: Date.now() - TRANSACTION_LEASE_MS - 1,
       version,
       previousManifest,
+      nextManifest,
       manifestPath,
       archivePath,
       distManifestPath,
@@ -265,6 +267,88 @@ describe("static version archives", () => {
     );
     expect(readFileSync(outsidePath, "utf8")).toBe("must remain");
     expect(JSON.parse(readFileSync(manifestPath, "utf8"))).toEqual(nextManifest);
+    expect(existsSync(markerPath)).toBe(true);
+  });
+
+  it("rejects interrupted recovery through a junction or symlink and preserves external files", () => {
+    const rootDir = createTempRoot();
+    const outsideDir = createTempRoot();
+    const version = "1.2.3";
+    const previousManifest = { latestStable: "1.2.2", versions: ["1.2.2"] };
+    const nextManifest = { latestStable: version, versions: [version, "1.2.2"] };
+    const manifestPath = join(rootDir, "static-versions", "manifest.json");
+    const archivePath = join(rootDir, "static-versions", "versions", `v${version}`, "index.html");
+    const distManifestPath = join(rootDir, "dist-static", "versions", "manifest.json");
+    const distArchiveDir = join(rootDir, "dist-static", "versions", `v${version}`);
+    const distArchivePath = join(distArchiveDir, "index.html");
+    const markerPath = join(rootDir, "static-versions", `.archive-v${version}.txn`);
+    const outsideFile = join(outsideDir, "index.html");
+
+    writeJson(join(rootDir, "package.json"), { version });
+    writeJson(manifestPath, nextManifest);
+    writeSourceArchive(rootDir, "1.2.2", versionedArchiveHtml(previousManifest));
+    writeJson(distManifestPath, nextManifest);
+    writeFileSync(outsideFile, "external file must survive", "utf8");
+    symlinkSync(outsideDir, distArchiveDir, process.platform === "win32" ? "junction" : "dir");
+    writeJson(markerPath, {
+      mode: "prepared-release",
+      transactionId: "junction-prepared-release",
+      pid: process.pid,
+      createdAt: Date.now() - TRANSACTION_LEASE_MS - 1,
+      version,
+      previousManifest,
+      nextManifest,
+      manifestPath,
+      archivePath,
+      distManifestPath,
+      distArchivePath,
+      temporaryArchivePath: `${archivePath}.interrupted.tmp`,
+      temporaryManifestPath: `${manifestPath}.interrupted.tmp`,
+    });
+
+    expect(() => archiveStaticVersion({ rootDir, prepareReleaseHtml: () => undefined })).toThrow(/link|reparse|junction/i);
+    expect(readFileSync(outsideFile, "utf8")).toBe("external file must survive");
+    expect(JSON.parse(readFileSync(manifestPath, "utf8"))).toEqual(nextManifest);
+    expect(existsSync(markerPath)).toBe(true);
+  });
+
+  it("rejects recovery when the current manifest matches neither recorded state", () => {
+    const rootDir = createTempRoot();
+    const version = "1.2.3";
+    const previousManifest = { latestStable: "1.2.2", versions: ["1.2.2"] };
+    const nextManifest = { latestStable: version, versions: [version, "1.2.2"] };
+    const tamperedManifest = { latestStable: "1.2.1", versions: ["1.2.1"] };
+    const manifestPath = join(rootDir, "static-versions", "manifest.json");
+    const archivePath = join(rootDir, "static-versions", "versions", `v${version}`, "index.html");
+    const distManifestPath = join(rootDir, "dist-static", "versions", "manifest.json");
+    const distArchivePath = join(rootDir, "dist-static", "versions", `v${version}`, "index.html");
+    const markerPath = join(rootDir, "static-versions", `.archive-v${version}.txn`);
+
+    writeJson(join(rootDir, "package.json"), { version });
+    writeJson(manifestPath, tamperedManifest);
+    writeSourceArchive(rootDir, "1.2.1", versionedArchiveHtml(tamperedManifest));
+    writeJson(distManifestPath, nextManifest);
+    mkdirSync(join(distArchivePath, ".."), { recursive: true });
+    writeFileSync(distArchivePath, "partial current archive", "utf8");
+    writeJson(markerPath, {
+      mode: "prepared-release",
+      transactionId: "tampered-manifest-prepared-release",
+      pid: process.pid,
+      createdAt: Date.now() - TRANSACTION_LEASE_MS - 1,
+      version,
+      previousManifest,
+      nextManifest,
+      manifestPath,
+      archivePath,
+      distManifestPath,
+      distArchivePath,
+      temporaryArchivePath: `${archivePath}.interrupted.tmp`,
+      temporaryManifestPath: `${manifestPath}.interrupted.tmp`,
+    });
+
+    expect(() => archiveStaticVersion({ rootDir, prepareReleaseHtml: () => undefined })).toThrow(/manifest.*recorded/i);
+    expect(readFileSync(distArchivePath, "utf8")).toBe("partial current archive");
+    expect(JSON.parse(readFileSync(manifestPath, "utf8"))).toEqual(tamperedManifest);
     expect(existsSync(markerPath)).toBe(true);
   });
 

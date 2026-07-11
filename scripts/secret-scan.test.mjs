@@ -5,11 +5,9 @@ import { join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  findSecretFindings,
-  formatSecretFinding,
-  scanRepositorySecrets,
-} from "./secret-scan.mjs";
+import * as secretScanModule from "./secret-scan.mjs";
+
+const { findSecretFindings, formatSecretFinding, scanRepositorySecrets } = secretScanModule;
 
 const temporaryDirectories = [];
 const SECRET_SCAN_SCRIPT = resolve(process.cwd(), "scripts/secret-scan.mjs");
@@ -21,6 +19,62 @@ afterEach(() => {
 });
 
 describe("secret scan", () => {
+  it("scans ignored frontend and final desktop release artifacts without exposing values", () => {
+    expect(typeof secretScanModule.scanReleaseArtifactSecrets).toBe("function");
+    if (typeof secretScanModule.scanReleaseArtifactSecrets !== "function") {
+      return;
+    }
+
+    const root = mkdtempSync(join(tmpdir(), "release-artifact-secret-scan-"));
+    temporaryDirectories.push(root);
+    execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+    writeFileSync(join(root, ".gitignore"), "dist/\nsrc-tauri/target/\n", "utf8");
+
+    const distSecret = ["sk", "live", "R".repeat(32)].join("-");
+    const installerSecret = ["github", "pat", "S".repeat(40)].join("_");
+    const utf16Secret = ["1", "ts", "T".repeat(48)].join("");
+    mkdirSync(join(root, "dist"), { recursive: true });
+    mkdirSync(join(root, "src-tauri", "target", "release", "bundle", "nsis"), { recursive: true });
+    writeFileSync(join(root, "dist", "app.js"), distSecret, "utf8");
+    writeFileSync(join(root, "src-tauri", "target", "release", "app.exe"), Buffer.from(installerSecret, "ascii"));
+    writeFileSync(
+      join(root, "src-tauri", "target", "release", "bundle", "nsis", "setup.exe"),
+      Buffer.from(utf16Secret, "utf16le"),
+    );
+
+    const findings = secretScanModule.scanReleaseArtifactSecrets(root);
+    expect(findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "dist/app.js", rule: "openai-like-key" }),
+      expect.objectContaining({ path: "src-tauri/target/release/app.exe", rule: "known-service-token" }),
+      expect.objectContaining({ path: "src-tauri/target/release/bundle/nsis/setup.exe", rule: "step-like-key" }),
+    ]));
+    const output = findings.map(formatSecretFinding).join("\n");
+    expect(output).not.toContain(distSecret);
+    expect(output).not.toContain(installerSecret);
+    expect(output).not.toContain(utf16Secret);
+    expect(scanRepositorySecrets(root)).toEqual([]);
+  });
+
+  it("supports release-artifact CLI mode with path-and-rule-only output", () => {
+    const root = mkdtempSync(join(tmpdir(), "release-artifact-secret-cli-"));
+    temporaryDirectories.push(root);
+    execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+    writeFileSync(join(root, ".gitignore"), "dist/\n", "utf8");
+    const secret = ["sk", "live", "U".repeat(32)].join("-");
+    mkdirSync(join(root, "dist"));
+    writeFileSync(join(root, "dist", "app.js"), secret, "utf8");
+
+    const result = spawnSync(process.execPath, [SECRET_SCAN_SCRIPT, "--release-artifacts"], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+
+    expect(result.status).toBe(1);
+    expect(output).toContain("dist/app.js: openai-like-key");
+    expect(output).not.toContain(secret);
+  });
+
   it("detects real-looking prefixed and assigned tokens without returning matched values", () => {
     const openAiLike = ["sk", "live", "A".repeat(32)].join("-");
     const stepLike = ["1", "ts", "B".repeat(48)].join("");

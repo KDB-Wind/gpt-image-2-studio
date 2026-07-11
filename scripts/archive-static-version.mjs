@@ -1,7 +1,7 @@
 import * as nodeFs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { rcompare, valid } from "semver";
 
@@ -193,6 +193,87 @@ function preparedTransactionPaths(rootDir, version) {
   };
 }
 
+function manifestsAreEqual(left, right) {
+  return left.latestStable === right.latestStable
+    && JSON.stringify(left.versions) === JSON.stringify(right.versions);
+}
+
+function assertPathHasNoLinkTraversal(fs, allowedRoot, targetPath) {
+  const resolvedRoot = resolve(allowedRoot);
+  const resolvedTarget = resolve(targetPath);
+  const targetRelative = relative(resolvedRoot, resolvedTarget);
+  if (targetRelative.startsWith("..") || isAbsolute(targetRelative)) {
+    throw new Error(`Recovery path is outside its expected archive root: ${resolvedTarget}`);
+  }
+
+  const components = targetRelative ? targetRelative.split(/[\\/]+/) : [];
+  let currentPath = resolvedRoot;
+  let realRoot;
+
+  for (let index = -1; index < components.length; index += 1) {
+    if (index >= 0) {
+      currentPath = join(currentPath, components[index]);
+    }
+    let stats;
+    try {
+      stats = fs.lstatSync(currentPath);
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        break;
+      }
+      throw error;
+    }
+    if (stats.isSymbolicLink()) {
+      throw new Error(`Recovery path contains a symbolic link, junction, or reparse traversal: ${currentPath}`);
+    }
+
+    const realPath = fs.realpathSync(currentPath);
+    if (index === -1) {
+      realRoot = realPath;
+      continue;
+    }
+
+    const realRelative = relative(realRoot, realPath);
+    if (realRelative.startsWith("..") || isAbsolute(realRelative)) {
+      throw new Error(`Recovery path escapes its expected archive root through a reparse traversal: ${currentPath}`);
+    }
+  }
+}
+
+function assertPreparedRecoveryPathsSafe(fs, rootDir, transaction, preparedState, markerPath) {
+  const sourceRoot = join(rootDir, "static-versions");
+  const distRoot = join(rootDir, "dist-static");
+
+  for (const path of [
+    preparedState.manifestPath,
+    preparedState.archivePath,
+    transaction.temporaryManifestPath,
+    transaction.temporaryArchivePath,
+    markerPath,
+  ]) {
+    assertPathHasNoLinkTraversal(fs, sourceRoot, path);
+  }
+
+  for (const path of [preparedState.distManifestPath, preparedState.distArchivePath]) {
+    assertPathHasNoLinkTraversal(fs, distRoot, path);
+  }
+}
+
+function readRecoveryManifest(fs, manifestPath) {
+  try {
+    return validateVersionManifest(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
+  } catch (error) {
+    throw new Error(`Prepared transaction current manifest is invalid: ${manifestPath}`, { cause: error });
+  }
+}
+
+function assertRecoveryManifestPrecondition(fs, manifestPath, previousManifest, nextManifest) {
+  const currentManifest = readRecoveryManifest(fs, manifestPath);
+  if (!manifestsAreEqual(currentManifest, previousManifest) && !manifestsAreEqual(currentManifest, nextManifest)) {
+    throw new Error(`Prepared transaction current manifest does not match either recorded manifest: ${manifestPath}`);
+  }
+}
+
 function assertExpectedPreparedTransaction(transaction, rootDir, version) {
   const expectedPaths = preparedTransactionPaths(rootDir, version);
 
@@ -203,6 +284,15 @@ function assertExpectedPreparedTransaction(transaction, rootDir, version) {
   const previousManifest = validateVersionManifest(transaction.previousManifest);
   if (previousManifest.versions.includes(version)) {
     throw new Error(`Prepared transaction previous manifest must not include ${version}.`);
+  }
+
+  const nextManifest = validateVersionManifest(transaction.nextManifest);
+  const expectedNextManifest = validateVersionManifest({
+    latestStable: version,
+    versions: [...new Set([version, ...previousManifest.versions])].sort(rcompare),
+  });
+  if (!manifestsAreEqual(nextManifest, expectedNextManifest)) {
+    throw new Error(`Prepared transaction next manifest does not match the package version ${version}.`);
   }
 
   for (const [field, expectedPath] of Object.entries(expectedPaths)) {
@@ -220,7 +310,7 @@ function assertExpectedPreparedTransaction(transaction, rootDir, version) {
     }
   }
 
-  return { previousManifest, ...expectedPaths };
+  return { previousManifest, nextManifest, ...expectedPaths };
 }
 
 function removeArchiveFileAndEmptyDirectory(fs, archivePath) {
@@ -252,26 +342,73 @@ function recoverPreparedTransactionBeforeManifest({
     throw new Error(`Static version archive transaction is in progress for ${version}.`);
   }
 
+  assertPreparedRecoveryPathsSafe(fs, rootDir, transaction, preparedState, markerPath);
+  assertRecoveryManifestPrecondition(
+    fs,
+    preparedState.manifestPath,
+    preparedState.previousManifest,
+    preparedState.nextManifest,
+  );
+  if (fs.existsSync(preparedState.distManifestPath)) {
+    assertRecoveryManifestPrecondition(
+      fs,
+      preparedState.distManifestPath,
+      preparedState.previousManifest,
+      preparedState.nextManifest,
+    );
+  }
+
+  const temporaryDistManifestPath = temporaryPath(preparedState.distManifestPath);
+  const assertRecoveryPathsSafe = () => {
+    assertPreparedRecoveryPathsSafe(fs, rootDir, transaction, preparedState, markerPath);
+    assertPathHasNoLinkTraversal(
+      fs,
+      join(rootDir, "dist-static"),
+      temporaryDistManifestPath,
+    );
+  };
+
   assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId });
+  assertRecoveryPathsSafe();
   removeArchiveFileAndEmptyDirectory(fs, preparedState.archivePath);
+  assertRecoveryPathsSafe();
   removeArchiveFileAndEmptyDirectory(fs, preparedState.distArchivePath);
 
+  assertRecoveryPathsSafe();
+  assertRecoveryManifestPrecondition(
+    fs,
+    preparedState.manifestPath,
+    preparedState.previousManifest,
+    preparedState.nextManifest,
+  );
   writeManifestAtomically({
     fs,
     manifestPath: preparedState.manifestPath,
     manifest: preparedState.previousManifest,
+    temporaryManifestPath: transaction.temporaryManifestPath,
     beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId }),
   });
 
   if (fs.existsSync(dirname(preparedState.distManifestPath))) {
+    assertRecoveryPathsSafe();
+    if (fs.existsSync(preparedState.distManifestPath)) {
+      assertRecoveryManifestPrecondition(
+        fs,
+        preparedState.distManifestPath,
+        preparedState.previousManifest,
+        preparedState.nextManifest,
+      );
+    }
     writeManifestAtomically({
       fs,
       manifestPath: preparedState.distManifestPath,
       manifest: preparedState.previousManifest,
+      temporaryManifestPath: temporaryDistManifestPath,
       beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId }),
     });
   }
 
+  assertRecoveryPathsSafe();
   cleanupTransaction({
     fs,
     markerPath,
@@ -550,6 +687,7 @@ export function archiveStaticVersion({
       Object.assign(transaction, {
         mode: "prepared-release",
         previousManifest: manifest,
+        nextManifest,
         manifestPath,
         archivePath,
         distManifestPath,
@@ -648,7 +786,7 @@ export function archiveStaticVersion({
       removeTransactionMarkerIfOwned({ fs, markerPath, transactionId: transaction.transactionId });
     }
 
-    if (!archiveDirExisted) {
+    if (transactionMarkerCreated && !archiveDirExisted) {
       assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
       try {
         fs.rmdirSync(archiveDir);
@@ -657,7 +795,7 @@ export function archiveStaticVersion({
       }
     }
 
-    if (!versionsDirExisted) {
+    if (transactionMarkerCreated && !versionsDirExisted) {
       assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
       try {
         fs.rmdirSync(versionsDir);
