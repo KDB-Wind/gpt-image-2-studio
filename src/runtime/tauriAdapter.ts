@@ -2,10 +2,17 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 
+import { sanitizeBatchManifest } from "../core/batchManifest";
 import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest } from "../core/batchTypes";
 import type { AppConfig } from "../core/config";
 import type { ImageRecord } from "../core/history";
-import type { RuntimeAdapter, SaveImageInput, SaveImageResult } from "./types";
+import type {
+  OutputDirectoryState,
+  OutputDirectoryTestResult,
+  RuntimeAdapter,
+  SaveImageInput,
+  SaveImageResult,
+} from "./types";
 
 type SaveGeneratedImagePayload = {
   imageBase64: string;
@@ -131,11 +138,31 @@ export const tauriAdapter: RuntimeAdapter = {
     }
   },
 
-  async testOutputDirectory() {
-    return {
-      ok: true,
-      message: "Desktop runtime saves and opens files through native file access.",
-    };
+  async testOutputDirectory(): Promise<OutputDirectoryTestResult> {
+    try {
+      const config = await invoke<AppConfig>("load_config");
+      return await invoke<OutputDirectoryTestResult>("test_output_directory", {
+        outputDirectory: config.outputDirectory,
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
+
+  async getOutputDirectoryState(): Promise<OutputDirectoryState> {
+    try {
+      return await invoke<OutputDirectoryState>("get_output_directory_state");
+    } catch {
+      try {
+        const config = await invoke<AppConfig>("load_config");
+        return { status: "permission-required", name: config.outputDirectory || "outputs" };
+      } catch {
+        return { status: "not-authorized" };
+      }
+    }
   },
 
   async saveImage(input: SaveImageInput): Promise<SaveImageResult> {
@@ -164,7 +191,7 @@ export const tauriAdapter: RuntimeAdapter = {
   },
 
   async saveBatchManifest(manifest: BatchManifest): Promise<string> {
-    return invoke<string>("save_batch_manifest", { manifest });
+    return invoke<string>("save_batch_manifest", { manifest: sanitizeBatchManifest(manifest) });
   },
 
   async chooseOutputDirectory() {

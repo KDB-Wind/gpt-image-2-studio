@@ -33,6 +33,8 @@ export type BatchTask = {
   failureCategory: BatchFailureCategory | null;
   outputPath: string;
   previewUrl: string;
+  saveMode?: ImageSaveMode;
+  saveFallbackReason?: string;
   durationMs: number;
   startedAt: string;
   completedAt: string;
@@ -138,6 +140,8 @@ export type BatchManifestTask = Pick<
   | "errorMessage"
   | "failureCategory"
   | "outputPath"
+  | "saveMode"
+  | "saveFallbackReason"
   | "durationMs"
   | "startedAt"
   | "completedAt"

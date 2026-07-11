@@ -14,6 +14,8 @@ pub fn run() {
             storage::save_config,
             storage::load_history,
             storage::delete_history_records,
+            storage::test_output_directory,
+            storage::get_output_directory_state,
             storage::save_generated_image,
             storage::save_batch_image,
             storage::save_batch_manifest,

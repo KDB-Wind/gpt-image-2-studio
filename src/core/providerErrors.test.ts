@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyProviderError,
   isCostRiskProviderError,
+  summarizeSensitiveError,
   type ProviderErrorInput,
 } from "./providerErrors";
 
@@ -249,5 +250,108 @@ describe("isCostRiskProviderError", () => {
         },
       }),
     ).toBe(true);
+  });
+});
+
+describe("summarizeSensitiveError", () => {
+  it("redacts secrets, signed URLs, nested payload fields, and long vendor bodies while keeping status and category", () => {
+    const bearerSecret = ["sk", "secret-secret-secret"].join("-");
+    const nestedApiKey = ["sk", "live-secret-secret"].join("-");
+    const nestedAccessToken = ["1ts", "secret_secret_secret"].join("_");
+    const summary = summarizeSensitiveError({
+      status: 403,
+      message: `Authorization: Bearer ${bearerSecret} failed for https://provider.example/image.png?token=private-token`,
+      responseBody: JSON.stringify({
+        error: {
+          message: "Forbidden",
+          type: "auth_error",
+          code: "bad_api_key",
+          details: {
+            api_key: nestedApiKey,
+            access_token: nestedAccessToken,
+            url: "https://provider.example/private.png?signature=very-secret",
+          },
+        },
+      }),
+      payload: {
+        error: {
+          message: "Forbidden",
+          code: "bad_api_key",
+          metadata: {
+            token: "private-token",
+            nested: {
+              authorization: `Bearer ${nestedApiKey}`,
+            },
+          },
+        },
+      },
+    });
+
+    expect(summary).toContain("HTTP 403");
+    expect(summary).toContain("auth");
+    expect(summary).toContain("Forbidden");
+    expect(summary).not.toContain(bearerSecret);
+    expect(summary).not.toContain(nestedApiKey);
+    expect(summary).not.toContain(nestedAccessToken);
+    expect(summary).not.toContain("private-token");
+    expect(summary).not.toContain("provider.example");
+    expect(summary).not.toContain("responseBody");
+    expect(summary.length).toBeLessThanOrEqual(280);
+  });
+
+  it("summarizes raw JSON-ish vendor errors without echoing their full body", () => {
+    const summary = summarizeSensitiveError(
+      'HTTP 500 upstream failure: {"error":{"message":"boom","type":"new_api_error","code":"do_request_failed","token":"private-token","api_key":"sk-secret"}}',
+    );
+
+    expect(summary).toContain("HTTP 500");
+    expect(summary).toContain("cost");
+    expect(summary).toContain("boom");
+    expect(summary).not.toContain("private-token");
+    expect(summary).not.toContain("sk-secret");
+    expect(summary).not.toContain('"token"');
+  });
+
+  it("redacts assignment variants and long provider tokens within the requested limit", () => {
+    const openAiLikeToken = ["sk", "abcdefghijklmnopqrstuvwx"].join("-");
+    const stepLikeToken = ["1ts", "abcdefghijklmnopqrstuvwx"].join("_");
+    const base64Bearer = ["abcDEF0123456789", "+/=="].join("");
+    const summary = summarizeSensitiveError(
+      `HTTP 429 Authorization: Bearer ${base64Bearer} api_key=plain-secret key='quoted-secret' ` +
+        "token=token-secret access_token=access-secret client_secret=client-secret private_key='private-secret' " +
+        `${openAiLikeToken} ${stepLikeToken} ` +
+        "https://provider.example/file?X-Amz-Signature=signed-secret&token=query-secret " +
+        "provider body " +
+        "x".repeat(600),
+      { maxLength: 120 },
+    );
+
+    expect(summary).toContain("HTTP 429");
+    expect(summary).toContain("rate limit");
+    expect(summary).not.toContain("plain-secret");
+    expect(summary).not.toContain("quoted-secret");
+    expect(summary).not.toContain("token-secret");
+    expect(summary).not.toContain("access-secret");
+    expect(summary).not.toContain(base64Bearer);
+    expect(summary).not.toContain("client-secret");
+    expect(summary).not.toContain("private-secret");
+    expect(summary).not.toContain("abcdefghijklmnopqrstuvwxyz");
+    expect(summary).not.toContain("provider.example");
+    expect(summary).not.toContain("signed-secret");
+    expect(summary).not.toContain("query-secret");
+    expect(summary.length).toBeLessThanOrEqual(120);
+  });
+
+  it("redacts underscored secret fields and base64-shaped bearer credentials", () => {
+    const base64Bearer = ["abcDEF0123456789", "+/=="].join("");
+    const summary = summarizeSensitiveError(
+      `HTTP 403 client_secret=client-secret private_key='private-secret' Authorization: Bearer ${base64Bearer}`,
+      { maxLength: 500 },
+    );
+
+    expect(summary).toContain("HTTP 403");
+    expect(summary).not.toContain("client-secret");
+    expect(summary).not.toContain("private-secret");
+    expect(summary).not.toContain(base64Bearer);
   });
 });

@@ -83,6 +83,58 @@ describe("BatchPanel", () => {
     expect(queryButton(copy.batch.actions.splitWithTextModel)).toBeNull();
   });
 
+  it("shows save counts and a redacted fallback reason after batch completion", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createRuntime();
+    const tasks = [
+      createTestTask({
+        id: "task-1",
+        title: "Red robot",
+        saveMode: "authorized-directory",
+      }),
+      createTestTask({
+        id: "task-2",
+        title: "Green rocket",
+        saveMode: "browser-download",
+        saveFallbackReason: "Write failed at [redacted-url].",
+      }),
+    ];
+    runBatchTasksMock.mockResolvedValue({ status: "completed", tasks, pauseReason: null });
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 2 }}
+          runtime={runtime}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+
+    clickButton(copy.batch.sources.customPrompts);
+    const prompts = getDraftPromptTextareas();
+    setFieldValue(prompts[0], "Create a red robot icon");
+    setFieldValue(prompts[1], "Create a green rocket icon");
+    clickButton(copy.batch.actions.createTasks);
+
+    await act(async () => {
+      clickButton(copy.batch.actions.start);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('[data-testid="batch-save-summary"]')?.textContent).toContain("saved to authorized directory 1");
+    expect(container.querySelector('[data-testid="batch-save-summary"]')?.textContent).toContain("fell back to browser download 1");
+    expect(container.querySelector('[data-testid="batch-save-fallback-task-task-2"]')?.textContent).toContain("[redacted-url]");
+  });
+
   it("keeps batch reference image tools collapsed by default", async () => {
     const copy = getTranslations("en-US");
 
@@ -809,7 +861,27 @@ function createRuntime(): RuntimeAdapter {
     chooseOutputDirectory: vi.fn().mockResolvedValue(null),
     prepareHistoryPreview: vi.fn().mockResolvedValue(null),
     prepareHistoryFile: vi.fn().mockResolvedValue(null),
+    getOutputDirectoryState: vi.fn().mockResolvedValue({ status: "not-authorized" }),
     testOutputDirectory: vi.fn().mockResolvedValue({ ok: true }),
     openOutputPath: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createTestTask(overrides: Partial<import("../core/batchTypes").BatchTask>): import("../core/batchTypes").BatchTask {
+  return {
+    id: "task-1",
+    index: 0,
+    title: "Task 1",
+    prompt: "Prompt 1",
+    status: "succeeded",
+    attemptCount: 1,
+    errorMessage: "",
+    failureCategory: null,
+    outputPath: "gpt-image-2-studio/batch/task.png",
+    previewUrl: "blob:task",
+    durationMs: 100,
+    startedAt: "2026-07-11T08:00:00.000Z",
+    completedAt: "2026-07-11T08:00:01.000Z",
+    ...overrides,
   };
 }

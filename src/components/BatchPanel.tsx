@@ -114,6 +114,13 @@ export function BatchPanel({
   );
 
   const summary = useMemo(() => summarizeBatchTasks(tasks), [tasks]);
+  const saveSummary = useMemo(
+    () => ({
+      authorized: tasks.filter((task) => task.status === "succeeded" && task.saveMode === "authorized-directory").length,
+      fallback: tasks.filter((task) => task.status === "succeeded" && task.saveMode === "browser-download").length,
+    }),
+    [tasks],
+  );
   const isRunning = status === "running";
   const batchDisplayTitle = batchTitle.trim() || "batch-images";
   const recoverableTaskCount = useMemo(() => countRecoverableBatchTasks(tasks), [tasks]);
@@ -844,6 +851,7 @@ export function BatchPanel({
           <button
             key={value}
             type="button"
+            data-testid={`batch-source-${value}`}
             className={`source-card ${source === value ? "active" : ""}`}
             onClick={() => setSource(value)}
             disabled={isRunning}
@@ -972,6 +980,7 @@ export function BatchPanel({
               <label className="field">
                 <span>{copy.batch.fields.customPrompt(index + 1)}</span>
                 <textarea
+                  data-testid={`batch-custom-prompt-${index}`}
                   className="batch-task-prompt-textarea"
                   value={prompt}
                   rows={3}
@@ -1154,7 +1163,13 @@ export function BatchPanel({
             {copy.batch.actions.addPrompt}
           </button>
         ) : null}
-        <button type="button" className="secondary-button" onClick={handleCreateTasks} disabled={isRunning}>
+        <button
+          type="button"
+          className="secondary-button"
+          data-testid="batch-create-tasks"
+          onClick={handleCreateTasks}
+          disabled={isRunning}
+        >
           {copy.batch.actions.createTasks}
         </button>
       </div>
@@ -1184,6 +1199,11 @@ export function BatchPanel({
             <dd>{summary.skipped}</dd>
           </div>
         </dl>
+        {hasExecutedTasks ? (
+          <p className="panel-note" data-testid="batch-save-summary">
+            {copy.batch.messages.saveSummary(summary.succeeded, saveSummary.authorized, saveSummary.fallback)}
+          </p>
+        ) : null}
         {startedAt ? (
           <p className="panel-note">
             {startedAt}
@@ -1198,6 +1218,7 @@ export function BatchPanel({
         <button
           type="button"
           className="primary-button"
+          data-testid="batch-start"
           onClick={() => void handleStartBatch()}
           disabled={!runtime || tasks.length === 0 || isRunning}
         >
@@ -1393,6 +1414,11 @@ export function BatchPanel({
                       {task.outputPath ? <span>{task.outputPath}</span> : null}
                     </div>
                     {task.errorMessage ? <p className="error-copy">{task.errorMessage}</p> : null}
+                    {task.status === "succeeded" && task.saveMode === "browser-download" && task.saveFallbackReason ? (
+                      <p className="warning-copy" data-testid={`batch-save-fallback-task-${task.id}`}>
+                        {copy.messages.saveFallbackToBrowserDownload(task.saveFallbackReason)}
+                      </p>
+                    ) : null}
                     <div className="action-row batch-task-actions">
                       {task.previewUrl ? <img className="batch-task-thumb" src={task.previewUrl} alt={task.title} /> : null}
                       <button

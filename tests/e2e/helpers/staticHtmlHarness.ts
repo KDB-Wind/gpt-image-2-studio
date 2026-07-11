@@ -103,8 +103,13 @@ export async function mockImageGeneration(page: Page) {
   });
 }
 
-export async function installMockOutputDirectory(page: Page) {
-  await page.addInitScript(() => {
+type MockOutputDirectoryOptions = {
+  failImageWrites?: boolean;
+  writeError?: string;
+};
+
+export async function installMockOutputDirectory(page: Page, options: MockOutputDirectoryOptions = {}) {
+  await page.addInitScript((mockOptions: MockOutputDirectoryOptions) => {
     const storageKey = "gpt-image-2-studio.e2e.mock-output-files.v1";
     const directories = new Map<string, unknown>();
 
@@ -188,6 +193,10 @@ export async function installMockOutputDirectory(page: Page) {
               return base64ToFile(fileName, storedFile);
             },
             async createWritable() {
+              if (mockOptions.failImageWrites && fileName !== "manifest.json") {
+                throw new DOMException(mockOptions.writeError ?? "Mock output directory write permission denied.", "NotAllowedError");
+              }
+
               return {
                 async write(data: BufferSource | Blob | string) {
                   const blob = data instanceof Blob ? data : new Blob([data]);
@@ -210,7 +219,22 @@ export async function installMockOutputDirectory(page: Page) {
     }
 
     window.showDirectoryPicker = async () => createDirectoryHandle("gpt-image-2-studio");
-  });
+  }, options);
+}
+
+export async function readMockOutputDirectoryFile(page: Page, fileName: string): Promise<string | null> {
+  return page.evaluate(
+    ({ storageKey, expectedFileName }) => {
+      const files = JSON.parse(localStorage.getItem(storageKey) ?? "{}") as Record<string, { content: string }>;
+      const entry = Object.entries(files).find(([path]) => path.endsWith(`/${expectedFileName}`));
+      if (!entry) {
+        return null;
+      }
+
+      return new TextDecoder().decode(Uint8Array.from(atob(entry[1].content), (char) => char.charCodeAt(0)));
+    },
+    { storageKey: "gpt-image-2-studio.e2e.mock-output-files.v1", expectedFileName: fileName },
+  );
 }
 
 export async function expectHistoryContains(page: Page, text: string) {

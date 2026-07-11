@@ -6,7 +6,7 @@ import App from "./App";
 import { DEFAULT_CONFIG, type AppConfig } from "./core/config";
 import type { ImageRecord } from "./core/history";
 import { getTranslations } from "./i18n/translations";
-import type { RuntimeAdapter } from "./runtime/types";
+import type { OutputDirectoryState, RuntimeAdapter } from "./runtime/types";
 
 const runtimeMock = vi.hoisted(() => ({
   adapter: null as RuntimeAdapter | null,
@@ -53,6 +53,7 @@ function createMockRuntime(
     chooseOutputDirectory: runtimeMock.chooseOutputDirectory,
     prepareHistoryPreview: options.prepareHistoryPreview ?? (async () => null),
     prepareHistoryFile: options.prepareHistoryFile ?? (async () => null),
+    getOutputDirectoryState: async () => ({ status: "not-authorized" }),
     testOutputDirectory: async () => ({ ok: true }),
     openOutputPath: async () => undefined,
   };
@@ -94,6 +95,7 @@ describe("App smoke", () => {
     });
     container.remove();
     runtimeMock.adapter = null;
+    vi.restoreAllMocks();
   });
 
   it("renders the core workspace with local runtime state", async () => {
@@ -183,7 +185,7 @@ describe("App smoke", () => {
     await flushAppEffects();
 
     const statusBefore = container.querySelector(".output-directory-status");
-    expect(statusBefore?.textContent).toContain("Images may fall back to browser downloads until the folder test passes.");
+    expect(statusBefore?.textContent).toContain("No output folder is authorized yet.");
 
     await act(async () => {
       clickButton(container, copy.actions.chooseDirectory);
@@ -192,8 +194,136 @@ describe("App smoke", () => {
     await flushAppEffects();
 
     const statusAfter = container.querySelector(".output-directory-status");
-    expect(statusAfter?.textContent).toContain("Recorded folder: gpt-image-2-studio.");
-    expect(statusAfter?.textContent).toContain("Use Test output folder to confirm this browser can write and restore previews.");
+    expect(statusAfter?.textContent).toContain("No output folder is authorized yet.");
+  });
+
+  it("renders the runtime directory state and refreshes it after a directory test", async () => {
+    const copy = getTranslations("en-US");
+    const getOutputDirectoryState = vi
+      .fn<() => Promise<OutputDirectoryState>>()
+      .mockResolvedValueOnce({ status: "ready", name: "gpt-image-2-studio", lastTestedAt: "2026-07-11T08:00:00.000Z" })
+      .mockResolvedValueOnce({ status: "permission-required", name: "gpt-image-2-studio" });
+    runtimeMock.adapter = {
+      ...createMockRuntime({ uiLanguage: "en-US", hasDismissedWelcome: true }),
+      getOutputDirectoryState,
+      testOutputDirectory: vi.fn().mockResolvedValue({ ok: false, message: "Permission revoked." }),
+    };
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushAppEffects();
+
+    await act(async () => {
+      clickButton(container, copy.tabs.settings);
+    });
+    await flushAppEffects();
+
+    expect(container.querySelector(".output-directory-status")?.textContent).toContain("Ready");
+    expect(container.querySelector(".output-directory-status")?.textContent).toContain("gpt-image-2-studio");
+    expect(container.querySelector(".output-directory-status")?.textContent).toContain("2026-07-11T08:00:00.000Z");
+
+    await act(async () => {
+      clickButton(container, copy.actions.testOutputDirectory);
+      await Promise.resolve();
+    });
+    await flushAppEffects();
+
+    expect(getOutputDirectoryState).toHaveBeenCalledTimes(2);
+    expect(container.querySelector(".output-directory-status")?.textContent).toContain("Needs permission");
+  });
+
+  it("finishes app initialization when the output-directory state query rejects", async () => {
+    const copy = getTranslations("en-US");
+    runtimeMock.adapter = {
+      ...createMockRuntime({ uiLanguage: "en-US", hasDismissedWelcome: true }),
+      getOutputDirectoryState: vi.fn().mockRejectedValue(new DOMException("Blocked", "SecurityError")),
+    };
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushAppEffects();
+
+    expect(container.querySelector(".app-shell")).not.toBeNull();
+    await act(async () => {
+      clickButton(container, copy.tabs.settings);
+    });
+    await flushAppEffects();
+    expect(container.textContent).toContain(copy.messages.runtimeLoaded("Web mode"));
+    expect(container.textContent).not.toContain("Failed to load local state");
+  });
+
+  it("ignores stale output-directory refresh results and does not update state after unmount", async () => {
+    const copy = getTranslations("en-US");
+    const initialState: OutputDirectoryState = { status: "not-authorized" };
+    const staleRefresh = createDeferred<OutputDirectoryState>();
+    const latestRefresh = createDeferred<OutputDirectoryState>();
+    const getOutputDirectoryState = vi
+      .fn<() => Promise<OutputDirectoryState>>()
+      .mockResolvedValueOnce(initialState)
+      .mockImplementationOnce(() => staleRefresh.promise)
+      .mockImplementationOnce(() => latestRefresh.promise);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    runtimeMock.chooseOutputDirectory.mockResolvedValue("gpt-image-2-studio");
+    runtimeMock.adapter = {
+      ...createMockRuntime({ uiLanguage: "en-US", hasDismissedWelcome: true }),
+      getOutputDirectoryState,
+      testOutputDirectory: vi.fn().mockResolvedValue({ ok: false, message: "Permission revoked." }),
+    };
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushAppEffects();
+
+    await act(async () => {
+      clickButton(container, copy.tabs.settings);
+    });
+    await flushAppEffects();
+
+    await act(async () => {
+      clickButton(container, copy.actions.chooseDirectory);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      clickButton(container, copy.actions.testOutputDirectory);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      latestRefresh.resolve({ status: "permission-required", name: "gpt-image-2-studio" });
+      await latestRefresh.promise;
+    });
+    await flushAppEffects();
+
+    expect(container.querySelector(".output-directory-status")?.textContent).toContain("Needs permission");
+
+    act(() => {
+      root.unmount();
+    });
+
+    runtimeMock.adapter = createMockRuntime({ uiLanguage: "en-US", hasDismissedWelcome: true });
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushAppEffects();
+    await act(async () => {
+      clickButton(container, copy.tabs.settings);
+    });
+    await flushAppEffects();
+    const replacementStatus = container.querySelector(".output-directory-status")?.textContent;
+
+    await act(async () => {
+      staleRefresh.resolve({ status: "ready", name: "gpt-image-2-studio", lastTestedAt: "2026-07-11T08:00:00.000Z" });
+      await staleRefresh.promise;
+      await Promise.resolve();
+    });
+
+    expect(consoleError).not.toHaveBeenCalled();
+    expect(container.querySelector(".output-directory-status")?.textContent).toBe(replacementStatus);
   });
 
   it("keeps low-frequency guidance collapsed in the single image and settings panels", async () => {
@@ -414,4 +544,12 @@ function createHistoryRecord(overrides: Partial<ImageRecord>): ImageRecord {
     durationMs: 1000,
     ...overrides,
   };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
 }

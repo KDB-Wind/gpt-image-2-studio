@@ -761,6 +761,13 @@ img {
   text-decoration: none;
 }
 
+.microcopy {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
 .primary-button:hover,
 .secondary-button:hover,
 .ghost-button:hover,
@@ -1363,6 +1370,12 @@ img {
   text-align: right;
 }
 
+.compact-meta a {
+  color: var(--accent-strong);
+  font-weight: 800;
+  text-decoration: none;
+}
+
 .stat-card {
   display: grid;
   gap: 8px;
@@ -1468,6 +1481,10 @@ img {
 .preview-placeholder.failed,
 .error-copy {
   color: var(--danger);
+}
+
+.warning-copy {
+  color: var(--warning);
 }
 
 .preview-frame {

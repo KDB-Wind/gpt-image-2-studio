@@ -234,3 +234,131 @@ fn loads_api_key_from_json_fallback_mode() {
 
     let _ = std::fs::remove_dir_all(&temp_root);
 }
+
+#[test]
+fn output_directory_test_writes_and_reads_a_real_marker() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-output-directory-test-{}",
+        std::process::id()
+    ));
+
+    let result = crate::storage::test_output_directory_at(&temp_root).unwrap();
+
+    assert!(result.bytes > 0);
+    assert!(result.last_tested_at.contains('T'));
+    let state_path = temp_root.join(".chat-to-image-output-directory-test");
+    assert_eq!(
+        std::fs::read_to_string(&state_path).unwrap(),
+        format!("chat-to-image-output-directory-test\n{}\n", result.last_tested_at)
+    );
+    assert_eq!(
+        crate::storage::read_output_directory_test_at(&temp_root).unwrap(),
+        Some(result.last_tested_at.clone())
+    );
+    let remaining_files = std::fs::read_dir(&temp_root)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(remaining_files, vec![".chat-to-image-output-directory-test"]);
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn output_directory_state_is_not_ready_without_a_valid_marker() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-output-directory-state-test-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_root).unwrap();
+
+    assert_eq!(crate::storage::read_output_directory_test_at(&temp_root).unwrap(), None);
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn output_directory_state_rejects_non_regular_state_paths() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-output-directory-non-regular-test-{}",
+        std::process::id()
+    ));
+    let state_path = temp_root.join(".chat-to-image-output-directory-test");
+    std::fs::create_dir_all(&state_path).unwrap();
+
+    let error = crate::storage::read_output_directory_test_at(&temp_root).unwrap_err();
+
+    assert!(error.contains("regular file"));
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn output_directory_test_overwrites_existing_state_file_without_leaving_probe_files() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-output-directory-overwrite-test-{}",
+        std::process::id()
+    ));
+    let state_path = temp_root.join(".chat-to-image-output-directory-test");
+    std::fs::create_dir_all(&temp_root).unwrap();
+    std::fs::write(
+        &state_path,
+        "chat-to-image-output-directory-test\n2026-01-01T00:00:00+00:00\n",
+    )
+    .unwrap();
+
+    let result = crate::storage::test_output_directory_at(&temp_root).unwrap();
+
+    assert_eq!(
+        crate::storage::read_output_directory_test_at(&temp_root).unwrap(),
+        Some(result.last_tested_at.clone())
+    );
+    let remaining_files = std::fs::read_dir(&temp_root)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(remaining_files, vec![".chat-to-image-output-directory-test"]);
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn output_directory_test_allows_concurrent_runs_without_colliding() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-output-directory-concurrency-test-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_root).unwrap();
+
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(24));
+    let handles = (0..24)
+        .map(|_| {
+            let path = temp_root.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                crate::storage::test_output_directory_at(&path).unwrap()
+            })
+        })
+        .collect::<Vec<_>>();
+    let results = handles
+        .into_iter()
+        .map(|handle| handle.join().unwrap())
+        .collect::<Vec<_>>();
+
+    assert_eq!(results.len(), 24);
+    assert!(results.iter().all(|result| result.bytes > 0));
+    let restored = crate::storage::read_output_directory_test_at(&temp_root)
+        .unwrap()
+        .expect("missing restored timestamp");
+    assert!(results
+        .iter()
+        .any(|result| result.last_tested_at == restored));
+    let remaining_files = std::fs::read_dir(&temp_root)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(remaining_files, vec![".chat-to-image-output-directory-test"]);
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}

@@ -36,7 +36,7 @@ import {
 } from "./core/imageOptions";
 import { getTranslations, resolveLanguage, type UiLanguage } from "./i18n/translations";
 import { getRuntimeAdapter } from "./runtime";
-import type { RuntimeAdapter } from "./runtime/types";
+import type { OutputDirectoryState, RuntimeAdapter } from "./runtime/types";
 
 const APP_VERSION = packageJson.version;
 const RECOMMENDED_RELAY_URL = "https://ruoli.dev/register?aff=mR35";
@@ -320,6 +320,7 @@ function Dialog({ open, title, onClose, children, footer, size = "regular", clas
 
 export default function App() {
   const [runtime, setRuntime] = useState<RuntimeAdapter | null>(null);
+  const [outputDirectoryState, setOutputDirectoryState] = useState<OutputDirectoryState | null>(null);
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [persistedConfig, setPersistedConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [history, setHistory] = useState<ImageRecord[]>([]);
@@ -362,6 +363,8 @@ export default function App() {
   const dragDepthRef = useRef(0);
   const referenceImagesRef = useRef<ReferenceImageItem[]>([]);
   const historyBatchPreviewRef = useRef<BatchPreviewState | null>(null);
+  const isMountedRef = useRef(true);
+  const outputDirectoryStateRequestRef = useRef(0);
 
   const language = resolveLanguage(config.uiLanguage);
   const copy = getTranslations(language);
@@ -471,6 +474,8 @@ export default function App() {
 
   useEffect(() => {
     return () => {
+      isMountedRef.current = false;
+      outputDirectoryStateRequestRef.current += 1;
       revokeReferenceImages(referenceImagesRef.current);
       revokeBatchPreviewImages(historyBatchPreviewRef.current);
     };
@@ -482,9 +487,10 @@ export default function App() {
     async function loadApp() {
       try {
         const adapter = await getRuntimeAdapter();
-        const [loadedConfig, loadedHistory] = await Promise.all([
+        const [loadedConfig, loadedHistory, loadedOutputDirectoryState] = await Promise.all([
           adapter.loadConfig(),
           adapter.loadHistory(),
+          adapter.getOutputDirectoryState().catch(() => null),
         ]);
         const mergedConfig = mergeConfig(loadedConfig);
         const nextLanguage = resolveLanguage(mergedConfig.uiLanguage);
@@ -496,6 +502,7 @@ export default function App() {
         }
 
         setRuntime(adapter);
+        setOutputDirectoryState(loadedOutputDirectoryState);
         setConfig(mergedConfig);
         setPersistedConfig(mergedConfig);
         setHistory(loadedHistory);
@@ -548,6 +555,29 @@ export default function App() {
     const loadedHistory = await adapter.loadHistory();
     setHistory(loadedHistory);
     return loadedHistory;
+  }
+
+  async function refreshOutputDirectoryState(adapter = runtime) {
+    if (!adapter) {
+      return;
+    }
+
+    const requestId = ++outputDirectoryStateRequestRef.current;
+
+    try {
+      const nextState = await adapter.getOutputDirectoryState();
+      if (!isMountedRef.current || requestId !== outputDirectoryStateRequestRef.current) {
+        return;
+      }
+
+      setOutputDirectoryState(nextState);
+    } catch {
+      if (!isMountedRef.current || requestId !== outputDirectoryStateRequestRef.current) {
+        return;
+      }
+
+      setOutputDirectoryState(null);
+    }
   }
 
   function updateConfig<K extends keyof AppConfig>(key: K, value: AppConfig[K]) {
@@ -1102,6 +1132,7 @@ export default function App() {
         setConfig(nextConfig);
         await runtime.saveConfig(nextConfig);
         setPersistedConfig(nextConfig);
+        await refreshOutputDirectoryState(runtime);
         setSettingsMessage({
           tone: "success",
           text: copy.messages.outputSelected(selectedDirectory),
@@ -1278,6 +1309,7 @@ export default function App() {
         text: copy.messages.outputDirectoryTestFailed(getErrorMessage(error)),
       });
     } finally {
+      await refreshOutputDirectoryState(runtime);
       setIsTestingOutputDirectory(false);
     }
   }
@@ -1448,6 +1480,15 @@ export default function App() {
 
   const modeLabel = generationMode === "image-to-image" ? copy.modes.imageToImage : copy.modes.textToImage;
   const outputDirectoryLabel = config.outputDirectory || "outputs";
+  const outputDirectoryStateMessage = outputDirectoryState
+    ? outputDirectoryState.status === "unsupported"
+      ? copy.notes.outputDirectoryStateUnsupported
+      : outputDirectoryState.status === "not-authorized"
+        ? copy.notes.outputDirectoryStateNotAuthorized
+        : outputDirectoryState.status === "permission-required"
+          ? copy.notes.outputDirectoryStatePermissionRequired(outputDirectoryState.name)
+          : copy.notes.outputDirectoryStateReady(outputDirectoryState.name, outputDirectoryState.lastTestedAt)
+    : copy.notes.outputDirectoryStatusBody(outputDirectoryLabel, copy.actions.testOutputDirectory);
 
   return (
     <>
@@ -2131,9 +2172,7 @@ export default function App() {
 
                   <div className="output-directory-status" role="status">
                     <strong>{copy.notes.outputDirectoryStatusTitle}</strong>
-                    <span>
-                      {copy.notes.outputDirectoryStatusBody(outputDirectoryLabel, copy.actions.testOutputDirectory)}
-                    </span>
+                    <span>{outputDirectoryStateMessage}</span>
                   </div>
 
                   <div className="action-row">

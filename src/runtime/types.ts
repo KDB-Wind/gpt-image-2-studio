@@ -24,8 +24,15 @@ export type OutputDirectoryTestResult = {
   ok: boolean;
   fileName?: string;
   bytes?: number;
+  lastTestedAt?: string;
   message?: string;
 };
+
+export type OutputDirectoryState =
+  | { status: "unsupported" }
+  | { status: "not-authorized" }
+  | { status: "permission-required"; name: string }
+  | { status: "ready"; name: string; lastTestedAt: string };
 
 export type RuntimeAdapter = {
   mode: "web" | "desktop";
@@ -35,6 +42,7 @@ export type RuntimeAdapter = {
   deleteHistoryRecords(recordIds: string[]): Promise<ImageRecord[]>;
   prepareHistoryPreview(record: ImageRecord): Promise<string | null>;
   prepareHistoryFile(record: ImageRecord): Promise<File | null>;
+  getOutputDirectoryState(): Promise<OutputDirectoryState>;
   testOutputDirectory(): Promise<OutputDirectoryTestResult>;
   saveImage(input: SaveImageInput): Promise<SaveImageResult>;
   saveBatchImage(input: BatchImageSaveInput): Promise<BatchImageSaveResult>;

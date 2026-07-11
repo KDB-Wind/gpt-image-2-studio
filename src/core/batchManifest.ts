@@ -1,12 +1,14 @@
 import type {
   BatchExecutionConfig,
   BatchManifest,
+  BatchManifestTask,
   BatchSource,
   BatchSummary,
   BatchTask,
 } from "./batchTypes";
 import type { AppConfig } from "./config";
 import { sanitizeFileBaseName } from "./fileNames";
+import { summarizeSensitiveError } from "./providerErrors";
 
 export type BuildBatchManifestInput = {
   id: string;
@@ -88,7 +90,27 @@ export function buildBatchManifest(input: BuildBatchManifestInput): BatchManifes
       outputCompression: input.config.defaultCompression,
     },
     summary: summarizeBatchTasks(input.tasks),
-    tasks: input.tasks.map(({ previewUrl: _previewUrl, ...task }) => task),
+    tasks: input.tasks.map(sanitizeBatchManifestTask),
+  };
+}
+
+export function sanitizeBatchManifest(manifest: BatchManifest): BatchManifest {
+  return {
+    ...manifest,
+    tasks: manifest.tasks.map(sanitizeBatchManifestTask),
+  };
+}
+
+function sanitizeBatchManifestTask(task: BatchTask | BatchManifestTask): BatchManifestTask {
+  const nextTask = "previewUrl" in task ? { ...task } : task;
+  if ("previewUrl" in nextTask) {
+    delete nextTask.previewUrl;
+  }
+
+  return {
+    ...nextTask,
+    errorMessage: nextTask.errorMessage ? summarizeSensitiveError(nextTask.errorMessage) : "",
+    saveFallbackReason: nextTask.saveFallbackReason ? summarizeSensitiveError(nextTask.saveFallbackReason) : undefined,
   };
 }
 

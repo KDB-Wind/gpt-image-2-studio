@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BatchTask } from "../core/batchTypes";
 import { DEFAULT_CONFIG } from "../core/config";
-import { webAdapter } from "./webAdapter";
+import { __resetWebAdapterForTests, isSameOutputDirectoryHandle, webAdapter } from "./webAdapter";
 
 const ONE_PIXEL_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lwP8NwAAAABJRU5ErkJggg==";
@@ -10,11 +10,44 @@ const ONE_PIXEL_PNG =
 describe("webAdapter history deletion", () => {
   beforeEach(() => {
     localStorage.clear();
+    __resetWebAdapterForTests();
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("reports unsupported when the File System Access API is unavailable", async () => {
+    vi.stubGlobal("showDirectoryPicker", undefined);
+
+    await expect(getOutputDirectoryState()).resolves.toEqual({ status: "unsupported" });
+  });
+
+  it("treats synchronous indexedDB SecurityError failures as an unavailable persisted handle store", async () => {
+    vi.stubGlobal("showDirectoryPicker", vi.fn());
+    vi.stubGlobal("indexedDB", {
+      open() {
+        throw new DOMException("Access is denied for this document.", "SecurityError");
+      },
+    } as unknown as IDBFactory);
+
+    await expect(getOutputDirectoryState()).resolves.toEqual({ status: "not-authorized" });
+  });
+
+  it("treats asynchronous indexedDB open failures as an unavailable persisted handle store", async () => {
+    vi.stubGlobal("showDirectoryPicker", vi.fn());
+    vi.stubGlobal("indexedDB", {
+      open() {
+        const request = {} as IDBOpenDBRequest;
+        queueMicrotask(() => {
+          request.onerror?.(new Event("error"));
+        });
+        return request;
+      },
+    } as unknown as IDBFactory);
+
+    await expect(getOutputDirectoryState()).resolves.toEqual({ status: "not-authorized" });
   });
 
   it("falls back to session memory when localStorage is blocked by the browser", async () => {
@@ -76,6 +109,107 @@ describe("webAdapter history deletion", () => {
     expect(result.saveFallbackReason).toBeUndefined();
     expect(result.record.outputPath).toMatch(/^01-53-07_illustrate-an-argentina-world-cup-poster\.png$/);
     expect(result.record.outputPath).not.toContain("/");
+  });
+
+  it("saves base64 provider images without fetching a provider URL", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:base64-save");
+
+    const result = await webAdapter.saveImage({
+      image: { base64: ONE_PIXEL_PNG },
+      prompt: "A base64 image.",
+      optimizedPrompt: "",
+      customName: "base64-image",
+      config: { ...DEFAULT_CONFIG, defaultFormat: "png" },
+      generatedAt: new Date("2026-07-06T10:30:00.000Z"),
+      durationMs: 1000,
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.previewUrl).toBe("blob:base64-save");
+    await expect(webAdapter.loadHistory()).resolves.toEqual([
+      expect.objectContaining({
+        prompt: "A base64 image.",
+        outputPath: expect.stringContaining("base64-image"),
+      }),
+    ]);
+  });
+
+  it("explains when a provider image URL cannot be downloaded without leaking the full URL", async () => {
+    const providerUrl = "https://provider.example/generated.png?signature=private-token";
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValueOnce(new TypeError("Failed to fetch")));
+
+    let message = "";
+    try {
+      await webAdapter.saveImage({
+        image: { url: providerUrl },
+        prompt: "A small test image.",
+        optimizedPrompt: "",
+        customName: "",
+        config: DEFAULT_CONFIG,
+        generatedAt: new Date("2026-07-05T10:00:00.000Z"),
+        durationMs: 1200,
+      });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain("The provider returned an image URL, but this browser could not download it");
+    expect(message).toContain("b64_json");
+    expect(message).not.toContain(providerUrl);
+  });
+
+  it("redacts provider URLs that appear inside nested runtime error messages", async () => {
+    const providerUrl = "https://provider.example/generated.png?signature=private-token";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValueOnce(new TypeError(`Failed to fetch ${providerUrl}`)),
+    );
+
+    let message = "";
+    try {
+      await webAdapter.saveImage({
+        image: { url: providerUrl },
+        prompt: "A small test image.",
+        optimizedPrompt: "",
+        customName: "",
+        config: DEFAULT_CONFIG,
+        generatedAt: new Date("2026-07-06T10:00:00.000Z"),
+        durationMs: 1200,
+      });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain("The provider returned an image URL, but this browser could not download it");
+    expect(message).toContain("b64_json");
+    expect(message).not.toContain(providerUrl);
+    expect(message).not.toContain("private-token");
+    expect(message).not.toContain("provider.example/generated.png");
+  });
+
+  it("explains when a provider image URL returns an unsuccessful HTTP response", async () => {
+    const providerUrl = "https://provider.example/forbidden.png";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+      }),
+    );
+
+    await expect(
+      webAdapter.saveImage({
+        image: { url: providerUrl },
+        prompt: "A small test image.",
+        optimizedPrompt: "",
+        customName: "",
+        config: DEFAULT_CONFIG,
+        generatedAt: new Date("2026-07-05T10:00:00.000Z"),
+        durationMs: 1200,
+      }),
+    ).rejects.toThrow("Original error: HTTP 403");
   });
 
   it("requests read-write access when choosing an output directory", async () => {
@@ -208,6 +342,43 @@ describe("webAdapter history deletion", () => {
     expect(savedFile.type).toBe("image/png");
   });
 
+  it("requires a successful output-directory test before reporting the directory as ready", async () => {
+    const downloadsHandle = createDirectoryHandle({}, { name: "gpt-image-2-studio" });
+    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
+
+    await webAdapter.chooseOutputDirectory();
+    await expect(getOutputDirectoryState()).resolves.toEqual({
+      status: "permission-required",
+      name: "gpt-image-2-studio",
+    });
+
+    await webAdapter.testOutputDirectory();
+
+    await expect(getOutputDirectoryState()).resolves.toMatchObject({
+      status: "ready",
+      name: "gpt-image-2-studio",
+      lastTestedAt: expect.any(String),
+    });
+  });
+
+  it("does not treat same-name handles as the same tested directory", async () => {
+    const firstHandle = createDirectoryHandle({}, { name: "Downloads" });
+    const secondHandle = createDirectoryHandle({}, { name: "Downloads" });
+
+    await expect(isSameOutputDirectoryHandle(firstHandle, secondHandle)).resolves.toBe(false);
+  });
+
+  it("uses isSameEntry when the browser exposes it", async () => {
+    const firstHandle = createDirectoryHandle({}, { name: "Downloads" });
+    const secondHandle = createDirectoryHandle({}, { name: "Downloads" });
+    const sameEntryHandle = {
+      ...firstHandle,
+      isSameEntry: vi.fn().mockResolvedValue(true),
+    } as FileSystemDirectoryHandle;
+
+    await expect(isSameOutputDirectoryHandle(sameEntryHandle, secondHandle)).resolves.toBe(true);
+  });
+
   it("stores batch metadata when saving a batch image history record", async () => {
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:batch-image");
 
@@ -239,6 +410,37 @@ describe("webAdapter history deletion", () => {
       totalTasks: undefined,
     });
     await expect(webAdapter.loadHistory()).resolves.toEqual([expect.objectContaining({ batch: result.record.batch })]);
+  });
+
+  it("redacts batch save fallback reasons while preserving browser-download facts", async () => {
+    const providerUrl = "https://provider.example/image.png?token=private-token";
+    const downloadsHandle = createDirectoryHandle({}, {
+      name: "gpt-image-2-studio",
+      writable: false,
+      writeError: `Cannot write ${providerUrl}`,
+    });
+    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:batch-fallback");
+
+    await webAdapter.chooseOutputDirectory();
+
+    const result = await webAdapter.saveBatchImage({
+      batchId: "batch-20260524",
+      batchTitle: "World Cup posters",
+      batchCreatedAt: "2026-05-24T00:00:00.000Z",
+      task: createBatchTask({ status: "running" }),
+      image: { base64: ONE_PIXEL_PNG },
+      config: { ...DEFAULT_CONFIG, defaultFormat: "png" },
+      generatedAt: new Date("2026-05-24T00:03:00.000Z"),
+      durationMs: 1500,
+    });
+
+    expect(result).toMatchObject({
+      saveMode: "browser-download",
+      saveFallbackReason: expect.stringContaining("[redacted-url]"),
+    });
+    expect(result.saveFallbackReason).not.toContain(providerUrl);
+    expect(result.saveFallbackReason).not.toContain("private-token");
   });
 
   it("returns null when an authorized folder does not contain the old history image", async () => {
@@ -282,9 +484,18 @@ function createBatchTask(overrides: Partial<BatchTask>): BatchTask {
   };
 }
 
+async function getOutputDirectoryState() {
+  const query = Reflect.get(webAdapter, "getOutputDirectoryState");
+  if (typeof query !== "function") {
+    throw new Error("Runtime adapter does not expose output directory state.");
+  }
+
+  return query.call(webAdapter);
+}
+
 function createDirectoryHandle(
   entries: Record<string, File>,
-  handleOptions: { name?: string; permission?: PermissionState; writable?: boolean } = {},
+  handleOptions: { name?: string; permission?: PermissionState; writable?: boolean; writeError?: string } = {},
 ): FileSystemDirectoryHandle {
   const files = new Map<string, File>(Object.entries(entries));
   const directories = new Map<string, FileSystemDirectoryHandle>();
@@ -304,7 +515,11 @@ function createDirectoryHandle(
       }
 
       if (getOptions?.create) {
-        const nextHandle = createDirectoryHandle({}, { name, writable: handleOptions.writable });
+        const nextHandle = createDirectoryHandle({}, {
+          name,
+          writable: handleOptions.writable,
+          writeError: handleOptions.writeError,
+        });
         directories.set(name, nextHandle);
         return nextHandle;
       }
@@ -328,7 +543,7 @@ function createDirectoryHandle(
         },
         async createWritable() {
           if (handleOptions.writable === false) {
-            throw new DOMException(`Cannot write file: ${name}`, "NotAllowedError");
+            throw new DOMException(handleOptions.writeError ?? `Cannot write file: ${name}`, "NotAllowedError");
           }
 
           return {

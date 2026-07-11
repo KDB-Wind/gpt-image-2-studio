@@ -1,20 +1,23 @@
 import { DEFAULT_CONFIG, mergeConfig, type AppConfig } from "../core/config";
-import { buildBatchDirectoryName, buildBatchImageFileName } from "../core/batchManifest";
+import { buildBatchDirectoryName, buildBatchImageFileName, sanitizeBatchManifest } from "../core/batchManifest";
 import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest } from "../core/batchTypes";
 import { buildImageFileName, formatDateFolder } from "../core/fileNames";
 import { sortHistoryNewestFirst, type ImageRecord } from "../core/history";
-import type { RuntimeAdapter, SaveImageInput, SaveImageResult } from "./types";
+import { summarizeSensitiveError } from "../core/providerErrors";
+import type { OutputDirectoryState, RuntimeAdapter, SaveImageInput, SaveImageResult } from "./types";
 
 const CONFIG_KEY = "chat-to-image.config.v1";
 const HISTORY_KEY = "chat-to-image.history.v1";
 const FILE_HANDLE_DB_NAME = "chat-to-image.file-handles.v1";
 const FILE_HANDLE_STORE_NAME = "handles";
 const OUTPUT_DIRECTORY_HANDLE_KEY = "output-directory";
+const OUTPUT_DIRECTORY_STATE_KEY = "output-directory-state";
 const OUTPUT_DIRECTORY_TEST_FILE_NAME = "gpt-image-2-studio-folder-test.png";
 const OUTPUT_DIRECTORY_TEST_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lwP8NwAAAABJRU5ErkJggg==";
 
 let directoryHandle: FileSystemDirectoryHandle | null = null;
+let readyOutputDirectory: PersistedReadyOutputDirectory | null = null;
 const memoryStorageFallback = new Map<string, string>();
 
 function getBrowserStorage(): Storage | null {
@@ -82,10 +85,25 @@ function openFileHandleDatabase(): Promise<IDBDatabase | null> {
   }
 
   return new Promise((resolve) => {
-    const request = indexedDb.open(FILE_HANDLE_DB_NAME, 1);
+    let request: IDBOpenDBRequest;
+    try {
+      request = indexedDb.open(FILE_HANDLE_DB_NAME, 1);
+    } catch {
+      resolve(null);
+      return;
+    }
 
     request.onupgradeneeded = () => {
-      request.result.createObjectStore(FILE_HANDLE_STORE_NAME);
+      try {
+        request.result.createObjectStore(FILE_HANDLE_STORE_NAME);
+      } catch {
+        try {
+          request.result.close();
+        } catch {
+          // Ignore follow-up close failures in restricted runtimes.
+        }
+        resolve(null);
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => resolve(null);
@@ -101,11 +119,15 @@ async function persistDirectoryHandle(handle: FileSystemDirectoryHandle) {
   }
 
   await new Promise<void>((resolve) => {
-    const transaction = db.transaction(FILE_HANDLE_STORE_NAME, "readwrite");
-    transaction.objectStore(FILE_HANDLE_STORE_NAME).put(handle, OUTPUT_DIRECTORY_HANDLE_KEY);
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => resolve();
-    transaction.onabort = () => resolve();
+    try {
+      const transaction = db.transaction(FILE_HANDLE_STORE_NAME, "readwrite");
+      transaction.objectStore(FILE_HANDLE_STORE_NAME).put(handle, OUTPUT_DIRECTORY_HANDLE_KEY);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => resolve();
+      transaction.onabort = () => resolve();
+    } catch {
+      resolve();
+    }
   });
   db.close();
 }
@@ -118,16 +140,94 @@ async function readPersistedDirectoryHandle(): Promise<FileSystemDirectoryHandle
   }
 
   const handle = await new Promise<FileSystemDirectoryHandle | null>((resolve) => {
-    const transaction = db.transaction(FILE_HANDLE_STORE_NAME, "readonly");
-    const request = transaction.objectStore(FILE_HANDLE_STORE_NAME).get(OUTPUT_DIRECTORY_HANDLE_KEY);
-    request.onsuccess = () => resolve((request.result as FileSystemDirectoryHandle | undefined) ?? null);
-    request.onerror = () => resolve(null);
-    transaction.onerror = () => resolve(null);
-    transaction.onabort = () => resolve(null);
+    try {
+      const transaction = db.transaction(FILE_HANDLE_STORE_NAME, "readonly");
+      const request = transaction.objectStore(FILE_HANDLE_STORE_NAME).get(OUTPUT_DIRECTORY_HANDLE_KEY);
+      request.onsuccess = () => resolve((request.result as FileSystemDirectoryHandle | undefined) ?? null);
+      request.onerror = () => resolve(null);
+      transaction.onerror = () => resolve(null);
+      transaction.onabort = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
   });
   db.close();
 
   return handle;
+}
+
+type PersistedReadyOutputDirectory = {
+  handle: FileSystemDirectoryHandle;
+  name: string;
+  lastTestedAt: string;
+};
+
+async function persistReadyOutputDirectory(state: PersistedReadyOutputDirectory) {
+  readyOutputDirectory = state;
+  const db = await openFileHandleDatabase();
+
+  if (!db) {
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    try {
+      const transaction = db.transaction(FILE_HANDLE_STORE_NAME, "readwrite");
+      transaction.objectStore(FILE_HANDLE_STORE_NAME).put(state, OUTPUT_DIRECTORY_STATE_KEY);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => resolve();
+      transaction.onabort = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+  db.close();
+}
+
+async function readPersistedReadyOutputDirectory(): Promise<PersistedReadyOutputDirectory | null> {
+  const db = await openFileHandleDatabase();
+
+  if (!db) {
+    return null;
+  }
+
+  const state = await new Promise<unknown>((resolve) => {
+    try {
+      const transaction = db.transaction(FILE_HANDLE_STORE_NAME, "readonly");
+      const request = transaction.objectStore(FILE_HANDLE_STORE_NAME).get(OUTPUT_DIRECTORY_STATE_KEY);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(null);
+      transaction.onerror = () => resolve(null);
+      transaction.onabort = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+  db.close();
+
+  return isPersistedReadyOutputDirectory(state) ? state : null;
+}
+
+async function clearPersistedReadyOutputDirectory() {
+  readyOutputDirectory = null;
+  const db = await openFileHandleDatabase();
+
+  if (!db) {
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    try {
+      const transaction = db.transaction(FILE_HANDLE_STORE_NAME, "readwrite");
+      transaction.objectStore(FILE_HANDLE_STORE_NAME).delete(OUTPUT_DIRECTORY_STATE_KEY);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => resolve();
+      transaction.onabort = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+  db.close();
 }
 
 async function ensureDirectoryPermission(handle: FileSystemDirectoryHandle, mode: "read" | "readwrite") {
@@ -161,6 +261,72 @@ async function resolveDirectoryHandle(mode: "read" | "readwrite") {
   return null;
 }
 
+async function findKnownDirectoryHandle(): Promise<FileSystemDirectoryHandle | null> {
+  if (directoryHandle) {
+    return directoryHandle;
+  }
+
+  const persistedHandle = await readPersistedDirectoryHandle();
+  if (persistedHandle) {
+    directoryHandle = persistedHandle;
+  }
+
+  return persistedHandle;
+}
+
+async function hasDirectoryPermission(handle: FileSystemDirectoryHandle, mode: "read" | "readwrite") {
+  try {
+    if (!handle.queryPermission) {
+      return false;
+    }
+
+    return (await handle.queryPermission({ mode })) === "granted";
+  } catch {
+    return false;
+  }
+}
+
+function isPersistedReadyOutputDirectory(value: unknown): value is PersistedReadyOutputDirectory {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.name === "string" &&
+    typeof candidate.lastTestedAt === "string" &&
+    typeof candidate.handle === "object" &&
+    candidate.handle !== null
+  );
+}
+
+export async function isSameOutputDirectoryHandle(
+  currentHandle: FileSystemDirectoryHandle,
+  testedHandle: FileSystemDirectoryHandle,
+): Promise<boolean> {
+  if (currentHandle === testedHandle) {
+    return true;
+  }
+
+  if (typeof currentHandle.isSameEntry === "function") {
+    try {
+      return await currentHandle.isSameEntry(testedHandle);
+    } catch {
+      return false;
+    }
+  }
+
+  if (typeof testedHandle.isSameEntry === "function") {
+    try {
+      return await testedHandle.isSameEntry(currentHandle);
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
 function decodeBase64Image(base64: string, format: AppConfig["defaultFormat"]): Blob {
   const binary = atob(base64);
   const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
@@ -175,13 +341,22 @@ async function imageToBlob(input: SaveImageInput): Promise<Blob> {
   }
 
   if (input.image.url) {
-    const response = await fetch(input.image.url);
+    try {
+      const response = await fetch(input.image.url);
 
-    if (!response.ok) {
-      throw new Error(`Failed to download generated image: HTTP ${response.status}.`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      return response.blob();
+    } catch (error) {
+      const reason = summarizeSensitiveError(error);
+      throw new Error(
+        `The provider returned an image URL, but this browser could not download it. ` +
+          `This is usually caused by CORS restrictions on the provider-hosted image. ` +
+          `Use a provider or request mode that returns b64_json image data. Original error: ${reason}`,
+      );
     }
-
-    return response.blob();
   }
 
   throw new Error("Image payload did not include base64 data or a URL.");
@@ -351,7 +526,30 @@ export const webAdapter: RuntimeAdapter = {
     }
 
     await persistDirectoryHandle(directoryHandle);
+    await clearPersistedReadyOutputDirectory();
     return directoryHandle.name;
+  },
+
+  async getOutputDirectoryState(): Promise<OutputDirectoryState> {
+    if (!window.showDirectoryPicker) {
+      return { status: "unsupported" };
+    }
+
+    const handle = await findKnownDirectoryHandle();
+    if (!handle) {
+      return { status: "not-authorized" };
+    }
+
+    if (!(await hasDirectoryPermission(handle, "readwrite"))) {
+      return { status: "permission-required", name: handle.name };
+    }
+
+    const persistedState = readyOutputDirectory ?? (await readPersistedReadyOutputDirectory());
+    if (persistedState && (await isSameOutputDirectoryHandle(handle, persistedState.handle))) {
+      return { status: "ready", name: handle.name, lastTestedAt: persistedState.lastTestedAt };
+    }
+
+    return { status: "permission-required", name: handle.name };
   },
 
   async prepareHistoryPreview(record: ImageRecord) {
@@ -378,6 +576,7 @@ export const webAdapter: RuntimeAdapter = {
     const rootHandle = await resolveDirectoryHandle("readwrite");
 
     if (!rootHandle) {
+      await clearPersistedReadyOutputDirectory();
       return {
         ok: false,
         message: "Output folder is not authorized.",
@@ -388,6 +587,13 @@ export const webAdapter: RuntimeAdapter = {
       const blob = decodeBase64Image(OUTPUT_DIRECTORY_TEST_PNG, "png");
       await saveWithFileSystemAccess(rootHandle, "", OUTPUT_DIRECTORY_TEST_FILE_NAME, blob);
       const savedFile = await rootHandle.getFileHandle(OUTPUT_DIRECTORY_TEST_FILE_NAME).then((handle) => handle.getFile());
+      const lastTestedAt = new Date().toISOString();
+
+      if (savedFile.size > 0) {
+        await persistReadyOutputDirectory({ handle: rootHandle, name: rootHandle.name, lastTestedAt });
+      } else {
+        await clearPersistedReadyOutputDirectory();
+      }
 
       return {
         ok: savedFile.size > 0,
@@ -395,10 +601,11 @@ export const webAdapter: RuntimeAdapter = {
         bytes: savedFile.size,
       };
     } catch (error) {
+      await clearPersistedReadyOutputDirectory();
       return {
         ok: false,
         fileName: OUTPUT_DIRECTORY_TEST_FILE_NAME,
-        message: getRuntimeErrorMessage(error),
+        message: summarizeSensitiveError(error),
       };
     }
   },
@@ -429,7 +636,7 @@ export const webAdapter: RuntimeAdapter = {
         outputPath = buildFileSystemAccessOutputPath(outputDirectoryHandle.name, dateFolder, fileName);
         saveMode = "authorized-directory";
       } catch (error) {
-        saveFallbackReason = getRuntimeErrorMessage(error);
+        saveFallbackReason = summarizeSensitiveError(error);
         previewUrl = downloadBlob(blob, fileName);
       }
     } else {
@@ -468,7 +675,7 @@ export const webAdapter: RuntimeAdapter = {
         outputPath = buildFileSystemAccessOutputPath(outputDirectoryHandle.name, batchFolder, fileName);
         saveMode = "authorized-directory";
       } catch (error) {
-        saveFallbackReason = getRuntimeErrorMessage(error);
+        saveFallbackReason = summarizeSensitiveError(error);
         previewUrl = downloadBlob(blob, fileName);
       }
     } else {
@@ -502,9 +709,10 @@ export const webAdapter: RuntimeAdapter = {
   },
 
   async saveBatchManifest(manifest: BatchManifest): Promise<string> {
+    const safeManifest = sanitizeBatchManifest(manifest);
     const batchFolder = buildBatchDirectoryName(manifest.createdAt, manifest.title);
     const fileName = "manifest.json";
-    const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(safeManifest, null, 2)], { type: "application/json" });
 
     const outputDirectoryHandle = await resolveDirectoryHandle("readwrite");
 
@@ -529,19 +737,8 @@ export const webAdapter: RuntimeAdapter = {
   },
 };
 
-function getRuntimeErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  if (
-    error &&
-    typeof error === "object" &&
-    "message" in error &&
-    typeof (error as { message?: unknown }).message === "string"
-  ) {
-    return (error as { message: string }).message;
-  }
-
-  return "Unknown runtime error.";
+export function __resetWebAdapterForTests() {
+  directoryHandle = null;
+  readyOutputDirectory = null;
+  memoryStorageFallback.clear();
 }

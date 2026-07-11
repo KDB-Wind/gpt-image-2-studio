@@ -120,6 +120,7 @@ type TranslationBundle = {
       promptRequired: string;
       maxTaskCountWarning: (max: number) => string;
       batchComplete: (success: number, failed: number, skipped: number) => string;
+      saveSummary: (success: number, authorized: number, fallback: number) => string;
       splitRunning: string;
       splitSuccess: (count: number) => string;
       taskCountAdjustedByAi: (count: number, reason?: string) => string;
@@ -354,6 +355,10 @@ type TranslationBundle = {
     outputDirectoryPermissionHint: string;
     outputDirectoryStatusTitle: string;
     outputDirectoryStatusBody: (directory: string, testAction: string) => string;
+    outputDirectoryStateUnsupported: string;
+    outputDirectoryStateNotAuthorized: string;
+    outputDirectoryStatePermissionRequired: (directory: string) => string;
+    outputDirectoryStateReady: (directory: string, lastTestedAt: string) => string;
     currentVersionManualUpdate: string;
     versionSwitchHint: string;
     referenceImageHint: string;
@@ -562,6 +567,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
         promptRequired: "请先输入提示词或主任务。",
         maxTaskCountWarning: (max) => `一次最多建议 ${max} 个任务，数量过多可能触发供应商限流或失败，已自动限制为 ${max}。`,
         batchComplete: (success, failed, skipped) => `批量完成：成功 ${success}，失败 ${failed}，跳过 ${skipped}。`,
+        saveSummary: (success, authorized, fallback) =>
+          `生成成功 ${success}，保存到授权目录 ${authorized}，回退为浏览器下载 ${fallback}。`,
         splitRunning: "正在调用文字模型规划任务，请稍候。",
         splitSuccess: (count) => `文字模型已规划出 ${count} 个任务。`,
         taskCountAdjustedByAi: (count, reason) =>
@@ -804,6 +811,10 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       outputDirectoryStatusTitle: "保存目录状态",
       outputDirectoryStatusBody: (directory, testAction) =>
         `当前记录目录：${directory}。在保存目录测试通过前，图片可能会回退为浏览器下载，历史预览也可能无法恢复。请点击“${testAction}”，确认浏览器能写入并读回图片。`,
+      outputDirectoryStateUnsupported: "当前浏览器不支持目录授权。图片会使用浏览器下载。",
+      outputDirectoryStateNotAuthorized: "尚未授权保存目录。请选择并授权一个目录。",
+      outputDirectoryStatePermissionRequired: (directory) => `目录“${directory}”需要恢复权限或重新测试。`,
+      outputDirectoryStateReady: (directory, lastTestedAt) => `已就绪：目录“${directory}”，最近测试 ${lastTestedAt}。`,
       currentVersionManualUpdate: "首页始终指向最新版；如果需要稳定使用旧版，可以从这里打开固定版本。",
       versionSwitchHint: "固定版路径会随发版保留，适合在新版本测试期间临时回退。",
       referenceImageHint: "这些参考图会和提示词一起发送给图像模型，推荐不超过 4 张。",
@@ -1051,6 +1062,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
         maxTaskCountWarning: (max) =>
           `A batch is capped at ${max} tasks. Larger batches may hit provider rate limits or failures, so the count was capped at ${max}.`,
         batchComplete: (success, failed, skipped) => `Batch complete: ${success} succeeded, ${failed} failed, ${skipped} skipped.`,
+        saveSummary: (success, authorized, fallback) =>
+          `Generated successfully ${success}, saved to authorized directory ${authorized}, fell back to browser download ${fallback}.`,
         splitRunning: "Calling the text model to plan this batch. Please wait.",
         splitSuccess: (count) => `Text model planned ${count} tasks.`,
         taskCountAdjustedByAi: (count, reason) =>
@@ -1295,6 +1308,10 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       outputDirectoryStatusTitle: "Output folder status",
       outputDirectoryStatusBody: (directory, testAction) =>
         `Recorded folder: ${directory}. Images may fall back to browser downloads until the folder test passes. Use ${testAction} to confirm this browser can write and restore previews.`,
+      outputDirectoryStateUnsupported: "This browser does not support folder authorization. Images will use browser downloads.",
+      outputDirectoryStateNotAuthorized: "No output folder is authorized yet. Choose and authorize a folder.",
+      outputDirectoryStatePermissionRequired: (directory) => `Needs permission: folder “${directory}” requires recovery or another test.`,
+      outputDirectoryStateReady: (directory, lastTestedAt) => `Ready: folder “${directory}”, last tested ${lastTestedAt}.`,
       currentVersionManualUpdate: "The homepage always points to the latest version. Open a fixed version here if you need a stable fallback.",
       versionSwitchHint: "Fixed version URLs are kept after release, so you can temporarily roll back while a newer version is being tested.",
       referenceImageHint: "These images are sent to the image model together with the prompt. Staying at 4 or fewer is recommended.",

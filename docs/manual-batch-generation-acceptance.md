@@ -67,3 +67,18 @@
 - `cost_risk` 类异常会暂停整个批次，避免继续消耗费用。
 - 修改已生成任务的提示词后，该任务应回到等待状态，重新执行时会重新生成。
 - 窄屏下任务卡片、错误信息和输出路径不应横向溢出。
+## Task 4 manual acceptance boundary (2026-07-11)
+
+Automated Playwright mock coverage is limited to code-path verification. It replaces the browser directory picker and file handles with an in-page mock store; it does not verify native Chrome/Edge permission prompts or a real disk location.
+
+Manual acceptance still required in Chrome or Edge:
+
+1. In Settings, choose a user-selected output subfolder and confirm the status changes through authorization, permission/test-required, and ready states.
+2. Run the output-folder write/read test and confirm the ready state shows a test timestamp.
+3. Run one single image and one batch, then inspect the selected real folder for image files and `manifest.json`.
+   - For a two-image batch, confirm both images land inside the batch subdirectory.
+   - Confirm the default `Downloads` root has no duplicate fallback files.
+4. Confirm a forced write failure leaves generation tasks succeeded, records browser-download fallback counts, and redacts the fallback reason.
+5. Refresh the page, reauthorize the same folder if prompted, and confirm history previews can be restored.
+
+Do not place any real API key, Base URL, model name, provider URL, or response payload in this document, screenshots, logs, test artifacts, or commits. Use private local configuration during the manual run.

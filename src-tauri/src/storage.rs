@@ -1,9 +1,12 @@
 use std::{
     collections::HashSet,
-    fs,
-    io::ErrorKind,
+    fs::{self, OpenOptions},
+    io::{ErrorKind, Write},
     path::{Path, PathBuf},
-    sync::{Mutex, OnceLock},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex, OnceLock,
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -13,19 +16,26 @@ use directories::ProjectDirs;
 use keyring::Entry;
 use serde::Serialize;
 
-use crate::models::{AppConfig, ImageRecord, SaveBatchImageInput, SaveGeneratedImageInput, SaveImageResult};
+use crate::models::{
+    AppConfig, ImageRecord, OutputDirectoryStateResult, OutputDirectoryTestResult,
+    SaveBatchImageInput, SaveGeneratedImageInput, SaveImageResult,
+};
 
 const KEYRING_SERVICE: &str = "chat-to-image";
 const KEYRING_ACCOUNT: &str = "default";
 const API_KEY_STORAGE_FIELD: &str = "__apiKeyStorage";
 const KEYRING_STORAGE_MODE: &str = "keyring";
 const JSON_FALLBACK_STORAGE_MODE: &str = "json-fallback";
+const OUTPUT_DIRECTORY_TEST_FILE_NAME: &str = ".chat-to-image-output-directory-test";
+const OUTPUT_DIRECTORY_TEST_PREFIX: &str = "chat-to-image-output-directory-test\n";
 const RESERVED_WINDOWS_NAMES: &[&str] = &[
     "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7",
     "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
 ];
 
 static SAVE_IMAGE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static OUTPUT_DIRECTORY_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static OUTPUT_DIRECTORY_TEST_NONCE: AtomicU64 = AtomicU64::new(0);
 
 pub fn default_config() -> AppConfig {
     AppConfig {
@@ -421,6 +431,160 @@ fn output_base_dir() -> Result<PathBuf, String> {
     Ok(project_dirs()?.data_dir().to_path_buf())
 }
 
+pub struct OutputDirectoryTestFile {
+    pub bytes: u64,
+    pub last_tested_at: String,
+}
+
+pub fn test_output_directory_at(path: &Path) -> Result<OutputDirectoryTestFile, String> {
+    let _test_guard = OUTPUT_DIRECTORY_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|_| "Output directory test lock was poisoned.".to_string())?;
+    fs::create_dir_all(path).map_err(|error| error.to_string())?;
+    let last_tested_at = Local::now().to_rfc3339();
+    let marker_contents = format!("{OUTPUT_DIRECTORY_TEST_PREFIX}{last_tested_at}\n");
+    let marker_path = build_output_directory_probe_path(path);
+
+    let write_result = (|| -> Result<OutputDirectoryTestFile, String> {
+        let mut marker_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&marker_path)
+            .map_err(|error| error.to_string())?;
+        marker_file
+            .write_all(marker_contents.as_bytes())
+            .map_err(|error| error.to_string())?;
+        marker_file.sync_all().map_err(|error| error.to_string())?;
+        drop(marker_file);
+
+        let saved_contents = fs::read_to_string(&marker_path).map_err(|error| error.to_string())?;
+
+        if saved_contents != marker_contents {
+            return Err("Output directory test read-back did not match the written marker.".to_string());
+        }
+
+        write_output_directory_test_state(path, &last_tested_at)?;
+
+        Ok(OutputDirectoryTestFile {
+            bytes: saved_contents.len() as u64,
+            last_tested_at,
+        })
+    })();
+    remove_file_if_exists(&marker_path)?;
+
+    write_result
+}
+
+pub fn read_output_directory_test_at(path: &Path) -> Result<Option<String>, String> {
+    let marker_path = path.join(OUTPUT_DIRECTORY_TEST_FILE_NAME);
+    ensure_regular_file_or_absent(&marker_path)?;
+    let contents = match fs::read_to_string(marker_path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
+
+    let Some(timestamp) = contents.strip_prefix(OUTPUT_DIRECTORY_TEST_PREFIX) else {
+        return Ok(None);
+    };
+    let timestamp = timestamp.trim();
+
+    if timestamp.is_empty() {
+        return Ok(None);
+    }
+
+    if DateTime::parse_from_rfc3339(timestamp).is_err() {
+        return Ok(None);
+    }
+
+    Ok(Some(timestamp.to_string()))
+}
+
+fn build_output_directory_probe_path(path: &Path) -> PathBuf {
+    path.join(format!(
+        ".chat-to-image-output-directory-test-probe-{}-{}",
+        std::process::id(),
+        unique_output_directory_probe_suffix()
+    ))
+}
+
+fn unique_output_directory_probe_suffix() -> u128 {
+    let time_bits = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let counter = OUTPUT_DIRECTORY_TEST_NONCE.fetch_add(1, Ordering::Relaxed) as u128;
+    (time_bits << 16) ^ counter
+}
+
+fn write_output_directory_test_state(path: &Path, timestamp: &str) -> Result<(), String> {
+    let marker_path = path.join(OUTPUT_DIRECTORY_TEST_FILE_NAME);
+    ensure_regular_file_or_absent(&marker_path)?;
+    let temp_path = path.join(format!(
+        ".chat-to-image-output-directory-test-state-{}-{}.tmp",
+        std::process::id(),
+        unique_output_directory_probe_suffix()
+    ));
+    let contents = format!("{OUTPUT_DIRECTORY_TEST_PREFIX}{timestamp}\n");
+
+    let mut temp_file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp_path)
+        .map_err(|error| error.to_string())?;
+    temp_file
+        .write_all(contents.as_bytes())
+        .map_err(|error| error.to_string())?;
+    temp_file.sync_all().map_err(|error| error.to_string())?;
+    drop(temp_file);
+
+    if marker_path.exists() {
+        fs::remove_file(&marker_path).map_err(|error| error.to_string())?;
+    }
+
+    match fs::rename(&temp_path, &marker_path) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let _ = fs::remove_file(&temp_path);
+            Err(error.to_string())
+        }
+    }
+}
+
+fn ensure_regular_file_or_absent(path: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            let file_type = metadata.file_type();
+            if file_type.is_symlink() {
+                return Err(format!(
+                    "Output directory test state must not be a symlink: {}",
+                    path.display()
+                ));
+            }
+
+            if !file_type.is_file() {
+                return Err(format!(
+                    "Output directory test state must be a regular file: {}",
+                    path.display()
+                ));
+            }
+
+            Ok(())
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn remove_file_if_exists(path: &Path) -> Result<(), String> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 fn image_output_directory(input: &SaveGeneratedImageInput) -> Result<PathBuf, String> {
     let generated_at = parse_generated_at(&input.generated_at)?;
     let output_root = resolve_output_root(&input.config.output_directory, &output_base_dir()?);
@@ -560,6 +724,41 @@ pub fn delete_history_records(record_ids: Vec<String>) -> Result<Vec<ImageRecord
     sort_history(&mut history);
     write_json(&path, &history)?;
     Ok(history)
+}
+
+#[tauri::command]
+pub fn test_output_directory(output_directory: String) -> Result<OutputDirectoryTestResult, String> {
+    let output_root = resolve_output_root(&output_directory, &output_base_dir()?);
+    let result = test_output_directory_at(&output_root)?;
+
+    Ok(OutputDirectoryTestResult {
+        ok: true,
+        file_name: Some(OUTPUT_DIRECTORY_TEST_FILE_NAME.to_string()),
+        bytes: Some(result.bytes),
+        last_tested_at: Some(result.last_tested_at),
+        message: None,
+    })
+}
+
+#[tauri::command]
+pub fn get_output_directory_state() -> Result<OutputDirectoryStateResult, String> {
+    let config = load_config()?;
+    let name = normalize_output_directory(&config.output_directory);
+    let output_root = resolve_output_root(&name, &output_base_dir()?);
+    let last_tested_at = read_output_directory_test_at(&output_root)?;
+
+    Ok(match last_tested_at {
+        Some(last_tested_at) => OutputDirectoryStateResult {
+            status: "ready".to_string(),
+            name: Some(name),
+            last_tested_at: Some(last_tested_at),
+        },
+        None => OutputDirectoryStateResult {
+            status: "permission-required".to_string(),
+            name: Some(name),
+            last_tested_at: None,
+        },
+    })
 }
 
 #[tauri::command]

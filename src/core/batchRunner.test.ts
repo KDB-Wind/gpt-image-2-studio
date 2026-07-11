@@ -47,6 +47,79 @@ describe("batchRunner", () => {
     expect(result.tasks.every((task) => task.status === "succeeded")).toBe(true);
   });
 
+  it("retains browser-download fallback facts on a successful task", async () => {
+    const result = await runBatchTasks({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG,
+      tasks: createTasksFromMultilinePrompts("one"),
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 0 },
+      referenceImages: [],
+      generateImages: async () => [{ base64: "ok" }],
+      saveBatchImage: async (input) => ({
+        ...createSaveResult(input),
+        saveMode: "browser-download",
+        saveFallbackReason: "permission denied",
+      }),
+    });
+
+    expect(result.tasks[0]).toMatchObject({
+      status: "succeeded",
+      saveMode: "browser-download",
+      saveFallbackReason: "permission denied",
+    });
+  });
+
+  it("stores a sanitized fallback summary on a successful task", async () => {
+    const bearerSecret = ["sk", "live-super-secret"].join("-");
+    const rawFallback =
+      `HTTP 403 Authorization: Bearer ${bearerSecret} failed at https://provider.example/image.png?access_token=private-token ` +
+      'body={"error":{"message":"Forbidden","api_key":"sk-body-secret"}}';
+    const result = await runBatchTasks({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG,
+      tasks: createTasksFromMultilinePrompts("one"),
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 0 },
+      referenceImages: [],
+      generateImages: async () => [{ base64: "ok" }],
+      saveBatchImage: async (input) => ({
+        ...createSaveResult(input),
+        saveMode: "browser-download",
+        saveFallbackReason: rawFallback,
+      }),
+    });
+
+    expect(result.tasks[0].saveFallbackReason).toContain("HTTP 403");
+    expect(result.tasks[0].saveFallbackReason).toContain("auth");
+    expect(result.tasks[0].saveFallbackReason).not.toContain(bearerSecret);
+    expect(result.tasks[0].saveFallbackReason).not.toContain("private-token");
+    expect(result.tasks[0].saveFallbackReason).not.toContain("provider.example");
+    expect(result.tasks[0].saveFallbackReason).not.toContain("sk-body-secret");
+    expect(result.tasks[0].saveFallbackReason?.length).toBeLessThanOrEqual(280);
+  });
+
+  it("retains authorized-directory facts on a successful task", async () => {
+    const result = await runBatchTasks({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG,
+      tasks: createTasksFromMultilinePrompts("one"),
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 0 },
+      referenceImages: [],
+      generateImages: async () => [{ base64: "ok" }],
+      saveBatchImage: async (input) => createSaveResult(input),
+    });
+
+    expect(result.tasks[0]).toMatchObject({
+      status: "succeeded",
+      saveMode: "authorized-directory",
+    });
+  });
+
   it("does not exceed the configured concurrency", async () => {
     let active = 0;
     let maxActive = 0;
@@ -154,6 +227,34 @@ describe("batchRunner", () => {
 
     expect(attempts).toBe(2);
     expect(result.tasks[0].status).toBe("succeeded");
+  });
+
+  it("stores a sanitized task error summary instead of the raw provider body", async () => {
+    const tasks = createTasksFromMultilinePrompts("one");
+    const result = await runBatchTasks({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG,
+      tasks,
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 0 },
+      referenceImages: [],
+      generateImages: async () => {
+        const error = new Error(
+          'HTTP 403 upstream failure: {"error":{"message":"Forbidden","token":"private-token","api_key":"sk-secret"}}',
+        );
+        Object.assign(error, { status: 403 });
+        throw error;
+      },
+      saveBatchImage: vi.fn(),
+    });
+
+    expect(result.tasks[0].status).toBe("failed");
+    expect(result.tasks[0].errorMessage).toContain("HTTP 403");
+    expect(result.tasks[0].errorMessage).toContain("auth");
+    expect(result.tasks[0].errorMessage).toContain("Forbidden");
+    expect(result.tasks[0].errorMessage).not.toContain("private-token");
+    expect(result.tasks[0].errorMessage).not.toContain("sk-secret");
   });
 
   it("notifies when a task starts running", async () => {

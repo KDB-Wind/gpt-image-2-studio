@@ -78,3 +78,21 @@ pub struct SaveImageResult {
     pub record: ImageRecord,
     pub preview_url: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutputDirectoryTestResult {
+    pub ok: bool,
+    pub file_name: Option<String>,
+    pub bytes: Option<u64>,
+    pub last_tested_at: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutputDirectoryStateResult {
+    pub status: String,
+    pub name: Option<String>,
+    pub last_tested_at: Option<String>,
+}

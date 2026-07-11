@@ -1,6 +1,6 @@
 import { generateImages as defaultGenerateImages } from "./apiClient";
 import type { AppConfig } from "./config";
-import { classifyProviderError, type ProviderTransportKind } from "./providerErrors";
+import { classifyProviderError, summarizeSensitiveError, type ProviderTransportKind } from "./providerErrors";
 import {
   clampBatchExecutionConfig,
   type BatchExecutionConfig,
@@ -167,12 +167,14 @@ async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<B
         status: "succeeded",
         outputPath: saved.outputPath,
         previewUrl: saved.previewUrl,
+        saveMode: saved.saveMode,
+        saveFallbackReason: saved.saveFallbackReason ? summarizeSensitiveError(saved.saveFallbackReason) : undefined,
         durationMs,
         completedAt: new Date().toISOString(),
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Batch task failed.";
       const failureCategory = classifyBatchFailure(error);
+      const message = summarizeSensitiveError(error);
       const failedTask: BatchTask = {
         ...runningTask,
         status: "failed",

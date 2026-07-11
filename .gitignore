@@ -2,7 +2,12 @@
 .worktrees/
 node_modules/
 dist/
-dist-static/
+dist-static/*
+!dist-static/index.html
+!dist-static/gpt-image-2-studio-lite.html
+!dist-static/versions/
+!dist-static/versions/**/
+!dist-static/versions/**/index.html
 dist-ssr/
 src-tauri/target/
 src-tauri/gen/
@@ -12,3 +17,7 @@ outputs/
 .env.*
 !.env.example
 !.env.local.platform.example
+playwright-report/
+test-results/
+*.trace.zip
+*.webm

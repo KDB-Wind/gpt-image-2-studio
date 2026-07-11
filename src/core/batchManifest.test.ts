@@ -74,4 +74,62 @@ describe("batchManifest", () => {
     });
     expect(manifest.tasks[0]).not.toHaveProperty("previewUrl");
   });
+
+  it("keeps successful task save facts while omitting its preview URL", () => {
+    const manifest = buildBatchManifest({
+      id: "batch-1",
+      title: "World Cup Posters",
+      source: "custom-prompts",
+      createdAt: "2026-05-17T12:00:00.000Z",
+      startedAt: "2026-05-17T12:00:10.000Z",
+      completedAt: "2026-05-17T12:03:00.000Z",
+      executionConfig: DEFAULT_BATCH_EXECUTION_CONFIG,
+      config: DEFAULT_CONFIG,
+      tasks: [
+        {
+          ...baseTask,
+          saveMode: "browser-download",
+          saveFallbackReason: "permission denied",
+        },
+      ],
+    });
+
+    expect(manifest.tasks[0]).toMatchObject({
+      saveMode: "browser-download",
+      saveFallbackReason: "permission denied",
+    });
+    expect(manifest.tasks[0]).not.toHaveProperty("previewUrl");
+  });
+
+  it("sanitizes task failures and fallback reasons before manifest serialization", () => {
+    const manifest = buildBatchManifest({
+      id: "batch-1",
+      title: "World Cup Posters",
+      source: "custom-prompts",
+      createdAt: "2026-05-17T12:00:00.000Z",
+      startedAt: "2026-05-17T12:00:10.000Z",
+      completedAt: "2026-05-17T12:03:00.000Z",
+      executionConfig: DEFAULT_BATCH_EXECUTION_CONFIG,
+      config: DEFAULT_CONFIG,
+      tasks: [
+        {
+          ...baseTask,
+          status: "failed",
+          errorMessage:
+            'HTTP 403 provider error: {"error":{"message":"Forbidden","token":"private-token","api_key":"sk-secret"}}',
+          saveMode: "browser-download",
+          saveFallbackReason:
+            "Authorization: Bearer sk-secret-secret failed at https://provider.example/file.png?signature=secret",
+        },
+      ],
+    });
+
+    const serialized = JSON.stringify(manifest);
+    expect(manifest.tasks[0].errorMessage).toContain("HTTP 403");
+    expect(manifest.tasks[0].errorMessage).toContain("Forbidden");
+    expect(manifest.tasks[0].saveFallbackReason).toContain("[redacted");
+    expect(serialized).not.toContain("private-token");
+    expect(serialized).not.toContain("sk-secret");
+    expect(serialized).not.toContain("provider.example");
+  });
 });
