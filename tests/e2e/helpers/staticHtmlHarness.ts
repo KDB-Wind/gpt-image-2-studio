@@ -1,0 +1,182 @@
+import { expect, type Page } from "@playwright/test";
+
+import { DEFAULT_CONFIG, type AppConfig } from "../../../src/core/config";
+
+export const ONE_PIXEL_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+
+const CONFIG_KEY = "chat-to-image.config.v1";
+const HISTORY_KEY = "chat-to-image.history.v1";
+const BATCH_DRAFT_KEY = "chat-to-image.batch.draft.v1";
+const BATCH_MANIFEST_KEY = "chat-to-image.batch.manifests.v1";
+
+export async function openCleanStaticPage(page: Page, config?: Partial<AppConfig>) {
+  await page.goto("/");
+  await page.evaluate(
+    ({ configKey, historyKey, batchDraftKey, batchManifestKey, nextConfig }) => {
+      localStorage.removeItem(historyKey);
+      localStorage.removeItem(batchDraftKey);
+      localStorage.removeItem(batchManifestKey);
+      localStorage.setItem(configKey, JSON.stringify(nextConfig));
+    },
+    {
+      configKey: CONFIG_KEY,
+      historyKey: HISTORY_KEY,
+      batchDraftKey: BATCH_DRAFT_KEY,
+      batchManifestKey: BATCH_MANIFEST_KEY,
+      nextConfig: {
+        ...DEFAULT_CONFIG,
+        baseUrl: "https://example.test/v1",
+        apiKey: "test-api-key",
+        textModel: "test-text-model",
+        imageModel: "test-image-model",
+        uiLanguage: "zh-CN",
+        hasDismissedWelcome: true,
+        batchDefaultTaskCount: 2,
+        batchDefaultConcurrency: 1,
+        batchDefaultIntervalSeconds: 0,
+        batchDefaultMaxRetries: 0,
+        ...config,
+      },
+    },
+  );
+  await page.reload();
+}
+
+export async function mockImageGeneration(page: Page) {
+  await page.route("**/images/generations", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: [{ b64_json: ONE_PIXEL_PNG_BASE64 }],
+      }),
+    });
+  });
+}
+
+export async function installMockOutputDirectory(page: Page) {
+  await page.addInitScript(() => {
+    const storageKey = "gpt-image-2-studio.e2e.mock-output-files.v1";
+    const directories = new Map<string, unknown>();
+
+    type StoredFile = {
+      content: string;
+      type: string;
+    };
+
+    function readFiles(): Record<string, StoredFile> {
+      try {
+        return JSON.parse(localStorage.getItem(storageKey) ?? "{}") as Record<string, StoredFile>;
+      } catch {
+        return {};
+      }
+    }
+
+    function writeFiles(files: Record<string, StoredFile>) {
+      localStorage.setItem(storageKey, JSON.stringify(files));
+    }
+
+    async function blobToBase64(blob: Blob): Promise<string> {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      let binary = "";
+      for (const byte of bytes) {
+        binary += String.fromCharCode(byte);
+      }
+
+      return btoa(binary);
+    }
+
+    function base64ToFile(fileName: string, storedFile: StoredFile): File {
+      const binary = atob(storedFile.content);
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+      return new File([bytes], fileName, { type: storedFile.type });
+    }
+
+    function createDirectoryHandle(name: string, path = name): FileSystemDirectoryHandle {
+      return {
+        name,
+        async queryPermission() {
+          return "granted" as PermissionState;
+        },
+        async requestPermission() {
+          return "granted" as PermissionState;
+        },
+        async getDirectoryHandle(childName: string, options?: { create?: boolean }) {
+          const childPath = `${path}/${childName}`;
+          const existing = directories.get(childPath);
+          if (existing) {
+            return existing as FileSystemDirectoryHandle;
+          }
+
+          const hasStoredChildFiles = Object.keys(readFiles()).some((filePath) => filePath.startsWith(`${childPath}/`));
+          if (hasStoredChildFiles) {
+            const childHandle = createDirectoryHandle(childName, childPath);
+            directories.set(childPath, childHandle);
+            return childHandle;
+          }
+
+          if (!options?.create) {
+            throw new DOMException(`Directory not found: ${childName}`, "NotFoundError");
+          }
+
+          const childHandle = createDirectoryHandle(childName, childPath);
+          directories.set(childPath, childHandle);
+          return childHandle;
+        },
+        async getFileHandle(fileName: string, options?: { create?: boolean }) {
+          const key = `${path}/${fileName}`;
+          if (!readFiles()[key] && !options?.create) {
+            throw new DOMException(`File not found: ${fileName}`, "NotFoundError");
+          }
+
+          return {
+            async getFile() {
+              const storedFile = readFiles()[key];
+              if (!storedFile) {
+                throw new DOMException(`File not found: ${fileName}`, "NotFoundError");
+              }
+
+              return base64ToFile(fileName, storedFile);
+            },
+            async createWritable() {
+              return {
+                async write(data: BufferSource | Blob | string) {
+                  const blob = data instanceof Blob ? data : new Blob([data]);
+                  writeFiles({
+                    ...readFiles(),
+                    [key]: {
+                      content: await blobToBase64(blob),
+                      type: blob.type,
+                    },
+                  });
+                },
+                async close() {
+                  return undefined;
+                },
+              } as unknown as FileSystemWritableFileStream;
+            },
+          } as FileSystemFileHandle;
+        },
+      };
+    }
+
+    window.showDirectoryPicker = async () => createDirectoryHandle("gpt-image-2-studio");
+  });
+}
+
+export async function expectHistoryContains(page: Page, text: string) {
+  await page.getByRole("tab", { name: "历史" }).click();
+  await expect(page.getByRole("article").filter({ hasText: text }).first()).toBeVisible();
+}
+
+export async function expectBatchHistoryContains(page: Page, batchTitle: string, childText: string) {
+  await page.getByRole("tab", { name: "历史" }).click();
+  const batchArticle = page.getByRole("article").filter({ hasText: batchTitle }).first();
+  await expect(batchArticle).toBeVisible();
+  const expandButton = batchArticle.getByRole("button", { name: "展开批次" });
+  if (await expandButton.isVisible()) {
+    await expandButton.click();
+  }
+  await expect(batchArticle.getByRole("article").filter({ hasText: childText }).first()).toBeVisible();
+}

@@ -12,6 +12,15 @@
     "build:static": "tsc && vite build --config vite.static.config.ts && node scripts/inline-static-html.mjs",
     "site:check": "node scripts/static-site-check.mjs",
     "site:verify": "npm run build:static && npm run site:check",
+    "e2e:install": "playwright install chromium",
+    "e2e:static": "npm run e2e:static:mock",
+    "e2e:static:mock:run": "playwright test tests/e2e/static-html-page.spec.ts --config=playwright.static.config.ts",
+    "e2e:static:mock": "npm run build:static && npm run e2e:static:mock:run",
+    "e2e:static:file:run": "playwright test tests/e2e/static-html-file-page.spec.ts --config=playwright.static.file.config.ts",
+    "e2e:static:file": "npm run build:static && npm run e2e:static:file:run",
+    "e2e:static:real:run": "node scripts/run-static-real-provider-e2e.mjs",
+    "e2e:static:real": "npm run build:static && npm run e2e:static:real:run",
+    "e2e:static:headed": "npm run build:static && playwright test tests/e2e/static-html-page.spec.ts --config=playwright.static.config.ts --headed",
     "cors:check": "node scripts/check-cors.mjs",
     "preview": "vite preview",
     "test": "vitest",
@@ -31,6 +40,7 @@
     "react-dom": "^19.2.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tauri-apps/cli": "^2.10.1",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
@@ -41,5 +51,13 @@
     "typescript": "^6.0.3",
     "vite": "^8.0.10",
     "vitest": "^4.1.5"
-  }
+  },
+  "description": "一个轻量的 `gpt-image-2` 生图工具台。打开网页，填入自己的 `API key` 和 `Base URL`，就可以做单图、图生图和批量生图。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }
