@@ -83,6 +83,19 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+export function materializeTrackedArchiveBytes(bytes, expectedDigest, label) {
+  if (sha256(bytes) === expectedDigest) {
+    return bytes;
+  }
+
+  const crlfBytes = Buffer.from(bytes.toString("utf8").replace(/(?<!\r)\n/g, "\r\n"), "utf8");
+  if (sha256(crlfBytes) === expectedDigest) {
+    return crlfBytes;
+  }
+
+  throw new Error(`${label} does not match its committed trusted digest, including the legacy LF-to-CRLF materialization.`);
+}
+
 function assertSameBytes(actualPath, expectedBytes, message) {
   if (readFileSync(actualPath).compare(expectedBytes) !== 0) {
     throw new Error(message);
@@ -185,7 +198,11 @@ export function runReleaseArchiveParity({
     }
     const archiveRelativePath = join("static-versions", "versions", `v${version}`, "index.html");
     const headBytes = readGitBlob(rootDir, "HEAD", archiveRelativePath);
-    const baseBytes = readGitBlob(rootDir, resolvedBaseRef, archiveRelativePath);
+    const baseBytes = materializeTrackedArchiveBytes(
+      readGitBlob(rootDir, resolvedBaseRef, archiveRelativePath),
+      baseManifest.sha256[version],
+      `Historical base archive v${version}`,
+    );
     if (headBytes.compare(baseBytes) !== 0) {
       throw new Error(`Historical archive bytes changed across commits for v${version}.`);
     }

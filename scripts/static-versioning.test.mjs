@@ -15,7 +15,7 @@ import {
   validateVersionManifest,
 } from "./archive-static-version.mjs";
 import { copyStaticArchives, inlineStaticHtml } from "./inline-static-html.mjs";
-import { runReleaseArchiveParity } from "./release-archive-parity.mjs";
+import { materializeTrackedArchiveBytes, runReleaseArchiveParity } from "./release-archive-parity.mjs";
 import { assertStaticVersionArchivesMatch, runStaticSiteCheck } from "./static-site-check.mjs";
 
 function createTempRoot() {
@@ -130,6 +130,17 @@ describe("static version archives", () => {
     expect(attributes).toMatch(/^\/dist-static\/index\.html -text$/m);
     expect(attributes).toMatch(/^\/dist-static\/gpt-image-2-studio-lite\.html -text$/m);
     expect(attributes).toMatch(/^\/src\/assets\/app-logo\.svg text eol=lf$/m);
+  });
+
+  it("materializes legacy tracked LF archive bytes to their committed CRLF digest", () => {
+    const lfBytes = Buffer.from("<html>legacy</html>\n", "utf8");
+    const crlfBytes = Buffer.from("<html>legacy</html>\r\n", "utf8");
+    const digest = createHash("sha256").update(crlfBytes).digest("hex");
+
+    expect(materializeTrackedArchiveBytes(lfBytes, digest, "Legacy archive")).toEqual(crlfBytes);
+    expect(() => materializeTrackedArchiveBytes(Buffer.from("changed\n"), digest, "Legacy archive")).toThrow(
+      /does not match.*trusted digest/i,
+    );
   });
 
   it("produces identical inlined SVG bytes from LF and CRLF checkouts", () => {
