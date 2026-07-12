@@ -106,6 +106,10 @@ describe("validateConfig", () => {
 });
 
 describe("mergeConfig", () => {
+  it("normalizes legacy multi-image defaults to one image per task", () => {
+    expect(mergeConfig({ defaultCount: 4 }).defaultCount).toBe(1);
+  });
+
   it("normalizes a host-only base URL in the merged config", () => {
     expect(mergeConfig({ baseUrl: "https://ruoli.dev" }).baseUrl).toBe("https://ruoli.dev/v1");
   });

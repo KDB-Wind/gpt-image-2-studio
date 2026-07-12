@@ -122,6 +122,7 @@ export async function retrySingleBatchTask(
 
 async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<BatchTask> {
   const generateImages = input.generateImages ?? defaultGenerateImages;
+  const singleImageConfig = { ...input.config, defaultCount: 1 };
   const maxAttempts = input.executionConfig.maxRetries + 1;
   let attempt = 0;
 
@@ -141,7 +142,7 @@ async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<B
     try {
       const referenceImages = resolveTaskReferenceImages(input, runningTask);
       const images = await generateImages(
-        input.config,
+        singleImageConfig,
         runningTask.prompt,
         referenceImages.length > 0 ? { referenceImages } : undefined,
       );
@@ -157,7 +158,7 @@ async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<B
         batchCreatedAt: input.batchCreatedAt,
         task: runningTask,
         image,
-        config: input.config,
+        config: singleImageConfig,
         generatedAt: new Date(),
         durationMs,
       });

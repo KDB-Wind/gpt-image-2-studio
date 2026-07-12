@@ -74,7 +74,7 @@ describe("buildChatCompletionsRequest", () => {
 });
 
 describe("buildImageGenerationRequest", () => {
-  it("omits response_format in official mode while preserving output format and compression", () => {
+  it("forces one image even when a legacy caller requests more", () => {
     const payload = buildImageGenerationRequest({
       model: "gpt-image-2",
       prompt: "A cinematic skyline at dusk.",
@@ -91,7 +91,7 @@ describe("buildImageGenerationRequest", () => {
       prompt: "A cinematic skyline at dusk.",
       size: "1024x1024",
       quality: "high",
-      n: 2,
+      n: 1,
       output_format: "webp",
       output_compression: 85,
     });
@@ -131,7 +131,7 @@ describe("buildImageGenerationRequest", () => {
       prompt: "A cinematic skyline at dusk.",
       size: "1024x1024",
       quality: "high",
-      n: 2,
+      n: 1,
       response_format: "b64_json",
       output_format: "webp",
       output_compression: 85,
@@ -163,6 +163,22 @@ describe("buildImageGenerationRequest", () => {
 });
 
 describe("buildImageEditRequest", () => {
+  it("forces one edited image even when a legacy caller requests more", () => {
+    const payload = buildImageEditRequest({
+      model: "gpt-image-2",
+      prompt: "Blend details from all references into one scene.",
+      size: "1024x1024",
+      quality: "high",
+      n: 4,
+      outputFormat: "png",
+      outputCompression: 90,
+      responseMode: "official",
+      referenceImages: [new File(["one"], "one.png", { type: "image/png" })],
+    });
+
+    expect(payload.get("n")).toBe("1");
+  });
+
   it("omits response_format in official mode while preserving compression and repeated image fields", () => {
     const payload = buildImageEditRequest({
       model: "gpt-image-2",
@@ -700,6 +716,23 @@ describe("generateImages", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("sends one image for a single task even with a legacy count", async () => {
+    const fetchMock = vi
+      .fn<(_: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [{ b64_json: "b2s=" }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await generateImages({ ...config, defaultCount: 4 }, "One image only.");
+
+    const [, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(requestInit.body as string).n).toBe(1);
   });
 
   it("uses the image edit endpoint when a reference image is provided", async () => {

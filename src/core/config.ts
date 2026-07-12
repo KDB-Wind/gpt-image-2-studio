@@ -91,6 +91,7 @@ export function mergeConfig(value: Partial<AppConfig> | null | undefined): AppCo
   };
 
   merged.baseUrl = normalizeBaseUrl(asString(merged.baseUrl) || DEFAULT_CONFIG.baseUrl);
+  merged.defaultCount = 1;
   merged.imageResponseMode = isImageResponseMode(merged.imageResponseMode)
     ? merged.imageResponseMode
     : DEFAULT_CONFIG.imageResponseMode;
@@ -155,8 +156,8 @@ export function validateConfig(config: AppConfig): ValidationResult {
     warnings.push("Timeout below 180 seconds may interrupt slow 2K or 4K generations.");
   }
 
-  if (!Number.isInteger(defaultCount) || defaultCount < 1 || defaultCount > 4) {
-    errors.push("Image count must be between 1 and 4.");
+  if (defaultCount !== 1) {
+    errors.push("Image count must be exactly 1 per task.");
   }
 
   if (imageSizeValidation.error) {

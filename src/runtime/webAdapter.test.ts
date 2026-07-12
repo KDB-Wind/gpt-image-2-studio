@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { buildBatchDirectoryName } from "../core/batchManifest";
 import { MAX_BATCH_TASK_COUNT, type BatchTask } from "../core/batchTypes";
 import { DEFAULT_CONFIG } from "../core/config";
 import { __resetWebAdapterForTests, isSameOutputDirectoryHandle, webAdapter } from "./webAdapter";
@@ -610,6 +611,81 @@ describe("webAdapter history deletion", () => {
     );
   });
 
+  it("keeps existing authorized-folder bytes when browser history is empty", async () => {
+    const downloadsHandle = createDirectoryHandle({}, { name: "gpt-image-2-studio" });
+    const dateFolder = await downloadsHandle.getDirectoryHandle("2026-05-26", { create: true });
+    await writeHandleFile(dateFolder, "poster.png", "existing-one", "image/png");
+    await writeHandleFile(dateFolder, "poster-2.png", "existing-two", "image/png");
+    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:authorized-save");
+
+    await webAdapter.chooseOutputDirectory();
+    const result = await webAdapter.saveImage({
+      image: { base64: ONE_PIXEL_PNG },
+      prompt: "Poster",
+      optimizedPrompt: "",
+      customName: "poster",
+      config: { ...DEFAULT_CONFIG, defaultFormat: "png" },
+      generatedAt: new Date(2026, 4, 26, 2, 4, 5),
+      durationMs: 1000,
+    });
+
+    expect(result.record.outputPath).toBe("gpt-image-2-studio/2026-05-26/poster-3.png");
+    await expect(readHandleFileText(dateFolder, "poster.png")).resolves.toBe("existing-one");
+    await expect(readHandleFileText(dateFolder, "poster-2.png")).resolves.toBe("existing-two");
+  });
+
+  it("keeps existing batch image bytes when browser history is unavailable", async () => {
+    const downloadsHandle = createDirectoryHandle({}, { name: "gpt-image-2-studio" });
+    const batchCreatedAt = "2026-05-24T00:00:00.000Z";
+    const batchTitle = "World Cup posters";
+    const batchFolderName = buildBatchDirectoryName(batchCreatedAt, batchTitle);
+    const batchFolder = await downloadsHandle.getDirectoryHandle(batchFolderName, { create: true });
+    await writeHandleFile(batchFolder, "001-task-1.png", "existing-batch", "image/png");
+    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:batch-save");
+
+    await webAdapter.chooseOutputDirectory();
+    const result = await webAdapter.saveBatchImage({
+      batchId: "batch-20260524",
+      batchTitle,
+      batchCreatedAt,
+      task: createBatchTask({ title: "Task 1" }),
+      image: { base64: ONE_PIXEL_PNG },
+      config: { ...DEFAULT_CONFIG, defaultFormat: "png" },
+      generatedAt: new Date("2026-05-24T00:03:00.000Z"),
+      durationMs: 1500,
+    });
+
+    expect(result.outputPath).toBe(`gpt-image-2-studio/${batchFolderName}/001-task-1-2.png`);
+    await expect(readHandleFileText(batchFolder, "001-task-1.png")).resolves.toBe("existing-batch");
+  });
+
+  it("falls back safely when an authorized-folder collision probe is denied", async () => {
+    const providerUrl = "https://provider.example/private.png?token=private-token";
+    const downloadsHandle = createDirectoryHandle({}, {
+      name: "gpt-image-2-studio",
+      probeError: `Cannot inspect ${providerUrl}`,
+    });
+    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:probe-fallback");
+
+    await webAdapter.chooseOutputDirectory();
+    const result = await webAdapter.saveImage({
+      image: { base64: ONE_PIXEL_PNG },
+      prompt: "Poster",
+      optimizedPrompt: "",
+      customName: "poster",
+      config: { ...DEFAULT_CONFIG, defaultFormat: "png" },
+      generatedAt: new Date(2026, 4, 26, 2, 4, 5),
+      durationMs: 1000,
+    });
+
+    expect(result.saveMode).toBe("browser-download");
+    expect(result.saveFallbackReason).toContain("[redacted-url]");
+    expect(result.saveFallbackReason).not.toContain("private-token");
+  });
+
   it("reports when an authorized directory save falls back to browser download", async () => {
     const downloadsHandle = createDirectoryHandle({}, { name: "gpt-image-2-studio", writable: false });
     vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
@@ -685,6 +761,8 @@ describe("webAdapter history deletion", () => {
   it("writes and reads a tiny image when testing the authorized output directory", async () => {
     const downloadsHandle = createDirectoryHandle({});
     vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:folder-test");
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
 
     await webAdapter.chooseOutputDirectory();
 
@@ -699,6 +777,7 @@ describe("webAdapter history deletion", () => {
     });
     expect(result.bytes).toBeGreaterThan(0);
     expect(savedFile.type).toBe("image/png");
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:folder-test");
   });
 
   it("requires a successful output-directory test before reporting the directory as ready", async () => {
@@ -897,7 +976,13 @@ async function getOutputDirectoryState() {
 
 function createDirectoryHandle(
   entries: Record<string, File>,
-  handleOptions: { name?: string; permission?: PermissionState; writable?: boolean; writeError?: string } = {},
+  handleOptions: {
+    name?: string;
+    permission?: PermissionState;
+    writable?: boolean;
+    writeError?: string;
+    probeError?: string;
+  } = {},
 ): FileSystemDirectoryHandle {
   const files = new Map<string, File>(Object.entries(entries));
   const directories = new Map<string, FileSystemDirectoryHandle>();
@@ -921,6 +1006,7 @@ function createDirectoryHandle(
           name,
           writable: handleOptions.writable,
           writeError: handleOptions.writeError,
+          probeError: handleOptions.probeError,
         });
         directories.set(name, nextHandle);
         return nextHandle;
@@ -929,6 +1015,9 @@ function createDirectoryHandle(
       throw new DOMException(`Directory not found: ${name}`, "NotFoundError");
     },
     async getFileHandle(name: string, getOptions?: { create?: boolean }) {
+      if (!getOptions?.create && handleOptions.probeError) {
+        throw new DOMException(handleOptions.probeError, "NotAllowedError");
+      }
       const file = entries[name];
       if (!file && !files.has(name) && !getOptions?.create) {
         throw new DOMException(`File not found: ${name}`, "NotFoundError");
@@ -961,4 +1050,20 @@ function createDirectoryHandle(
       } as unknown as FileSystemFileHandle;
     },
   } as unknown as FileSystemDirectoryHandle;
+}
+
+async function writeHandleFile(
+  directory: FileSystemDirectoryHandle,
+  name: string,
+  contents: string,
+  type: string,
+) {
+  const handle = await directory.getFileHandle(name, { create: true });
+  const writable = await handle.createWritable();
+  await writable.write(new Blob([contents], { type }));
+  await writable.close();
+}
+
+async function readHandleFileText(directory: FileSystemDirectoryHandle, name: string): Promise<string> {
+  return directory.getFileHandle(name).then((handle) => handle.getFile()).then((file) => file.text());
 }

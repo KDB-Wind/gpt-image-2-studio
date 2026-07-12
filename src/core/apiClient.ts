@@ -47,6 +47,8 @@ export type RequestMultipartInput = {
   body: FormData;
 };
 
+const IMAGES_PER_TASK = 1;
+
 type ApiClientErrorKind = "timeout" | "http" | "network";
 
 type ChatMessageContentPart = {
@@ -95,7 +97,6 @@ export function buildImageGenerationRequest({
   prompt,
   size,
   quality,
-  n,
   outputFormat,
   outputCompression,
   responseMode,
@@ -105,7 +106,7 @@ export function buildImageGenerationRequest({
     prompt,
     size,
     quality,
-    n,
+    n: IMAGES_PER_TASK,
     output_format: outputFormat,
   };
 
@@ -125,7 +126,6 @@ export function buildImageEditRequest({
   prompt,
   size,
   quality,
-  n,
   outputFormat,
   outputCompression,
   responseMode,
@@ -136,7 +136,7 @@ export function buildImageEditRequest({
   payload.set("prompt", prompt);
   payload.set("size", size);
   payload.set("quality", quality);
-  payload.set("n", String(n));
+  payload.set("n", String(IMAGES_PER_TASK));
   if (responseMode === "force-base64") {
     payload.set("response_format", "b64_json");
   }
@@ -404,7 +404,7 @@ export async function generateImages(
           prompt,
           size: config.defaultSize,
           quality: config.defaultQuality,
-          n: config.defaultCount,
+          n: IMAGES_PER_TASK,
           outputFormat: config.defaultFormat,
           outputCompression: config.defaultCompression,
           responseMode: config.imageResponseMode,
@@ -418,7 +418,7 @@ export async function generateImages(
           prompt,
           size: config.defaultSize,
           quality: config.defaultQuality,
-          n: config.defaultCount,
+          n: IMAGES_PER_TASK,
           outputFormat: config.defaultFormat,
           outputCompression: config.defaultCompression,
           responseMode: config.imageResponseMode,

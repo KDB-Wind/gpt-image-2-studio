@@ -807,6 +807,19 @@ describe("App batch workspace", () => {
     expect(container.textContent).toContain("Timeout accepts 60-600 seconds");
   });
 
+  it("does not expose a hidden multi-output control", async () => {
+    const copy = getTranslations("en-US");
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+    clickButton(copy.tabs.settings);
+
+    expect(container.textContent).toContain(copy.notes.oneImagePerTask);
+    expect(() => getField<HTMLInputElement>(copy.fields.imageCount, 'input[type="number"]')).toThrow();
+  });
+
   it("renders and persists the image response compatibility mode setting", async () => {
     const copy = getTranslations("en-US");
 

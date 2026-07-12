@@ -24,6 +24,27 @@ function createSaveResult(input: BatchImageSaveInput): BatchImageSaveResult {
 }
 
 describe("batchRunner", () => {
+  it("normalizes every batch child to one requested image", async () => {
+    const requestedCounts: number[] = [];
+
+    await runBatchTasks({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: { ...DEFAULT_CONFIG, defaultCount: 4 },
+      tasks: createTasksFromMultilinePrompts("one\ntwo\nthree"),
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 0 },
+      referenceImages: [],
+      generateImages: async (config) => {
+        requestedCounts.push(config.defaultCount);
+        return [{ base64: "ok" }];
+      },
+      saveBatchImage: async (input) => createSaveResult(input),
+    });
+
+    expect(requestedCounts).toEqual([1, 1, 1]);
+  });
+
   it("runs tasks in order with concurrency 1", async () => {
     const calls: string[] = [];
     const tasks = createTasksFromMultilinePrompts("one\ntwo\nthree");

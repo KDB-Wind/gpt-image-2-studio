@@ -357,6 +357,7 @@ type TranslationBundle = {
     openOutputDesktopOnly: string;
     webHistoryUnavailable: string;
     defaultsDescription: string;
+    oneImagePerTask: string;
     outputDescription: string;
     outputDirectoryPermissionHint: string;
     outputDirectoryStatusTitle: string;
@@ -822,7 +823,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       openOutputDesktopOnly: "“打开输出位置”仅在桌面模式可用。",
       webHistoryUnavailable: "网页模式无法直接读取旧文件预览，你仍然可以在本地目录中手动查看。",
       defaultsDescription:
-        "这里可以设置超时时间、默认图片数量、尺寸、质量、格式和压缩。超时时间允许 60-600 秒；低于 180 秒可以保存，但生成 2K/4K 或供应商较慢时可能提前中断。",
+        "这里可以设置超时时间、尺寸、质量、格式和压缩。超时时间允许 60-600 秒；低于 180 秒可以保存，但生成 2K/4K 或供应商较慢时可能提前中断。",
+      oneImagePerTask: "每个任务只生成一张图片；如需多张，请使用批量模式。",
       outputDescription:
         "网页静态版不能通过手填 C:\\ 路径获得本地文件权限。请使用目录选择器授权；授权成功后才能直接保存到该目录并恢复历史预览。",
       outputDirectoryPermissionHint:
@@ -924,6 +926,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       "Timeout below 180 seconds may interrupt slow 2K or 4K generations.":
         "超时时间低于 180 秒时，较慢的 2K/4K 生图可能会被提前中断。",
       "Image count must be between 1 and 4.": "图片数量必须在 1 到 4 之间。",
+      "Image count must be exactly 1 per task.": "每个任务必须只生成 1 张图片。",
       "Image size must be auto or use WIDTHxHEIGHT format.": "图片尺寸必须填写 auto，或使用 WIDTHxHEIGHT 格式。",
       "Image size width and height must both be multiples of 16.": "图片尺寸的宽和高都必须是 16 的倍数。",
       "Image size cannot exceed 3840 pixels on either edge.": "图片尺寸任一边都不能超过 3840 像素。",
@@ -1332,7 +1335,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       openOutputDesktopOnly: "\"Open output\" is available only in desktop mode.",
       webHistoryUnavailable: "The web runtime cannot preview older local files directly. You can still open them manually from the output directory.",
       defaultsDescription:
-        "Set timeout, default image count, size, quality, format, and compression here. Timeout accepts 60-600 seconds. Values below 180 seconds are allowed, but slower 2K/4K generations may be interrupted.",
+        "Set timeout, size, quality, format, and compression here. Timeout accepts 60-600 seconds. Values below 180 seconds are allowed, but slower 2K/4K generations may be interrupted.",
+      oneImagePerTask: "One image per task. Use Batch when you need more images.",
       outputDescription:
         "The static web version cannot gain local file access from a typed C:\\ path. Use the folder picker to authorize a folder before the app can save directly there or restore history previews.",
       outputDirectoryPermissionHint:
@@ -1443,6 +1447,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       "Timeout below 180 seconds may interrupt slow 2K or 4K generations.":
         "Timeout below 180 seconds may interrupt slow 2K or 4K generations.",
       "Image count must be between 1 and 4.": "Image count must be between 1 and 4.",
+      "Image count must be exactly 1 per task.": "Image count must be exactly 1 per task.",
       "Image size must be auto or use WIDTHxHEIGHT format.": "Image size must be auto or use WIDTHxHEIGHT format.",
       "Image size width and height must both be multiples of 16.": "Image size width and height must both be multiples of 16.",
       "Image size cannot exceed 3840 pixels on either edge.": "Image size cannot exceed 3840 pixels on either edge.",

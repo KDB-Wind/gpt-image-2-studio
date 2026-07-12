@@ -2181,17 +2181,7 @@ export default function App() {
                       />
                     </label>
 
-                    <label className="field">
-                      <span>{copy.fields.imageCount}</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={4}
-                        step={1}
-                        value={config.defaultCount}
-                        onChange={(event) => updateConfig("defaultCount", Number(event.target.value) || 0)}
-                      />
-                    </label>
+                    <p className="field-note">{copy.notes.oneImagePerTask}</p>
 
                     <label className="field">
                       <span>{copy.batch.fields.taskCount}</span>

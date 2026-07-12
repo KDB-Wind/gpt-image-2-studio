@@ -459,6 +459,42 @@ async function saveWithFileSystemAccess(
   return URL.createObjectURL(blob);
 }
 
+async function chooseAvailableFileName(
+  directory: FileSystemDirectoryHandle,
+  initialFileName: string,
+  reservedFileNames: string[],
+): Promise<string> {
+  const extensionIndex = initialFileName.lastIndexOf(".");
+  const baseName = extensionIndex > 0 ? initialFileName.slice(0, extensionIndex) : initialFileName;
+  const extension = extensionIndex > 0 ? initialFileName.slice(extensionIndex) : "";
+  const reserved = new Set(reservedFileNames.map((fileName) => fileName.toLowerCase()));
+  let suffix = 1;
+
+  while (true) {
+    const candidate = suffix === 1 ? initialFileName : `${baseName}-${suffix}${extension}`;
+    suffix += 1;
+
+    if (reserved.has(candidate.toLowerCase())) {
+      continue;
+    }
+
+    try {
+      await directory.getFileHandle(candidate);
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        return candidate;
+      }
+      throw error;
+    }
+  }
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return error instanceof DOMException
+    ? error.name === "NotFoundError"
+    : Boolean(error && typeof error === "object" && Reflect.get(error, "name") === "NotFoundError");
+}
+
 function downloadBlob(blob: Blob, fileName: string): string {
   const previewUrl = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -699,7 +735,8 @@ export const webAdapter: RuntimeAdapter = {
 
     try {
       const blob = decodeBase64Image(OUTPUT_DIRECTORY_TEST_PNG, "png");
-      await saveWithFileSystemAccess(rootHandle, "", OUTPUT_DIRECTORY_TEST_FILE_NAME, blob);
+      const previewUrl = await saveWithFileSystemAccess(rootHandle, "", OUTPUT_DIRECTORY_TEST_FILE_NAME, blob);
+      URL.revokeObjectURL(previewUrl);
       const savedFile = await rootHandle.getFileHandle(OUTPUT_DIRECTORY_TEST_FILE_NAME).then((handle) => handle.getFile());
       const lastTestedAt = new Date().toISOString();
 
@@ -730,7 +767,7 @@ export const webAdapter: RuntimeAdapter = {
     const existingFileNames = history
       .filter((record) => record.outputPath.includes(`/${dateFolder}/`) || record.outputPath.includes(`\\${dateFolder}\\`))
       .map((record) => record.outputPath.split(/[\\/]/).pop() ?? "");
-    const fileName = buildImageFileName({
+    const fallbackFileName = buildImageFileName({
       customName: input.customName,
       prompt: input.prompt,
       generatedAt: input.generatedAt,
@@ -739,6 +776,7 @@ export const webAdapter: RuntimeAdapter = {
     });
     const blob = await imageToBlob(input);
     const outputDirectoryHandle = await resolveDirectoryHandle("readwrite");
+    let fileName = fallbackFileName;
     let outputPath = fileName;
     let previewUrl: string;
     let saveMode: SaveImageResult["saveMode"] = "browser-download";
@@ -746,10 +784,21 @@ export const webAdapter: RuntimeAdapter = {
 
     if (outputDirectoryHandle) {
       try {
-        previewUrl = await saveWithFileSystemAccess(outputDirectoryHandle, dateFolder, fileName, blob);
+        const targetDirectory = await outputDirectoryHandle.getDirectoryHandle(dateFolder, { create: true });
+        const initialFileName = buildImageFileName({
+          customName: input.customName,
+          prompt: input.prompt,
+          generatedAt: input.generatedAt,
+          format: input.config.defaultFormat,
+          existingFileNames: [],
+        });
+        fileName = await chooseAvailableFileName(targetDirectory, initialFileName, existingFileNames);
+        previewUrl = await saveWithFileSystemAccess(targetDirectory, "", fileName, blob);
         outputPath = buildFileSystemAccessOutputPath(outputDirectoryHandle.name, dateFolder, fileName);
         saveMode = "authorized-directory";
       } catch (error) {
+        fileName = fallbackFileName;
+        outputPath = fileName;
         saveFallbackReason = safeErrorMessage(error);
         previewUrl = downloadBlob(blob, fileName);
       }
@@ -770,9 +819,10 @@ export const webAdapter: RuntimeAdapter = {
     const existingFileNames = history
       .filter((record) => record.outputPath.includes(`/${batchFolder}/`) || record.outputPath.includes(`\\${batchFolder}\\`))
       .map((record) => record.outputPath.split(/[\\/]/).pop() ?? "");
-    const fileName = buildBatchImageFileName(input.task, input.config.defaultFormat, existingFileNames);
+    const fallbackFileName = buildBatchImageFileName(input.task, input.config.defaultFormat, existingFileNames);
     const blob = await batchImageToBlob(input);
     const outputDirectoryHandle = await resolveDirectoryHandle("readwrite");
+    let fileName = fallbackFileName;
     let outputPath = fileName;
     let previewUrl: string;
     let saveMode: BatchImageSaveResult["saveMode"] = "browser-download";
@@ -780,8 +830,11 @@ export const webAdapter: RuntimeAdapter = {
 
     if (outputDirectoryHandle) {
       try {
+        const batchHandle = await outputDirectoryHandle.getDirectoryHandle(batchFolder, { create: true });
+        const initialFileName = buildBatchImageFileName(input.task, input.config.defaultFormat, []);
+        fileName = await chooseAvailableFileName(batchHandle, initialFileName, existingFileNames);
         previewUrl = await saveWithFileSystemAccess(
-          await outputDirectoryHandle.getDirectoryHandle(batchFolder, { create: true }),
+          batchHandle,
           "",
           fileName,
           blob,
@@ -789,6 +842,8 @@ export const webAdapter: RuntimeAdapter = {
         outputPath = buildFileSystemAccessOutputPath(outputDirectoryHandle.name, batchFolder, fileName);
         saveMode = "authorized-directory";
       } catch (error) {
+        fileName = fallbackFileName;
+        outputPath = fileName;
         saveFallbackReason = safeErrorMessage(error);
         previewUrl = downloadBlob(blob, fileName);
       }
