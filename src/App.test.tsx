@@ -78,6 +78,25 @@ describe("App batch workspace", () => {
     expect(container.querySelectorAll('.preview-success img[src="blob:single-one-image"]')).toHaveLength(1);
   });
 
+  it("shows a durability warning without treating a saved single image as failed", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([{
+      ...createSaveImageResult("blob:memory-only-history"),
+      historyDurability: "memory-only",
+      historyWarning: "History is available only in this open app instance.",
+    }]);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.spyOn(apiClient, "generateImages").mockResolvedValue([{ base64: "image" }]);
+
+    await renderApp();
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create a saved poster.");
+    await clickButtonAsync(copy.actions.generate);
+
+    expect(runtime.saveImage).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('.preview-success img[src="blob:memory-only-history"]')).not.toBeNull();
+    expect(container.textContent).toContain("History is available only in this open app instance.");
+  });
+
   it("releases the old generated preview when a new single-image preview replaces it", async () => {
     const copy = getTranslations("en-US");
     const runtime = createPreviewRuntime([
@@ -1087,6 +1106,7 @@ function createSaveImageResult(previewUrl: string): SaveImageResult {
   return {
     previewUrl,
     saveMode: "browser-download",
+    historyDurability: "persistent",
     record: createHistoryRecord({ id: previewUrl, outputPath: `${previewUrl}.png` }),
   };
 }

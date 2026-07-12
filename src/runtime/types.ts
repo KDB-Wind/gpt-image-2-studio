@@ -4,6 +4,7 @@ import type {
   BatchImageSaveResult,
   BatchManifest,
   BatchWorkspace,
+  HistoryDurability,
   ImageSaveMode,
 } from "../core/batchTypes";
 import type { AppConfig } from "../core/config";
@@ -24,6 +25,8 @@ export type SaveImageResult = {
   previewUrl: string;
   saveMode: ImageSaveMode;
   saveFallbackReason?: string;
+  historyDurability: HistoryDurability;
+  historyWarning?: string;
 };
 
 export type OutputDirectoryTestResult = {

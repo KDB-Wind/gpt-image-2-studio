@@ -45,10 +45,14 @@ describe("batchManifest", () => {
   });
 
   it("summarizes task statuses", () => {
-    expect(summarizeBatchTasks([baseTask, { ...baseTask, id: "task-002", status: "failed" }])).toMatchObject({
+    expect(summarizeBatchTasks([
+      { ...baseTask, historyDurability: "memory-only" },
+      { ...baseTask, id: "task-002", status: "failed" },
+    ])).toMatchObject({
       total: 2,
       succeeded: 1,
       failed: 1,
+      memoryOnlyHistory: 1,
     });
   });
 
@@ -90,6 +94,8 @@ describe("batchManifest", () => {
           ...baseTask,
           saveMode: "browser-download",
           saveFallbackReason: "permission denied",
+          historyDurability: "memory-only",
+          historyWarning: "History is only in this open app instance.",
         },
       ],
     });
@@ -97,6 +103,8 @@ describe("batchManifest", () => {
     expect(manifest.tasks[0]).toMatchObject({
       saveMode: "browser-download",
       saveFallbackReason: "permission denied",
+      historyDurability: "memory-only",
+      historyWarning: "History is only in this open app instance.",
     });
     expect(manifest.tasks[0]).not.toHaveProperty("previewUrl");
   });

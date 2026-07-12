@@ -49,6 +49,14 @@ function sha256(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
+function expectTrustedManifest(path, expected) {
+  const actual = JSON.parse(readFileSync(path, "utf8"));
+  expect(actual).toMatchObject(expected);
+  for (const version of expected.versions) {
+    expect(actual.sha256[version]).toMatch(/^[a-f0-9]{64}$/);
+  }
+}
+
 function commitFixtureArchive(rootDir, version) {
   const archivePath = `static-versions/versions/v${version}/index.html`;
   for (const args of [
@@ -56,8 +64,9 @@ function commitFixtureArchive(rootDir, version) {
     ["config", "core.autocrlf", "false"],
     ["config", "user.email", "release-test@example.invalid"],
     ["config", "user.name", "Release Test"],
-    ["add", "--", archivePath],
-    ["commit", "-m", "fixture archive"],
+    ["add", "--", "package.json", "static-versions/manifest.json", archivePath],
+    ["commit", "-m", "fixture archive base"],
+    ["commit", "--allow-empty", "-m", "fixture release head"],
   ]) {
     const result = spawnSync("git", args, { cwd: rootDir, encoding: "utf8" });
     if (result.status !== 0) {
@@ -68,6 +77,13 @@ function commitFixtureArchive(rootDir, version) {
 
 function writeSourceArchive(rootDir, version, contents) {
   const archivePath = join(rootDir, "static-versions", "versions", `v${version}`, "index.html");
+  mkdirSync(join(archivePath, ".."), { recursive: true });
+  writeFileSync(archivePath, contents, "utf8");
+  return archivePath;
+}
+
+function writeFixtureArchive(distDir, version, contents) {
+  const archivePath = join(distDir, "versions", `v${version}`, "index.html");
   mkdirSync(join(archivePath, ".."), { recursive: true });
   writeFileSync(archivePath, contents, "utf8");
   return archivePath;
@@ -86,7 +102,11 @@ function createSiteFixture({
 } = {}) {
   const rootDir = createTempRoot();
   const distDir = join(rootDir, "dist-static");
-  const manifest = { latestStable: "1.0.0", versions: ["1.0.0"] };
+  const manifest = {
+    latestStable: "1.0.0",
+    versions: ["1.0.0"],
+    sha256: { "1.0.0": createHash("sha256").update(sourceContents).digest("hex") },
+  };
   const appHtml = appContents ?? sourceContents;
 
   writeJson(join(rootDir, "package.json"), { version: packageVersion });
@@ -136,6 +156,24 @@ describe("static version archives", () => {
     const crlfSvg = lfSvg.replace(/\n/g, "\r\n");
 
     expect(buildFixture(crlfSvg)).toEqual(buildFixture(lfSvg));
+  });
+
+  it("normalizes doubled carriage returns without leaving trailing whitespace", () => {
+    const rootDir = createTempRoot();
+    const distDir = join(rootDir, "dist-static");
+    writeJson(join(rootDir, "static-versions", "manifest.json"), {
+      latestStable: "1.0.0",
+      versions: ["1.0.0"],
+    });
+    writeSourceArchive(rootDir, "1.0.0", "<html>archive</html>\n");
+    mkdirSync(distDir, { recursive: true });
+    writeFileSync(join(distDir, "index.static.html"), "<div>root</div>\r\r\n<span>next</span>\r\n", "utf8");
+
+    inlineStaticHtml({ rootDir, distDir });
+
+    const html = readFileSync(join(distDir, "index.html"), "utf8");
+    expect(html).toBe("<div>root</div>\n\n<span>next</span>\n");
+    expect(html).not.toMatch(/[ \t\r]+$/m);
   });
 
   it("runs the static build through the current Node and npm CLI paths", () => {
@@ -298,7 +336,7 @@ describe("static version archives", () => {
     });
 
     expect(existsSync(markerPath)).toBe(false);
-    expect(JSON.parse(readFileSync(manifestPath, "utf8"))).toEqual(nextManifest);
+    expectTrustedManifest(manifestPath, nextManifest);
     expect(readFileSync(archivePath, "utf8")).toContain("latestStable:`1.2.3`");
   });
 
@@ -448,7 +486,7 @@ describe("static version archives", () => {
     expect(readFileSync(join(rootDir, "static-versions", "versions", "v1.2.3", "index.html"), "utf8")).toBe(
       "<html>release 1.2.3</html>\n",
     );
-    expect(JSON.parse(readFileSync(join(rootDir, "static-versions", "manifest.json"), "utf8"))).toEqual({
+    expectTrustedManifest(join(rootDir, "static-versions", "manifest.json"), {
       latestStable: "1.2.3",
       versions: ["1.2.3", "1.2.2"],
     });
@@ -513,7 +551,7 @@ describe("static version archives", () => {
     archiveStaticVersion({ rootDir });
 
     expect(readFileSync(archivePath, "utf8")).toBe(releaseHtml);
-    expect(JSON.parse(readFileSync(manifestPath, "utf8"))).toEqual({
+    expectTrustedManifest(manifestPath, {
       latestStable: "1.2.3",
       versions: ["1.2.3", "1.2.2"],
     });
@@ -725,7 +763,7 @@ describe("static version archives", () => {
 
     archiveStaticVersion({ rootDir, now: Date.now() });
 
-    expect(JSON.parse(readFileSync(manifestPath, "utf8"))).toEqual({
+    expectTrustedManifest(manifestPath, {
       latestStable: "1.2.3",
       versions: ["1.2.3", "1.2.2"],
     });
@@ -857,7 +895,7 @@ describe("static version archives", () => {
 
     expect(() => archiveStaticVersion({ rootDir, now: firstNow, fs: firstFs })).toThrow(/ownership lost/i);
     expect(() => archiveStaticVersion({ rootDir, now: firstNow + (2 * TRANSACTION_LEASE_MS) })).not.toThrow();
-    expect(JSON.parse(readFileSync(manifestPath, "utf8"))).toEqual({
+    expectTrustedManifest(manifestPath, {
       latestStable: "1.2.3",
       versions: ["1.2.4", "1.2.3", "1.2.2"],
     });
@@ -892,7 +930,7 @@ describe("static version archives", () => {
 
     expect(() => archiveStaticVersion({ rootDir, now: oldNow, fs: oldOwnerFs })).toThrow(/ownership lost/i);
     expect(readFileSync(archivePath, "utf8")).toBe("<html>release 1.2.3</html>\n");
-    expect(JSON.parse(readFileSync(manifestPath, "utf8"))).toEqual({
+    expectTrustedManifest(manifestPath, {
       latestStable: "1.2.3",
       versions: ["1.2.3", "1.2.2"],
     });
@@ -1133,6 +1171,18 @@ describe("static version archives", () => {
     writeFileSync(join(fixture.distDir, "versions", "v1.0.0", "index.html"), mutableArchive, "utf8");
     writeFileSync(join(fixture.distDir, "index.html"), mutableArchive, "utf8");
     writeFileSync(join(fixture.distDir, "gpt-image-2-studio-lite.html"), mutableArchive, "utf8");
+    const manifestPath = join(fixture.rootDir, "static-versions", "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.sha256["1.0.0"] = createHash("sha256").update(mutableArchive).digest("hex");
+    writeJson(manifestPath, manifest);
+    writeJson(join(fixture.distDir, "versions", "manifest.json"), manifest);
+    for (const args of [
+      ["add", "--", "static-versions/manifest.json"],
+      ["commit", "-m", "update current digest fixture"],
+    ]) {
+      const result = spawnSync("git", args, { cwd: fixture.rootDir, encoding: "utf8" });
+      expect(result.status).toBe(0);
+    }
 
     expect(() => runStaticSiteCheck(fixture)).not.toThrow();
     expect(() => runReleaseArchiveParity({
@@ -1149,7 +1199,80 @@ describe("static version archives", () => {
       ...fixture,
       strict: true,
       expectedTag: "v1.0.0",
-    })).toThrow(/tracked HEAD archive/i);
+    })).toThrow(/tracked Git blob|tracked HEAD/i);
+  });
+
+  it("strict release parity rejects historical archive and digest changes across commits", () => {
+    const rootDir = createTempRoot();
+    const distDir = join(rootDir, "dist-static");
+    const oldHtml = versionedArchiveHtml({ latestStable: "1.0.0", versions: ["1.0.0"] });
+    const currentHtml = versionedArchiveHtml({ latestStable: "1.1.0", versions: ["1.1.0", "1.0.0"] });
+    const runGit = (args) => {
+      const result = spawnSync("git", args, { cwd: rootDir, encoding: "utf8" });
+      if (result.status !== 0) {
+        throw new Error(`Fixture git command failed: git ${args.join(" ")}`);
+      }
+    };
+
+    writeJson(join(rootDir, "package.json"), { version: "1.0.0" });
+    writeSourceArchive(rootDir, "1.0.0", oldHtml);
+    writeJson(join(rootDir, "static-versions", "manifest.json"), {
+      latestStable: "1.0.0",
+      versions: ["1.0.0"],
+      sha256: { "1.0.0": createHash("sha256").update(oldHtml).digest("hex") },
+    });
+    runGit(["init"]);
+    runGit(["config", "core.autocrlf", "false"]);
+    runGit(["config", "user.email", "release-test@example.invalid"]);
+    runGit(["config", "user.name", "Release Test"]);
+    runGit(["add", "."]);
+    runGit(["commit", "-m", "historical base"]);
+
+    writeJson(join(rootDir, "package.json"), { version: "1.1.0" });
+    writeSourceArchive(rootDir, "1.1.0", currentHtml);
+    const releaseManifest = {
+      latestStable: "1.1.0",
+      versions: ["1.1.0", "1.0.0"],
+      sha256: {
+        "1.1.0": createHash("sha256").update(currentHtml).digest("hex"),
+        "1.0.0": createHash("sha256").update(oldHtml).digest("hex"),
+      },
+    };
+    writeJson(join(rootDir, "static-versions", "manifest.json"), releaseManifest);
+    runGit(["add", "."]);
+    runGit(["commit", "-m", "current release"]);
+    writeJson(join(distDir, "versions", "manifest.json"), releaseManifest);
+    writeFixtureArchive(distDir, "1.1.0", currentHtml);
+    writeFixtureArchive(distDir, "1.0.0", oldHtml);
+    writeFileSync(join(distDir, "index.html"), currentHtml, "utf8");
+    writeFileSync(join(distDir, "gpt-image-2-studio-lite.html"), currentHtml, "utf8");
+
+    expect(() => runReleaseArchiveParity({ rootDir, distDir, strict: true, expectedTag: "v1.1.0" })).not.toThrow();
+
+    const changedOldHtml = `${oldHtml}<!-- changed historical bytes -->\n`;
+    writeSourceArchive(rootDir, "1.0.0", changedOldHtml);
+    releaseManifest.sha256["1.0.0"] = createHash("sha256").update(changedOldHtml).digest("hex");
+    writeJson(join(rootDir, "static-versions", "manifest.json"), releaseManifest);
+    writeFixtureArchive(distDir, "1.0.0", changedOldHtml);
+    writeJson(join(distDir, "versions", "manifest.json"), releaseManifest);
+    runGit(["add", "static-versions"]);
+    runGit(["commit", "-m", "mutate historical archive and digest"]);
+
+    expect(() => runReleaseArchiveParity({ rootDir, distDir, strict: true, expectedTag: "v1.1.0" })).toThrow(
+      /historical archive (?:digest metadata|bytes) changed/i,
+    );
+  });
+
+  it("strict release parity fails closed when an explicit historical base ref is missing", () => {
+    const fixture = createSiteFixture();
+    commitFixtureArchive(fixture.rootDir, "1.0.0");
+
+    expect(() => runReleaseArchiveParity({
+      ...fixture,
+      strict: true,
+      expectedTag: "v1.0.0",
+      baseRef: "refs/heads/does-not-exist",
+    })).toThrow(/base ref could not be resolved/i);
   });
 
   it.skipIf(!directoryLinksSupported)(
@@ -1188,9 +1311,16 @@ describe("static version archives", () => {
   it("accepts a legacy non-latest archive that embeds its own package version", () => {
     const rootDir = createTempRoot();
     const distDir = join(rootDir, "dist-static");
-    const manifest = { latestStable: "1.0.0", versions: ["1.0.0", "0.9.0"] };
-    const currentArchive = versionedArchiveHtml(manifest);
+    const publicManifest = { latestStable: "1.0.0", versions: ["1.0.0", "0.9.0"] };
+    const currentArchive = versionedArchiveHtml(publicManifest);
     const legacyArchive = '<html><script>const packageJson={name:`chat-to-image`,version:`0.9.0`}</script></html>\n';
+    const manifest = {
+      ...publicManifest,
+      sha256: {
+        "1.0.0": createHash("sha256").update(currentArchive).digest("hex"),
+        "0.9.0": createHash("sha256").update(legacyArchive).digest("hex"),
+      },
+    };
     const appHtml = '<!doctype html><link rel="icon" href="data:image/svg+xml,test"><script>viewBox:"0 0 1024 1024"</script>';
 
     writeJson(join(rootDir, "package.json"), { version: "1.0.1" });
@@ -1211,7 +1341,11 @@ describe("static version archives", () => {
   it("rejects a manifest that references a missing source archive", () => {
     const rootDir = createTempRoot();
     const distDir = join(rootDir, "dist-static");
-    const manifest = { latestStable: "1.0.0", versions: ["1.0.0"] };
+    const manifest = {
+      latestStable: "1.0.0",
+      versions: ["1.0.0"],
+      sha256: { "1.0.0": "0".repeat(64) },
+    };
     const appHtml = '<!doctype html><link rel="icon" href="data:image/svg+xml,test"><script>viewBox:"0 0 1024 1024"</script>';
 
     writeJson(join(rootDir, "static-versions", "manifest.json"), manifest);
@@ -1233,6 +1367,8 @@ describe("static version archives", () => {
     ['license:"MIT"', "package license metadata"],
     ["vitest run", "package scripts"],
     ["@tauri-apps/api", "tooling dependencies"],
+    ["save_generated_image", "native bridge commands"],
+    ["__TAURI_INTERNALS__", "native bridge detection"],
   ])("rejects %s in top-level current-release HTML", (marker, label) => {
     const fixture = createSiteFixture();
     const leakingHtml = `<!doctype html><link rel="icon" href="data:image/svg+xml,test"><script>viewBox:"0 0 1024 1024";${marker}</script>`;

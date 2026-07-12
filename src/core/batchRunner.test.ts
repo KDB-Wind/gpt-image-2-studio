@@ -20,6 +20,7 @@ function createSaveResult(input: BatchImageSaveInput): BatchImageSaveResult {
     previewUrl: `blob:${input.task.id}`,
     outputPath: `outputs/${input.task.id}.png`,
     saveMode: "authorized-directory",
+    historyDurability: "persistent",
   };
 }
 
@@ -141,6 +142,30 @@ describe("batchRunner", () => {
     });
   });
 
+  it("retains a sanitized memory-only history warning on a successful task", async () => {
+    const result = await runBatchTasks({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG,
+      tasks: createTasksFromMultilinePrompts("one"),
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 0 },
+      referenceImages: [],
+      generateImages: async () => [{ base64: "ok" }],
+      saveBatchImage: async (input) => ({
+        ...createSaveResult(input),
+        historyDurability: "memory-only",
+        historyWarning: "History is only in this open app instance.",
+      }),
+    });
+
+    expect(result.tasks[0]).toMatchObject({
+      status: "succeeded",
+      historyDurability: "memory-only",
+      historyWarning: "History is only in this open app instance.",
+    });
+  });
+
   it("does not exceed the configured concurrency", async () => {
     let active = 0;
     let maxActive = 0;
@@ -225,7 +250,7 @@ describe("batchRunner", () => {
     ]);
   });
 
-  it("retries retryable failures", async () => {
+  it("retries a definitively rejected rate-limit response", async () => {
     const tasks = createTasksFromMultilinePrompts("one");
     let attempts = 0;
     const result = await runBatchTasks({
@@ -239,7 +264,7 @@ describe("batchRunner", () => {
       generateImages: async () => {
         attempts += 1;
         if (attempts === 1) {
-          throw new Error("Request timed out after 5 seconds.");
+          throw Object.assign(new Error("Too many requests."), { status: 429 });
         }
         return [{ base64: "ok" }];
       },
@@ -248,6 +273,55 @@ describe("batchRunner", () => {
 
     expect(attempts).toBe(2);
     expect(result.tasks[0].status).toBe("succeeded");
+  });
+
+  it.each([
+    ["timeout", new Error("Request timed out after 5 seconds.")],
+    ["network", new Error("Failed to fetch")],
+    ["HTTP 408", Object.assign(new Error("Request timeout."), { status: 408 })],
+    ["HTTP 500", Object.assign(new Error("Upstream failed."), { status: 500 })],
+    ["unknown", new Error("Unexpected provider outcome.")],
+  ])("does not automatically retry an ambiguous %s failure", async (_label, failure) => {
+    const tasks = createTasksFromMultilinePrompts("one");
+    const generateImages = vi.fn().mockRejectedValue(failure);
+
+    const result = await runBatchTasks({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG,
+      tasks,
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 3 },
+      referenceImages: [],
+      generateImages,
+      saveBatchImage: vi.fn(),
+    });
+
+    expect(generateImages).toHaveBeenCalledTimes(1);
+    expect(result.tasks[0].status).toBe("failed");
+  });
+
+  it("bounds rate-limit retries by maxRetries", async () => {
+    const tasks = createTasksFromMultilinePrompts("one");
+    const generateImages = vi
+      .fn()
+      .mockRejectedValue(Object.assign(new Error("Too many requests."), { status: 429 }));
+
+    const result = await runBatchTasks({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG,
+      tasks,
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 2 },
+      referenceImages: [],
+      generateImages,
+      saveBatchImage: vi.fn(),
+    });
+
+    expect(generateImages).toHaveBeenCalledTimes(3);
+    expect(result.tasks[0].status).toBe("failed");
+    expect(result.tasks[0].failureCategory).toBe("rate_limit");
   });
 
   it("stores a sanitized task error summary instead of the raw provider body", async () => {

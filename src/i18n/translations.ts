@@ -120,7 +120,7 @@ type TranslationBundle = {
       promptRequired: string;
       maxTaskCountWarning: (max: number) => string;
       batchComplete: (success: number, failed: number, skipped: number) => string;
-      saveSummary: (success: number, authorized: number, fallback: number) => string;
+      saveSummary: (success: number, authorized: number, fallback: number, memoryOnlyHistory: number) => string;
       splitRunning: string;
       splitSuccess: (count: number) => string;
       taskCountAdjustedByAi: (count: number, reason?: string) => string;
@@ -577,8 +577,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
         promptRequired: "请先输入提示词或主任务。",
         maxTaskCountWarning: (max) => `一次最多建议 ${max} 个任务，数量过多可能触发供应商限流或失败，已自动限制为 ${max}。`,
         batchComplete: (success, failed, skipped) => `批量完成：成功 ${success}，失败 ${failed}，跳过 ${skipped}。`,
-        saveSummary: (success, authorized, fallback) =>
-          `生成成功 ${success}，保存到授权目录 ${authorized}，回退为浏览器下载 ${fallback}。`,
+        saveSummary: (success, authorized, fallback, memoryOnlyHistory) =>
+          `生成成功 ${success}，保存到授权目录 ${authorized}，回退为浏览器下载 ${fallback}，仅当前会话保留历史 ${memoryOnlyHistory}。`,
         splitRunning: "正在调用文字模型规划任务，请稍候。",
         splitSuccess: (count) => `文字模型已规划出 ${count} 个任务。`,
         taskCountAdjustedByAi: (count, reason) =>
@@ -1087,8 +1087,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
         maxTaskCountWarning: (max) =>
           `A batch is capped at ${max} tasks. Larger batches may hit provider rate limits or failures, so the count was capped at ${max}.`,
         batchComplete: (success, failed, skipped) => `Batch complete: ${success} succeeded, ${failed} failed, ${skipped} skipped.`,
-        saveSummary: (success, authorized, fallback) =>
-          `Generated successfully ${success}, saved to authorized directory ${authorized}, fell back to browser download ${fallback}.`,
+        saveSummary: (success, authorized, fallback, memoryOnlyHistory) =>
+          `Generated successfully ${success}, saved to authorized directory ${authorized}, fell back to browser download ${fallback}, history available only in this session ${memoryOnlyHistory}.`,
         splitRunning: "Calling the text model to plan this batch. Please wait.",
         splitSuccess: (count) => `Text model planned ${count} tasks.`,
         taskCountAdjustedByAi: (count, reason) =>
@@ -1486,21 +1486,24 @@ export function formatClassifiedError(error: unknown, language: UiLanguage): str
         auth: "认证失败：请检查 API key、Base URL 和模型名称。不要反复重试，这通常不会产生有效图片。",
         provider:
           "模型供应商异常：请求已到达模型供应商或中转站，但上游返回异常。再次调用可能仍然产生费用，建议等待供应商恢复后再手动重试。",
-        timeout: "请求超时：图片生成耗时较长，可以增加超时时间后再尝试。",
+        timeout:
+          "请求超时：图片生成耗时较长，可以增加超时时间后再尝试。系统不会自动重试；手动重试可能产生重复费用。",
         "empty-image":
           "模型供应商异常：接口返回成功但没有图片数据。这类空图片响应可能已经产生调用成本，建议等待供应商恢复后再重试。",
-        network: "网络连接失败：请检查 Base URL、网络连接或浏览器跨域限制。系统不会自动重试。",
+        network:
+          "网络连接失败：请检查 Base URL、网络连接或浏览器跨域限制。系统不会自动重试；手动重试可能产生重复费用。",
         unknown: "生成失败：无法明确判断错误类型。请检查配置和供应商状态，谨慎重试。",
       }
     : {
         auth: "Authentication failed: check your API key, Base URL, and model names. Do not retry repeatedly because this usually will not generate an image.",
         provider:
           "Provider error: the request reached the provider or relay, but the upstream service returned an abnormal response. Retrying may still incur cost, so wait for recovery before manually retrying.",
-        timeout: "The request timed out. Image generation can take a long time; increase the timeout before trying again.",
+        timeout:
+          "The request timed out. Image generation can take a long time; increase the timeout before trying again. The app will not retry automatically; manual retry may duplicate cost.",
         "empty-image":
           "The provider returned no image data. This abnormal empty response may still incur cost, so wait for provider recovery before retrying.",
         network:
-          "Network error: check the Base URL, network connection, or browser CORS limits. The app will not retry automatically.",
+          "Network error: check the Base URL, network connection, or browser CORS limits. The app will not retry automatically; manual retry may duplicate cost.",
         unknown: "Generation failed and the error type is unclear. Check your settings and provider status before retrying.",
       };
 

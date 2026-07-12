@@ -25,6 +25,8 @@ const OUTPUT_DIRECTORY_STATE_KEY = "output-directory-state";
 const OUTPUT_DIRECTORY_TEST_FILE_NAME = "gpt-image-2-studio-folder-test.png";
 const OUTPUT_DIRECTORY_TEST_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lwP8NwAAAABJRU5ErkJggg==";
+const MEMORY_ONLY_HISTORY_WARNING =
+  "History is available only in this open app instance because browser storage rejected the update. Refreshing or reopening will not restore this record.";
 
 let directoryHandle: FileSystemDirectoryHandle | null = null;
 let readyOutputDirectory: PersistedReadyOutputDirectory | null = null;
@@ -84,6 +86,10 @@ function readStoredValue<T>(key: string, fallback: T, kind: "local" | "session" 
   }
 
   if (!raw) {
+    raw = memoryStorage.get(key) ?? null;
+  }
+
+  if (!raw) {
     return fallback;
   }
 
@@ -94,7 +100,11 @@ function readStoredValue<T>(key: string, fallback: T, kind: "local" | "session" 
   }
 }
 
-function writeStoredValue(key: string, value: unknown, kind: "local" | "session" = "local") {
+function writeStoredValue(
+  key: string,
+  value: unknown,
+  kind: "local" | "session" = "local",
+): "persistent" | "memory-only" {
   const serializedValue = JSON.stringify(value);
   const storage = getBrowserStorage(kind);
   const memoryStorage = getMemoryStorage(kind);
@@ -102,13 +112,15 @@ function writeStoredValue(key: string, value: unknown, kind: "local" | "session"
   if (storage) {
     try {
       storage.setItem(key, serializedValue);
-      return;
+      memoryStorage.delete(key);
+      return "persistent";
     } catch {
       // Some embedded file:// browsers expose localStorage but deny reads/writes.
     }
   }
 
   memoryStorage.set(key, serializedValue);
+  return "memory-only";
 }
 
 function removeStoredValue(key: string, kind: "local" | "session" = "local") {
@@ -765,32 +777,46 @@ export const webAdapter: RuntimeAdapter = {
       };
     }
 
-    try {
-      const blob = decodeBase64Image(OUTPUT_DIRECTORY_TEST_PNG, "png");
-      const previewUrl = await saveWithFileSystemAccess(rootHandle, "", OUTPUT_DIRECTORY_TEST_FILE_NAME, blob);
-      URL.revokeObjectURL(previewUrl);
-      const savedFile = await rootHandle.getFileHandle(OUTPUT_DIRECTORY_TEST_FILE_NAME).then((handle) => handle.getFile());
-      const lastTestedAt = new Date().toISOString();
-
-      if (savedFile.size > 0) {
+    return withSaveTransactionLock(async () => {
+      let fileName = OUTPUT_DIRECTORY_TEST_FILE_NAME;
+      try {
+        const blob = decodeBase64Image(OUTPUT_DIRECTORY_TEST_PNG, "png");
+        fileName = await chooseAvailableFileName(rootHandle, OUTPUT_DIRECTORY_TEST_FILE_NAME, []);
+        await writeWithFileSystemAccess(rootHandle, "", fileName, blob);
+        const savedFile = await rootHandle.getFileHandle(fileName).then((handle) => handle.getFile());
+        if (savedFile.size <= 0) {
+          throw new Error("Output folder test wrote an empty file.");
+        }
+        await rootHandle.removeEntry(fileName);
+        const lastTestedAt = new Date().toISOString();
         await persistReadyOutputDirectory({ handle: rootHandle, name: rootHandle.name, lastTestedAt });
-      } else {
-        await clearPersistedReadyOutputDirectory();
-      }
 
-      return {
-        ok: savedFile.size > 0,
-        fileName: OUTPUT_DIRECTORY_TEST_FILE_NAME,
-        bytes: savedFile.size,
-      };
-    } catch (error) {
-      await clearPersistedReadyOutputDirectory();
-      return {
-        ok: false,
-        fileName: OUTPUT_DIRECTORY_TEST_FILE_NAME,
-        message: safeErrorMessage(error),
-      };
-    }
+        return {
+          ok: true,
+          fileName,
+          bytes: savedFile.size,
+        };
+      } catch (error) {
+        try {
+          await rootHandle.removeEntry(fileName);
+        } catch (cleanupError) {
+          if (!isNotFoundError(cleanupError)) {
+            await clearPersistedReadyOutputDirectory();
+            return {
+              ok: false,
+              fileName,
+              message: safeErrorMessage(cleanupError),
+            };
+          }
+        }
+        await clearPersistedReadyOutputDirectory();
+        return {
+          ok: false,
+          fileName,
+          message: safeErrorMessage(error),
+        };
+      }
+    });
   },
 
   async saveImage(input: SaveImageInput): Promise<SaveImageResult> {
@@ -842,9 +868,16 @@ export const webAdapter: RuntimeAdapter = {
 
       const record = buildRecord(input, outputPath);
 
-      writeStoredValue(HISTORY_KEY, sortHistoryNewestFirst([record, ...history]));
+      const historyDurability = writeStoredValue(HISTORY_KEY, sortHistoryNewestFirst([record, ...history]));
 
-      return { record, previewUrl, saveMode, saveFallbackReason };
+      return {
+        record,
+        previewUrl,
+        saveMode,
+        saveFallbackReason,
+        historyDurability,
+        historyWarning: historyDurability === "memory-only" ? MEMORY_ONLY_HISTORY_WARNING : undefined,
+      };
     });
   },
 
@@ -909,9 +942,17 @@ export const webAdapter: RuntimeAdapter = {
         },
       };
 
-      writeStoredValue(HISTORY_KEY, sortHistoryNewestFirst([record, ...history]));
+      const historyDurability = writeStoredValue(HISTORY_KEY, sortHistoryNewestFirst([record, ...history]));
 
-      return { record, previewUrl, outputPath, saveMode, saveFallbackReason };
+      return {
+        record,
+        previewUrl,
+        outputPath,
+        saveMode,
+        saveFallbackReason,
+        historyDurability,
+        historyWarning: historyDurability === "memory-only" ? MEMORY_ONLY_HISTORY_WARNING : undefined,
+      };
     });
   },
 

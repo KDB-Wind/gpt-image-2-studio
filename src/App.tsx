@@ -1,7 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 
 import { useCallback } from "react";
-import staticVersionManifest from "../static-versions/manifest.json";
 import { AppLogo } from "./components/AppLogo";
 import { BatchPanel } from "./components/BatchPanel";
 import {
@@ -44,7 +43,7 @@ const APP_VERSION = __APP_VERSION__;
 const RECOMMENDED_RELAY_URL = "https://ruoli.dev/register?aff=mR35";
 const GITHUB_PROJECT_URL = "https://github.com/KDB-Wind/gpt-image-2-studio";
 const GITHUB_PAGES_URL = "https://kdb-wind.github.io/gpt-image-2-studio/";
-const ARCHIVED_VERSION = staticVersionManifest.latestStable;
+const ARCHIVED_VERSION = __STATIC_VERSION_MANIFEST__.latestStable;
 const ARCHIVED_VERSION_URL = `${GITHUB_PAGES_URL}versions/v${ARCHIVED_VERSION}/`;
 const MINIMAL_API_EXAMPLE_URL = `${GITHUB_PROJECT_URL}#最小-api-调用示例`;
 const DEFAULT_CUSTOM_SIZE = { width: "1024", height: "1024" };
@@ -113,6 +112,8 @@ type PreviewState =
       source: "generated" | "history";
       saveMode?: ImageSaveMode;
       saveFallbackReason?: string;
+      historyDurability?: "persistent" | "memory-only";
+      historyWarning?: string;
     }
   | {
       status: "failed";
@@ -1203,6 +1204,8 @@ export default function App() {
         source: "generated",
         saveMode: savedResult.saveMode,
         saveFallbackReason: savedResult.saveFallbackReason,
+        historyDurability: savedResult.historyDurability,
+        historyWarning: savedResult.historyWarning,
       });
     } catch (error) {
       if (!isMountedRef.current) {
@@ -1543,6 +1546,7 @@ export default function App() {
           succeeded,
           failed,
           skipped,
+          memoryOnlyHistory: 0,
           durationMs: item.records.reduce((sum, record) => sum + record.durationMs, 0),
         },
         latestImage,
@@ -2797,6 +2801,11 @@ export default function App() {
                     {previewState.saveFallbackReason ? (
                       <div className="message-card warning inline-message">
                         {copy.messages.saveFallbackToBrowserDownload(previewState.saveFallbackReason)}
+                      </div>
+                    ) : null}
+                    {previewState.historyDurability === "memory-only" && previewState.historyWarning ? (
+                      <div className="message-card warning inline-message" data-testid="single-history-durability-warning">
+                        {previewState.historyWarning}
                       </div>
                     ) : null}
                     <p>{previewState.optimizedPrompt || previewState.prompt}</p>

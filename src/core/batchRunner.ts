@@ -170,6 +170,8 @@ async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<B
         previewUrl: saved.previewUrl,
         saveMode: saved.saveMode,
         saveFallbackReason: saved.saveFallbackReason ? summarizeSensitiveError(saved.saveFallbackReason) : undefined,
+        historyDurability: saved.historyDurability,
+        historyWarning: saved.historyWarning ? summarizeSensitiveError(saved.historyWarning) : undefined,
         durationMs,
         completedAt: new Date().toISOString(),
       };
@@ -265,7 +267,7 @@ function takeNextRunnableTask(tasks: BatchTask[], next: () => number): BatchTask
 }
 
 function isRetryableFailure(category: BatchFailureCategory): boolean {
-  return category === "rate_limit" || category === "timeout" || category === "network";
+  return category === "rate_limit";
 }
 
 function markRemainingSkipped(tasks: BatchTask[]) {

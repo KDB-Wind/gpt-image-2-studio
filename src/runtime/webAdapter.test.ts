@@ -471,6 +471,40 @@ describe("webAdapter history deletion", () => {
     expect(result.record.outputPath).not.toContain("/");
   });
 
+  it("reports memory-only history after a successful authorized file write when local storage rejects the update", async () => {
+    const downloadsHandle = createDirectoryHandle({}, { name: "gpt-image-2-studio" });
+    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
+    await webAdapter.chooseOutputDirectory();
+    const originalSetItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+      if (key === "chat-to-image.history.v1") {
+        throw new DOMException("Storage quota exceeded.", "QuotaExceededError");
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    const result = await webAdapter.saveImage({
+      image: { base64: ONE_PIXEL_PNG },
+      prompt: "Durability test",
+      optimizedPrompt: "",
+      customName: "durability-test",
+      config: { ...DEFAULT_CONFIG, defaultFormat: "png" },
+      generatedAt: new Date("2026-07-12T10:30:00.000Z"),
+      durationMs: 1000,
+    });
+
+    expect(result.saveMode).toBe("authorized-directory");
+    expect(result.historyDurability).toBe("memory-only");
+    expect(result.historyWarning).toContain("only in this open app instance");
+    await expect(webAdapter.loadHistory()).resolves.toEqual([
+      expect.objectContaining({ id: result.record.id, prompt: "Durability test" }),
+    ]);
+    expect(localStorage.getItem("chat-to-image.history.v1")).toBeNull();
+
+    __resetWebAdapterForTests();
+    await expect(webAdapter.loadHistory()).resolves.toEqual([]);
+  });
+
   it("saves base64 provider images without fetching a provider URL", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -892,26 +926,29 @@ describe("webAdapter history deletion", () => {
     expect(restoredFile).toBe(imageFile);
   });
 
-  it("writes and reads a tiny image when testing the authorized output directory", async () => {
-    const downloadsHandle = createDirectoryHandle({});
+  it("uses a collision-safe temporary image and cleans it up after testing the authorized output directory", async () => {
+    const existingFile = new File(["user-owned"], "gpt-image-2-studio-folder-test.png", { type: "image/png" });
+    const downloadsHandle = createDirectoryHandle({
+      "gpt-image-2-studio-folder-test.png": existingFile,
+    });
     vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
-    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:folder-test");
-    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const createObjectUrl = vi.spyOn(URL, "createObjectURL");
 
     await webAdapter.chooseOutputDirectory();
 
     const result = await webAdapter.testOutputDirectory();
-    const savedFile = await downloadsHandle.getFileHandle("gpt-image-2-studio-folder-test.png").then((handle) =>
-      handle.getFile(),
-    );
 
     expect(result).toMatchObject({
       ok: true,
-      fileName: "gpt-image-2-studio-folder-test.png",
+      fileName: "gpt-image-2-studio-folder-test-2.png",
     });
     expect(result.bytes).toBeGreaterThan(0);
-    expect(savedFile.type).toBe("image/png");
-    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:folder-test");
+    expect(createObjectUrl).not.toHaveBeenCalled();
+    await expect(readHandleFileText(downloadsHandle, "gpt-image-2-studio-folder-test.png")).resolves.toBe("user-owned");
+    await expect(downloadsHandle.getFileHandle("gpt-image-2-studio-folder-test-2.png")).rejects.toMatchObject({
+      name: "NotFoundError",
+    });
+    await expect(getOutputDirectoryState()).resolves.toMatchObject({ status: "ready" });
   });
 
   it("writes an authorized batch manifest without allocating a Blob preview URL", async () => {
@@ -1109,6 +1146,7 @@ function createTestBatchManifest(): BatchManifest {
       succeeded: 1,
       failed: 0,
       skipped: 0,
+      memoryOnlyHistory: 0,
       durationMs: 1000,
     },
     tasks: [{
@@ -1245,6 +1283,11 @@ function createDirectoryHandle(
           } as unknown as FileSystemWritableFileStream;
         },
       } as unknown as FileSystemFileHandle;
+    },
+    async removeEntry(name: string) {
+      if (!files.delete(name)) {
+        throw new DOMException(`File not found: ${name}`, "NotFoundError");
+      }
     },
   } as unknown as FileSystemDirectoryHandle;
 }

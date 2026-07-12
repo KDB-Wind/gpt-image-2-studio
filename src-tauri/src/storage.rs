@@ -15,6 +15,7 @@ use chrono::{DateTime, Local};
 use directories::ProjectDirs;
 use keyring::Entry;
 use serde::Serialize;
+use tempfile::NamedTempFile;
 
 use crate::models::{
     AppConfig, ImageRecord, OutputDirectoryStateResult, OutputDirectoryTestResult,
@@ -88,7 +89,18 @@ fn ensure_parent(path: &Path) -> Result<(), String> {
 fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     ensure_parent(path)?;
     let json = serde_json::to_string_pretty(value).map_err(|error| error.to_string())?;
-    fs::write(path, json).map_err(|error| error.to_string())
+    let parent = path
+        .parent()
+        .ok_or_else(|| "JSON output path has no parent directory.".to_string())?;
+    let mut temp_file = NamedTempFile::new_in(parent).map_err(|error| error.to_string())?;
+    temp_file
+        .write_all(json.as_bytes())
+        .map_err(|error| error.to_string())?;
+    temp_file.as_file().sync_all().map_err(|error| error.to_string())?;
+    temp_file
+        .persist(path)
+        .map(|_| ())
+        .map_err(|error| error.error.to_string())
 }
 
 fn read_json_value_result(path: &Path, subject: &str) -> Result<Option<serde_json::Value>, String> {
@@ -460,6 +472,7 @@ fn output_base_dir() -> Result<PathBuf, String> {
     Ok(project_dirs()?.data_dir().to_path_buf())
 }
 
+#[derive(Debug)]
 pub struct OutputDirectoryTestFile {
     pub bytes: u64,
     pub last_tested_at: String,
@@ -550,6 +563,9 @@ fn unique_output_directory_probe_suffix() -> u128 {
 fn write_output_directory_test_state(path: &Path, timestamp: &str) -> Result<(), String> {
     let marker_path = path.join(OUTPUT_DIRECTORY_TEST_FILE_NAME);
     ensure_regular_file_or_absent(&marker_path)?;
+    if marker_path.exists() && read_output_directory_test_at(path)?.is_none() {
+        return Err("Output directory test state is not an app-owned marker; refusing to overwrite it.".to_string());
+    }
     let temp_path = path.join(format!(
         ".chat-to-image-output-directory-test-state-{}-{}.tmp",
         std::process::id(),
@@ -614,9 +630,9 @@ fn remove_file_if_exists(path: &Path) -> Result<(), String> {
     }
 }
 
-fn image_output_directory(input: &SaveGeneratedImageInput) -> Result<PathBuf, String> {
+fn image_output_directory_at(input: &SaveGeneratedImageInput, output_base: &Path) -> Result<PathBuf, String> {
     let generated_at = parse_generated_at(&input.generated_at)?;
-    let output_root = resolve_output_root(&input.config.output_directory, &output_base_dir()?);
+    let output_root = resolve_output_root(&input.config.output_directory, output_base);
     Ok(output_root.join(format_date_folder(generated_at)))
 }
 
@@ -630,8 +646,8 @@ pub fn batch_directory_name(created_at: &str, title: &str) -> Result<String, Str
     ))
 }
 
-fn batch_output_directory(input: &SaveBatchImageInput) -> Result<PathBuf, String> {
-    let output_root = resolve_output_root(&input.config.output_directory, &output_base_dir()?);
+fn batch_output_directory_at(input: &SaveBatchImageInput, output_base: &Path) -> Result<PathBuf, String> {
+    let output_root = resolve_output_root(&input.config.output_directory, output_base);
     Ok(output_root.join(batch_directory_name(&input.batch_created_at, &input.batch_title)?))
 }
 
@@ -708,7 +724,8 @@ fn load_history_for_display(path: &Path) -> Result<Vec<ImageRecord>, String> {
 
 pub fn load_history_for_save(path: &Path) -> Result<Vec<ImageRecord>, String> {
     match fs::read_to_string(path) {
-        Ok(raw) => Ok(parse_history_json(&raw)),
+        Ok(raw) => serde_json::from_str(&raw)
+            .map_err(|error| format!("Failed to parse history.json: {error}")),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(Vec::new()),
         Err(error) => Err(format!("Failed to read history.json: {error}")),
     }
@@ -796,7 +813,15 @@ pub fn save_generated_image(input: SaveGeneratedImageInput) -> Result<SaveImageR
         .get_or_init(|| Mutex::new(()))
         .lock()
         .map_err(|_| "Save image lock was poisoned.".to_string())?;
-    let directory = image_output_directory(&input)?;
+    save_generated_image_at(input, &output_base_dir()?, &history_path()?)
+}
+
+pub fn save_generated_image_at(
+    input: SaveGeneratedImageInput,
+    output_base: &Path,
+    history_file: &Path,
+) -> Result<SaveImageResult, String> {
+    let directory = image_output_directory_at(&input, output_base)?;
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
 
     let file_name = build_file_name(&input, &directory)?;
@@ -804,18 +829,17 @@ pub fn save_generated_image(input: SaveGeneratedImageInput) -> Result<SaveImageR
     let bytes = STANDARD
         .decode(input.image_base64.as_bytes())
         .map_err(|error| error.to_string())?;
-    fs::write(&output_path, bytes).map_err(|error| error.to_string())?;
+    write_new_file(&output_path, &bytes)?;
 
     let record = create_record(input, &output_path);
-    let history_file = history_path()?;
-    let mut history = load_history_for_save(&history_file)?;
-    history.push(record.clone());
-    sort_history(&mut history);
-    write_json(&history_file, &history)?;
+    commit_history_record(history_file, record.clone(), &output_path)?;
 
     Ok(SaveImageResult {
         preview_url: output_path.to_string_lossy().to_string(),
         record,
+        save_mode: "authorized-directory".to_string(),
+        history_durability: "persistent".to_string(),
+        history_warning: None,
     })
 }
 
@@ -825,7 +849,15 @@ pub fn save_batch_image(input: SaveBatchImageInput) -> Result<SaveImageResult, S
         .get_or_init(|| Mutex::new(()))
         .lock()
         .map_err(|_| "Save image lock was poisoned.".to_string())?;
-    let directory = batch_output_directory(&input)?;
+    save_batch_image_at(input, &output_base_dir()?, &history_path()?)
+}
+
+pub fn save_batch_image_at(
+    input: SaveBatchImageInput,
+    output_base: &Path,
+    history_file: &Path,
+) -> Result<SaveImageResult, String> {
+    let directory = batch_output_directory_at(&input, output_base)?;
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
 
     let file_name = build_batch_file_name(&input, &directory)?;
@@ -833,7 +865,7 @@ pub fn save_batch_image(input: SaveBatchImageInput) -> Result<SaveImageResult, S
     let bytes = STANDARD
         .decode(input.image_base64.as_bytes())
         .map_err(|error| error.to_string())?;
-    fs::write(&output_path, bytes).map_err(|error| error.to_string())?;
+    write_new_file(&output_path, &bytes)?;
 
     let record = ImageRecord {
         id: unique_id(),
@@ -847,16 +879,57 @@ pub fn save_batch_image(input: SaveBatchImageInput) -> Result<SaveImageResult, S
         duration_ms: input.duration_ms,
         error_message: None,
     };
-    let history_file = history_path()?;
-    let mut history = load_history_for_save(&history_file)?;
-    history.push(record.clone());
-    sort_history(&mut history);
-    write_json(&history_file, &history)?;
+    commit_history_record(history_file, record.clone(), &output_path)?;
 
     Ok(SaveImageResult {
         preview_url: output_path.to_string_lossy().to_string(),
         record,
+        save_mode: "authorized-directory".to_string(),
+        history_durability: "persistent".to_string(),
+        history_warning: None,
     })
+}
+
+fn write_new_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|error| error.to_string())?;
+    file.write_all(bytes).map_err(|error| error.to_string())?;
+    file.sync_all().map_err(|error| error.to_string())
+}
+
+fn commit_history_record(
+    history_file: &Path,
+    record: ImageRecord,
+    output_path: &Path,
+) -> Result<(), String> {
+    let history_result = (|| {
+        let mut history = load_history_for_save(history_file)?;
+        history.push(record);
+        sort_history(&mut history);
+        write_json(history_file, &history)
+    })();
+
+    match history_result {
+        Ok(()) => Ok(()),
+        Err(error) => Err(format_history_commit_failure(error, fs::remove_file(output_path))),
+    }
+}
+
+pub fn format_history_commit_failure(
+    history_error: String,
+    rollback_result: std::io::Result<()>,
+) -> String {
+    match rollback_result {
+        Ok(()) => format!(
+            "History commit failed after image write; the saved image was removed. {history_error}"
+        ),
+        Err(rollback_error) => format!(
+            "History commit failed after image write, and image rollback also failed: {rollback_error}. {history_error}"
+        ),
+    }
 }
 
 #[tauri::command]

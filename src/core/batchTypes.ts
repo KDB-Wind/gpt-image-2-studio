@@ -35,6 +35,8 @@ export type BatchTask = {
   previewUrl: string;
   saveMode?: ImageSaveMode;
   saveFallbackReason?: string;
+  historyDurability?: HistoryDurability;
+  historyWarning?: string;
   durationMs: number;
   startedAt: string;
   completedAt: string;
@@ -55,6 +57,7 @@ export type BatchSummary = {
   succeeded: number;
   failed: number;
   skipped: number;
+  memoryOnlyHistory: number;
   durationMs: number;
 };
 
@@ -136,6 +139,7 @@ export type BatchImageSaveInput = {
 };
 
 export type ImageSaveMode = "authorized-directory" | "browser-download";
+export type HistoryDurability = "persistent" | "memory-only";
 
 export type BatchImageSaveResult = {
   record: ImageRecord;
@@ -143,6 +147,8 @@ export type BatchImageSaveResult = {
   outputPath: string;
   saveMode: ImageSaveMode;
   saveFallbackReason?: string;
+  historyDurability: HistoryDurability;
+  historyWarning?: string;
 };
 
 export type BatchManifestTask = Pick<
@@ -160,6 +166,8 @@ export type BatchManifestTask = Pick<
   | "outputPath"
   | "saveMode"
   | "saveFallbackReason"
+  | "historyDurability"
+  | "historyWarning"
   | "durationMs"
   | "startedAt"
   | "completedAt"

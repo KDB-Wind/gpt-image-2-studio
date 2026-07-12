@@ -128,7 +128,16 @@ describe("tauriAdapter output directory state", () => {
         format: "png",
         outputCompression: 100,
       },
-      summary: { total: 1, pending: 0, running: 0, succeeded: 0, failed: 1, skipped: 0, durationMs: 60_000 },
+      summary: {
+        total: 1,
+        pending: 0,
+        running: 0,
+        succeeded: 0,
+        failed: 1,
+        skipped: 0,
+        memoryOnlyHistory: 0,
+        durationMs: 60_000,
+      },
       tasks: [
         {
           id: "task-1",

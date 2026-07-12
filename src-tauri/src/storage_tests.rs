@@ -201,7 +201,7 @@ fn valid_but_wrong_shape_config_json_errors() {
 }
 
 #[test]
-fn history_for_save_keeps_parse_fallback_but_returns_io_errors() {
+fn history_for_save_rejects_malformed_json_and_io_errors() {
     let temp_root = std::env::temp_dir().join(format!(
         "chat-to-image-history-test-{}",
         std::process::id()
@@ -215,8 +215,9 @@ fn history_for_save_keeps_parse_fallback_but_returns_io_errors() {
     let io_error = crate::storage::load_history_for_save(&directory_path).unwrap_err();
     assert!(io_error.contains("history.json"));
 
-    let invalid_history = crate::storage::load_history_for_save(&invalid_path).unwrap();
-    assert!(invalid_history.is_empty());
+    let invalid_error = crate::storage::load_history_for_save(&invalid_path).unwrap_err();
+    assert!(invalid_error.contains("Failed to parse history.json"));
+    assert_eq!(std::fs::read_to_string(&invalid_path).unwrap(), "{ invalid json");
 
     let _ = std::fs::remove_dir_all(&temp_root);
 }
@@ -295,6 +296,49 @@ fn loads_api_key_from_json_fallback_mode() {
     assert_eq!(loaded, "sk-local");
 
     let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn save_rolls_back_new_image_when_history_is_malformed() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-save-rollback-test-{}",
+        std::process::id()
+    ));
+    let history_path = temp_root.join("history.json");
+    std::fs::create_dir_all(&temp_root).unwrap();
+    std::fs::write(&history_path, "{ invalid json").unwrap();
+    let mut config = crate::storage::default_config();
+    config.output_directory = "outputs".to_string();
+    let input = crate::models::SaveGeneratedImageInput {
+        image_base64: "aGVsbG8=".to_string(),
+        prompt: "Rollback test".to_string(),
+        optimized_prompt: String::new(),
+        custom_name: "rollback-test".to_string(),
+        config,
+        generated_at: "2026-07-12T10:30:00+00:00".to_string(),
+        duration_ms: 100,
+    };
+
+    let error = crate::storage::save_generated_image_at(input, &temp_root, &history_path).unwrap_err();
+
+    assert!(error.contains("History commit failed after image write"));
+    assert!(error.contains("saved image was removed"));
+    assert_eq!(std::fs::read_to_string(&history_path).unwrap(), "{ invalid json");
+    assert!(!temp_root.join("outputs/2026-07-12/rollback-test.png").exists());
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn rollback_failure_is_reported_explicitly() {
+    let error = crate::storage::format_history_commit_failure(
+        "history write denied".to_string(),
+        Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "rollback denied")),
+    );
+
+    assert!(error.contains("History commit failed after image write"));
+    assert!(error.contains("image rollback also failed"));
+    assert!(error.contains("rollback denied"));
 }
 
 #[test]
@@ -380,6 +424,24 @@ fn output_directory_test_overwrites_existing_state_file_without_leaving_probe_fi
         .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
         .collect::<Vec<_>>();
     assert_eq!(remaining_files, vec![".chat-to-image-output-directory-test"]);
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn output_directory_test_preserves_an_unknown_existing_marker_file() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-output-directory-unknown-marker-test-{}",
+        std::process::id()
+    ));
+    let state_path = temp_root.join(".chat-to-image-output-directory-test");
+    std::fs::create_dir_all(&temp_root).unwrap();
+    std::fs::write(&state_path, "user-owned contents").unwrap();
+
+    let error = crate::storage::test_output_directory_at(&temp_root).unwrap_err();
+
+    assert!(error.contains("not an app-owned marker"));
+    assert_eq!(std::fs::read_to_string(&state_path).unwrap(), "user-owned contents");
 
     let _ = std::fs::remove_dir_all(&temp_root);
 }

@@ -66,6 +66,7 @@ export function summarizeBatchTasks(tasks: BatchTask[]): BatchSummary {
     succeeded: tasks.filter((task) => task.status === "succeeded").length,
     failed: tasks.filter((task) => task.status === "failed").length,
     skipped: tasks.filter((task) => task.status === "skipped").length,
+    memoryOnlyHistory: tasks.filter((task) => task.historyDurability === "memory-only").length,
     durationMs:
       startedTimes.length > 0 && completedTimes.length > 0
         ? Math.max(...completedTimes) - Math.min(...startedTimes)
@@ -111,6 +112,7 @@ function sanitizeBatchManifestTask(task: BatchTask | BatchManifestTask): BatchMa
     ...nextTask,
     errorMessage: nextTask.errorMessage ? summarizeSensitiveError(nextTask.errorMessage) : "",
     saveFallbackReason: nextTask.saveFallbackReason ? summarizeSensitiveError(nextTask.saveFallbackReason) : undefined,
+    historyWarning: nextTask.historyWarning ? summarizeSensitiveError(nextTask.historyWarning) : undefined,
   };
 }
 

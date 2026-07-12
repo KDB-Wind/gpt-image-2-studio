@@ -1,10 +1,11 @@
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import {
   extractEmbeddedVersionManifest,
   isDirectExecution,
-  validateVersionManifest,
+  validateTrustedVersionManifest,
 } from "./archive-static-version.mjs";
 
 const defaultRootDir = resolve(".");
@@ -25,7 +26,11 @@ function readManifest(manifestPath) {
     throw new Error(`Static version manifest is missing: ${manifestPath}`);
   }
 
-  return validateVersionManifest(JSON.parse(readFileSync(manifestPath, "utf8")));
+  return validateTrustedVersionManifest(JSON.parse(readFileSync(manifestPath, "utf8")));
+}
+
+function sha256(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 function assertSameVersionSet(label, actual, expected) {
@@ -72,6 +77,9 @@ export function assertVersionManifestAndArchives({ rootDir = defaultRootDir, dis
 
   for (const version of expectedVersions) {
     const archivePath = join(rootDir, "static-versions", "versions", `v${version}`, "index.html");
+    if (sha256(archivePath) !== sourceManifest.sha256[version]) {
+      throw new Error(`Source archive v${version} does not match its trusted SHA-256 manifest digest.`);
+    }
     const archiveHtml = readFileSync(archivePath, "utf8");
     let embeddedManifest;
 
@@ -175,15 +183,32 @@ const forbiddenCurrentReleaseMarkers = [
   { pattern: /\blicense\s*:\s*["'`]/i, label: "package license metadata" },
   { pattern: /vitest run/i, label: "package scripts" },
   { pattern: /@tauri-apps\/api/i, label: "tooling dependencies" },
+  { pattern: /save_generated_image/i, label: "native bridge commands" },
+  { pattern: /__TAURI_INTERNALS__/i, label: "native bridge detection" },
 ];
 
 export function assertCurrentReleaseHasNoPackageMetadata(distDir) {
   for (const fileName of ["index.html", "gpt-image-2-studio-lite.html"]) {
     const html = readFileSync(join(distDir, fileName), "utf8");
 
+    if (/[ \t\r]+$/m.test(html)) {
+      throw new Error(`${fileName} contains trailing whitespace.`);
+    }
+
     for (const { pattern, label } of forbiddenCurrentReleaseMarkers) {
       if (pattern.test(html)) {
         throw new Error(`${fileName} contains forbidden ${label}.`);
+      }
+    }
+  }
+}
+
+function assertTrustedDigestsAreNotEmbedded(distDir, manifest) {
+  for (const fileName of ["index.html", "gpt-image-2-studio-lite.html"]) {
+    const html = readFileSync(join(distDir, fileName), "utf8");
+    for (const digest of Object.values(manifest.sha256)) {
+      if (html.includes(digest)) {
+        throw new Error(`${fileName} must embed only the public version manifest without trusted digest metadata.`);
       }
     }
   }
@@ -194,6 +219,7 @@ export function runStaticSiteCheck({ rootDir = defaultRootDir, distDir = join(ro
   assertSingleFileParity(distDir);
   assertCurrentReleaseHasNoPackageMetadata(distDir);
   const manifest = assertVersionManifestAndArchives({ rootDir, distDir });
+  assertTrustedDigestsAreNotEmbedded(distDir, manifest);
   assertCurrentReleaseMatchesArchive({ rootDir, distDir, manifest });
   assertFaviconIsInlined(distDir);
   assertHeaderLogoIsSelfContained(distDir);

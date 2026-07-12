@@ -84,7 +84,7 @@ export function inlineStaticHtml({ rootDir = defaultRootDir, distDir = join(root
     (_tag, src) => `\n    <script type="module">\n${readDistAsset(distDir, src)}\n    </script>`,
   );
 
-  html = html.replace(/\r\n/g, "\n");
+  html = html.replace(/\r\n?/g, "\n");
 
   writeFileSync(htmlPath, html, "utf8");
   writeFileSync(releaseHtmlPath, html, "utf8");

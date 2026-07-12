@@ -1,6 +1,6 @@
 import * as nodeFs from "node:fs";
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { rcompare, valid } from "semver";
@@ -48,7 +48,55 @@ export function validateVersionManifest(manifest) {
     throw new Error("Static version manifest latestStable must be listed in versions.");
   }
 
+  if (manifest.sha256 !== undefined) {
+    if (!manifest.sha256 || typeof manifest.sha256 !== "object" || Array.isArray(manifest.sha256)) {
+      throw new Error("Static version manifest sha256 metadata must be an object.");
+    }
+    for (const [version, digest] of Object.entries(manifest.sha256)) {
+      if (!manifest.versions.includes(version) || typeof digest !== "string" || !/^[a-f0-9]{64}$/i.test(digest)) {
+        throw new Error(`Invalid static archive SHA-256 metadata for ${version}.`);
+      }
+    }
+  }
+
   return manifest;
+}
+
+export function validateTrustedVersionManifest(manifest) {
+  const validated = validateVersionManifest(manifest);
+  for (const version of validated.versions) {
+    if (!validated.sha256 || typeof validated.sha256[version] !== "string") {
+      throw new Error(`Static version manifest is missing trusted SHA-256 metadata for ${version}.`);
+    }
+  }
+  if (Object.keys(validated.sha256).length !== validated.versions.length) {
+    throw new Error("Static version manifest SHA-256 metadata must match the archived version set exactly.");
+  }
+  return validated;
+}
+
+export function publicVersionManifest(manifest) {
+  const validated = validateVersionManifest(manifest);
+  return { latestStable: validated.latestStable, versions: [...validated.versions] };
+}
+
+function sha256Bytes(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function buildArchiveDigestMap(fs, rootDir, versions) {
+  return Object.fromEntries(versions.map((version) => {
+    const archivePath = join(rootDir, "static-versions", "versions", `v${version}`, "index.html");
+    return [version, sha256Bytes(fs.readFileSync(archivePath))];
+  }));
+}
+
+function buildArchiveDigestMapFromManifestPath(fs, manifestPath, versions) {
+  const versionsDir = join(dirname(manifestPath), "versions");
+  return Object.fromEntries(versions.map((version) => [
+    version,
+    sha256Bytes(fs.readFileSync(join(versionsDir, `v${version}`, "index.html"))),
+  ]));
 }
 
 export function extractEmbeddedVersionManifest(html) {
@@ -607,6 +655,8 @@ function recoverStaleTransaction({
       throw new Error(`Published archive does not match the release HTML: ${archivePath}`);
     }
 
+    nextManifest.sha256 = buildArchiveDigestMapFromManifestPath(fs, manifestPath, nextManifest.versions);
+
     assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId });
     writeManifestAtomically({
       fs,
@@ -743,6 +793,8 @@ export function archiveStaticVersion({
         throw new Error(`Published archive does not match the release HTML: ${archivePath}`);
       }
 
+      nextManifest.sha256 = buildArchiveDigestMap(fs, rootDir, nextManifest.versions);
+
       assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
       writeManifestAtomically({
         fs,
@@ -815,16 +867,15 @@ export function archiveStaticVersion({
     fs.unlinkSync(temporaryArchivePath);
     temporaryArchiveCreated = false;
     assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
-    if (!manifestPrepared) {
-      writeManifestAtomically({
-        fs,
-        manifestPath,
-        manifest: nextManifest,
-        temporaryManifestPath,
-        beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId }),
-        pathGuard,
-      });
-    }
+    nextManifest.sha256 = buildArchiveDigestMap(fs, rootDir, nextManifest.versions);
+    writeManifestAtomically({
+      fs,
+      manifestPath,
+      manifest: nextManifest,
+      temporaryManifestPath,
+      beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId }),
+      pathGuard,
+    });
     manifestCommitted = true;
     assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
     removeTransactionMarkerIfOwned({

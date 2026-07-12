@@ -17,6 +17,28 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve historical archive base
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if ($env:EVENT_NAME -eq "pull_request") {
+            git fetch origin main
+            $baseSha = git merge-base HEAD origin/main
+          } else {
+            $baseSha = $env:BEFORE_SHA
+            if (-not $baseSha -or $baseSha -match '^0+$') {
+              throw "Push event did not provide a prior commit for archive immutability."
+            }
+          }
+          if (-not $baseSha) {
+            throw "Historical archive base could not be resolved."
+          }
+          "STATIC_ARCHIVE_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

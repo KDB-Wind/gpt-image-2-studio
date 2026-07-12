@@ -81,6 +81,9 @@ pub struct SaveBatchImageInput {
 pub struct SaveImageResult {
     pub record: ImageRecord,
     pub preview_url: String,
+    pub save_mode: String,
+    pub history_durability: String,
+    pub history_warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -96,6 +96,11 @@ jobs:
 
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "release_notes=$releaseNotes" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $baseSha = git rev-parse "HEAD^"
+          if (-not $baseSha) {
+            throw "Release archive base commit could not be resolved."
+          }
+          "base_sha=$baseSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Scan source for secrets
         run: npm run secret:scan
@@ -112,6 +117,7 @@ jobs:
       - name: Check release readiness
         env:
           RELEASE_VERSION: ${{ steps.release_metadata.outputs.version }}
+          STATIC_ARCHIVE_BASE_REF: ${{ steps.release_metadata.outputs.base_sha }}
         run: npm run release:check
 
       - name: Check built static site
@@ -141,6 +147,7 @@ jobs:
       - name: Final strict release parity
         env:
           RELEASE_VERSION: ${{ steps.release_metadata.outputs.version }}
+          STATIC_ARCHIVE_BASE_REF: ${{ steps.release_metadata.outputs.base_sha }}
         run: node scripts/release-archive-parity.mjs --strict
 
       - name: Generate release checksums

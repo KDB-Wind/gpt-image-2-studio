@@ -138,6 +138,7 @@ export function BatchPanel({
     () => ({
       authorized: tasks.filter((task) => task.status === "succeeded" && task.saveMode === "authorized-directory").length,
       fallback: tasks.filter((task) => task.status === "succeeded" && task.saveMode === "browser-download").length,
+      memoryOnlyHistory: tasks.filter((task) => task.status === "succeeded" && task.historyDurability === "memory-only").length,
     }),
     [tasks],
   );
@@ -1570,7 +1571,12 @@ export function BatchPanel({
         </dl>
         {hasExecutedTasks ? (
           <p className="panel-note" data-testid="batch-save-summary">
-            {copy.batch.messages.saveSummary(summary.succeeded, saveSummary.authorized, saveSummary.fallback)}
+            {copy.batch.messages.saveSummary(
+              summary.succeeded,
+              saveSummary.authorized,
+              saveSummary.fallback,
+              saveSummary.memoryOnlyHistory,
+            )}
           </p>
         ) : null}
         {startedAt ? (
@@ -1786,6 +1792,11 @@ export function BatchPanel({
                     {task.status === "succeeded" && task.saveMode === "browser-download" && task.saveFallbackReason ? (
                       <p className="warning-copy" data-testid={`batch-save-fallback-task-${task.id}`}>
                         {copy.messages.saveFallbackToBrowserDownload(task.saveFallbackReason)}
+                      </p>
+                    ) : null}
+                    {task.status === "succeeded" && task.historyDurability === "memory-only" && task.historyWarning ? (
+                      <p className="warning-copy" data-testid={`batch-history-durability-task-${task.id}`}>
+                        {task.historyWarning}
                       </p>
                     ) : null}
                     <div className="action-row batch-task-actions">

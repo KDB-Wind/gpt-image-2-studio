@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,6 +8,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   checkPackageReleaseMetadata,
+  checkCiWorkflow,
   checkManualReleaseDocumentation,
   checkReleaseWorkflow,
   checkPagesWorkflow,
@@ -26,6 +28,9 @@ describe("release readiness checks", () => {
     writeFixtureJson(join(rootDir, "static-versions", "manifest.json"), {
       latestStable: "1.2.3",
       versions: ["1.2.3"],
+      sha256: {
+        "1.2.3": createHash("sha256").update(archiveHtml).digest("hex"),
+      },
     });
     writeFixtureFile(
       join(rootDir, "static-versions", "versions", "v1.2.3", "index.html"),
@@ -34,6 +39,17 @@ describe("release readiness checks", () => {
     writeFixtureFile(join(rootDir, "dist-static", "versions", "v1.2.3", "index.html"), archiveHtml);
     writeFixtureFile(join(rootDir, "dist-static", "index.html"), "<html>mismatched release</html>\n");
     writeFixtureFile(join(rootDir, "dist-static", "gpt-image-2-studio-lite.html"), archiveHtml);
+    for (const args of [
+      ["init"],
+      ["config", "core.autocrlf", "false"],
+      ["config", "user.email", "release-test@example.invalid"],
+      ["config", "user.name", "Release Test"],
+      ["add", "--", "package.json", "static-versions/manifest.json", "static-versions/versions/v1.2.3/index.html"],
+      ["commit", "-m", "fixture release"],
+    ]) {
+      const gitResult = spawnSync("git", args, { cwd: rootDir, encoding: "utf8" });
+      expect(gitResult.status).toBe(0);
+    }
 
     const result = spawnSync(process.execPath, [parityScript, "--strict"], {
       cwd: rootDir,
@@ -248,7 +264,7 @@ jobs:
 
   it("requires a final strict parity gate after desktop packaging and immediately before checksums", () => {
     const workflow = readFileSync(".github/workflows/release.yml", "utf8");
-    const finalStrictStep = `      - name: Final strict release parity\n        env:\n          RELEASE_VERSION: \${{ steps.release_metadata.outputs.version }}\n        run: node scripts/release-archive-parity.mjs --strict\n\n`;
+    const finalStrictStep = `      - name: Final strict release parity\n        env:\n          RELEASE_VERSION: \${{ steps.release_metadata.outputs.version }}\n          STATIC_ARCHIVE_BASE_REF: \${{ steps.release_metadata.outputs.base_sha }}\n        run: node scripts/release-archive-parity.mjs --strict\n\n`;
     const validWorkflow = workflow;
 
     expect(checkReleaseWorkflow(validWorkflow)).toEqual([]);
@@ -294,6 +310,18 @@ jobs:
     );
     expect(checkReleaseWorkflow(postUploadModificationWorkflow)).toContain(
       "Release workflow must not run modifying commands between final strict parity, checksums, and upload.",
+    );
+  });
+
+  it("requires CI to resolve an explicit historical archive base for PRs and pushes", () => {
+    const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+
+    expect(checkCiWorkflow(workflow)).toEqual([]);
+    expect(checkCiWorkflow(workflow.replace("fetch-depth: 0", "fetch-depth: 1"))).toContain(
+      "CI checkout must fetch full history for archive immutability.",
+    );
+    expect(checkCiWorkflow(workflow.replace("git merge-base HEAD origin/main", "git rev-parse HEAD^"))).toContain(
+      "PR CI must derive the archive base from merge-base/origin/main.",
     );
   });
 

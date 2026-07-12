@@ -94,6 +94,7 @@ export function checkReleaseWorkflow(workflowText) {
     [/\$releaseNotes\s*=\s*["']docs\/release-notes\/v\$version\.md["']/, "Release workflow must derive the release-notes path from package metadata."],
     [/Test-Path\s+-LiteralPath\s+\$releaseNotes/, "Release workflow must fail when derived release notes are missing."],
     [/release_notes=\$releaseNotes/, "Release workflow must expose the derived release-notes path."],
+    [/base_sha=\$baseSha/, "Release workflow must expose an explicit prior commit for archive immutability."],
     [/npm run secret:scan/, "Release workflow must run the unified secret scan."],
     [/npm run secret:scan:release/, "Release workflow must scan ignored release artifacts."],
     [/npm run release:check/, "Release workflow must run the release readiness check."],
@@ -144,12 +145,16 @@ export function checkReleaseWorkflow(workflowText) {
   const releasePublishIndex = commandIndex(workflowText, "softprops/action-gh-release@v2");
   const releaseScanIndices = commandIndices(workflowText, "npm run secret:scan:release");
   const releaseVersionInputIndices = commandIndices(workflowText, "RELEASE_VERSION: ${{ steps.release_metadata.outputs.version }}");
+  const archiveBaseInputIndices = commandIndices(workflowText, "STATIC_ARCHIVE_BASE_REF: ${{ steps.release_metadata.outputs.base_sha }}");
   const checksumIndex = commandIndex(workflowText, "Get-FileHash");
   const finalStrictParityIndex = commandIndex(workflowText, "node scripts/release-archive-parity.mjs --strict", true);
   const firstReleaseScan = releaseScanIndices[0] ?? -1;
   const finalReleaseScan = releaseScanIndices.at(-1) ?? -1;
   if (releaseVersionInputIndices.length < 2) {
     errors.push("Release workflow must pass the resolved release version into both strict parity gates.");
+  }
+  if (archiveBaseInputIndices.length < 2) {
+    errors.push("Release workflow must pass the explicit prior commit into both strict parity gates.");
   }
   if (staticBuildIndex >= 0 && desktopBuildIndex >= 0) {
     if (firstReleaseScan < staticBuildIndex || firstReleaseScan > desktopBuildIndex) {
@@ -256,6 +261,17 @@ export function checkPagesWorkflow(workflowText) {
   }
 
   return errors;
+}
+
+export function checkCiWorkflow(workflowText) {
+  const checks = [
+    [/fetch-depth:\s*0/, "CI checkout must fetch full history for archive immutability."],
+    [/git merge-base HEAD origin\/main/, "PR CI must derive the archive base from merge-base/origin/main."],
+    [/github\.event\.before/, "Push CI must use the explicit prior event SHA as the archive base."],
+    [/STATIC_ARCHIVE_BASE_REF=\$baseSha/, "CI must export the resolved archive base for strict release checks."],
+    [/npm run release:check/, "CI must run strict release readiness."],
+  ];
+  return checks.filter(([pattern]) => !pattern.test(workflowText)).map(([, message]) => message);
 }
 
 export function checkTauriWindowsBundleConfig(config) {
@@ -438,6 +454,8 @@ export function runReleaseReadiness(rootDir) {
 
   if (!existsSync(ciWorkflowPath)) {
     errors.push(".github/workflows/ci.yml is missing.");
+  } else {
+    errors.push(...checkCiWorkflow(readText(ciWorkflowPath)));
   }
 
   if (!existsSync(pagesWorkflowPath)) {

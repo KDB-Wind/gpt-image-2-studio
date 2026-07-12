@@ -37,7 +37,16 @@ describe("classifyErrorForUser", () => {
 
     expect(result.kind).toBe("timeout");
     expect(message).toContain("increase the timeout");
+    expect(message).toContain("manual retry may duplicate cost");
     expect(result.costWarning).toBe(true);
+  });
+
+  it("warns that manually retrying a network failure can duplicate cost", () => {
+    const error = new Error("Failed to fetch");
+    const message = formatClassifiedError(error, "en-US");
+
+    expect(message).toContain("will not retry automatically");
+    expect(message).toContain("manual retry may duplicate cost");
   });
 
   it("classifies empty image responses as provider-side abnormal responses", () => {

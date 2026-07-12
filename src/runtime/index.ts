@@ -16,7 +16,7 @@ export function getRuntimeAdapter(): Promise<RuntimeAdapter> {
 }
 
 async function loadRuntimeAdapter(): Promise<RuntimeAdapter> {
-  if ("__TAURI_INTERNALS__" in (window as TauriWindow)) {
+  if (!__STATIC_BUILD__ && "__TAURI_INTERNALS__" in (window as TauriWindow)) {
     const { tauriAdapter } = await import("./tauriAdapter");
     return tauriAdapter;
   }
