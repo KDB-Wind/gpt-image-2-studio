@@ -42,7 +42,8 @@ function readDistAsset(distDir, assetPath) {
 }
 
 function svgToDataUri(svg) {
-  return `data:image/svg+xml,${encodeURIComponent(svg)
+  const normalizedSvg = svg.replace(/\r\n?/g, "\n");
+  return `data:image/svg+xml,${encodeURIComponent(normalizedSvg)
     .replace(/%20/g, " ")
     .replace(/%3D/g, "=")
     .replace(/%3A/g, ":")

@@ -41,7 +41,9 @@ describe("release readiness checks", () => {
     });
 
     expect(packageJson.scripts["release:check"]).toContain("node scripts/release-archive-parity.mjs --strict");
+    expect(packageJson.scripts["release:check"]).toContain("node scripts/clean-static-repro-check.mjs");
     expect(packageJson.scripts["release:check"]).not.toContain("npm run site:check");
+    expect(packageJson.scripts["pages:check"]).toBe("node scripts/release-readiness.mjs");
     expect(result.status).toBe(1);
     expect(result.stderr).toMatch(/current release index\.html.*byte-identical/i);
   });
@@ -150,57 +152,17 @@ describe("release readiness checks", () => {
     expect(existsSync(join("docs", "release-notes", `v${packageJson.version}.md`))).toBe(true);
   });
 
-  it("accepts release metadata derived from package.json and rejects tag mismatches", () => {
-    const workflow = `
-on:
-  push:
-    tags: ["v*.*.*"]
-  workflow_dispatch:
-permissions:
-  contents: write
-jobs:
-  windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: npm ci
-      - name: Resolve release metadata
-        id: release_metadata
-        shell: pwsh
-        run: |
-          $version = node -p "require('./package.json').version"
-          $tag = "\${{ github.ref_name }}"
-          $expectedTag = "v$version"
-          if ($tag -ne $expectedTag) { throw "Release tag $tag does not match package version $expectedTag." }
-          $releaseNotes = "docs/release-notes/v$version.md"
-          if (-not (Test-Path -LiteralPath $releaseNotes)) { throw "Release notes are missing: $releaseNotes" }
-          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "release_notes=$releaseNotes" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-      - run: npm run release:check
-      - run: npm run test:run
-      - run: npm run build
-      - run: npm run build:static
-      - run: npm run desktop:build
-      - run: npm run secret:scan
-      - run: Get-FileHash dist-static/gpt-image-2-studio-lite.html | Set-Content SHA256SUMS.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          retention-days: 30
-          path: |
-            dist-static/gpt-image-2-studio-lite.html
-            SHA256SUMS.txt
-      - uses: softprops/action-gh-release@v2
-        with:
-          body_path: \${{ steps.release_metadata.outputs.release_notes }}
-          files: |
-            dist-static/gpt-image-2-studio-lite.html
-            SHA256SUMS.txt
-`;
+  it("accepts package-derived release metadata and evaluates a tag-validation mutation", () => {
+    const workflow = readFileSync(".github/workflows/release.yml", "utf8");
+    const invalidWorkflow = workflow.replace(
+      "$env:RELEASE_TAG -ne $expectedTag",
+      "$env:RELEASE_TAG -eq $expectedTag",
+    );
 
-    expect(checkReleaseWorkflow(readFileSync(".github/workflows/release.yml", "utf8"))).toEqual([]);
+    expect(checkReleaseWorkflow(workflow)).toEqual([]);
+    expect(checkReleaseWorkflow(invalidWorkflow)).toContain(
+      "Release workflow must fail when the tag does not match v<package version>.",
+    );
   });
 
   it("rejects a hard-coded release-notes path", () => {
@@ -255,62 +217,20 @@ jobs:
     );
   });
 
-  it("accepts a Windows release workflow that builds and publishes Tauri bundles", () => {
-    const workflow = `
-name: Release
-on:
-  push:
-    tags:
-      - "v*.*.*"
-  workflow_dispatch:
-permissions:
-  contents: write
-jobs:
-  windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: npm ci
-      - name: Resolve release metadata
-        id: release_metadata
-        run: |
-          $version = node -p "require('./package.json').version"
-          $tag = "\${{ github.ref_name }}"
-          $expectedTag = "v$version"
-          if ($tag -ne $expectedTag) { throw "tag mismatch" }
-          $releaseNotes = "docs/release-notes/v$version.md"
-          if (-not (Test-Path -LiteralPath $releaseNotes)) { throw "notes missing" }
-          "release_notes=$releaseNotes" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-      - run: npm run release:check
-      - run: npm run test:run
-      - run: npm run build
-      - run: npm run build:static
-      - run: npm run desktop:build
-      - run: npm run secret:scan
-      - name: Generate installer checksums
-        run: |
-          Get-FileHash src-tauri/target/release/bundle/nsis/*.exe, dist-static/gpt-image-2-studio-lite.html -Algorithm SHA256 |
-            ForEach-Object { "$($_.Hash.ToLowerInvariant())  $([System.IO.Path]::GetFileName($_.Path))" } |
-            Set-Content SHA256SUMS.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          retention-days: 30
-          path: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            dist-static/gpt-image-2-studio-lite.html
-            SHA256SUMS.txt
-      - uses: softprops/action-gh-release@v2
-        with:
-          body_path: \${{ steps.release_metadata.outputs.release_notes }}
-          files: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            dist-static/gpt-image-2-studio-lite.html
-            SHA256SUMS.txt
-`;
+  it("accepts the Windows release workflow and evaluates a desktop-build mutation", () => {
+    const workflow = readFileSync(".github/workflows/release.yml", "utf8");
+    const invalidWorkflow = workflow.replace("npm run desktop:build", "echo skipped-desktop-build");
 
-    expect(checkReleaseWorkflow(readFileSync(".github/workflows/release.yml", "utf8"))).toEqual([]);
+    expect(checkReleaseWorkflow(workflow)).toEqual([]);
+    expect(checkReleaseWorkflow(invalidWorkflow)).toContain(
+      "Release workflow must build Tauri desktop bundles.",
+    );
+  });
+
+  it("rejects an invalid release workflow fixture as a sentinel", () => {
+    expect(checkReleaseWorkflow("name: invalid fixture\n")).toContain(
+      "Release workflow must trigger on v*.*.* tags.",
+    );
   });
 
   it("requires static site and both static E2E gates before release upload", () => {
@@ -397,7 +317,7 @@ jobs:
       - run: npm ci
       - run: npm run test:run
       - run: npm run build:static
-      - run: npm run release:check
+      - run: npm run pages:check
       - run: npm run site:check
       - run: npm run secret:scan
       - uses: actions/upload-pages-artifact@v3
@@ -409,6 +329,12 @@ jobs:
 `;
 
     expect(checkPagesWorkflow(workflow)).toEqual([]);
+    expect(checkPagesWorkflow(workflow.replace("npm run pages:check", "npm run release:check"))).toEqual(
+      expect.arrayContaining([
+        "Pages workflow must run the non-strict Pages readiness check.",
+        "Pages workflow must not run strict release readiness.",
+      ]),
+    );
   });
 
   it("rejects a Pages workflow that scans only before the static build", () => {
@@ -426,7 +352,7 @@ steps:
   - uses: actions/setup-node@v4
   - run: npm ci
   - run: npm run secret:scan
-  - run: npm run release:check
+  - run: npm run pages:check
   - run: npm run test:run
   - run: npm run build:static
   - run: npm run site:check

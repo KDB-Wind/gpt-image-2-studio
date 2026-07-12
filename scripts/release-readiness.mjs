@@ -219,7 +219,7 @@ export function checkPagesWorkflow(workflowText) {
     [/actions\/setup-node@v4/, "Pages workflow must install Node.js."],
     [/npm ci/, "Pages workflow must install dependencies with npm ci."],
     [/npm run secret:scan/, "Pages workflow must run the unified secret scan."],
-    [/npm run release:check/, "Pages workflow must run the release readiness check."],
+    [/npm run pages:check/, "Pages workflow must run the non-strict Pages readiness check."],
     [/npm run test:run/, "Pages workflow must run frontend tests."],
     [/npm run build:static/, "Pages workflow must build the static HTML site."],
     [/npm run site:check/, "Pages workflow must check static site output."],
@@ -233,7 +233,7 @@ export function checkPagesWorkflow(workflowText) {
     .map(([, message]) => message);
 
   const staticBuildIndex = commandIndex(workflowText, "npm run build:static");
-  const releaseCheckIndex = commandIndex(workflowText, "npm run release:check");
+  const pagesCheckIndex = commandIndex(workflowText, "npm run pages:check");
   const siteCheckIndex = commandIndex(workflowText, "npm run site:check");
   const secretScanIndex = commandIndex(workflowText, "npm run secret:scan", true);
   const uploadIndex = commandIndex(workflowText, "actions/upload-pages-artifact@v3");
@@ -247,8 +247,12 @@ export function checkPagesWorkflow(workflowText) {
     errors.push("Pages workflow must scan built static artifacts before upload.");
   }
 
-  if (staticBuildIndex >= 0 && releaseCheckIndex >= 0 && releaseCheckIndex < staticBuildIndex) {
-    errors.push("Pages workflow must build static release bytes before running release readiness.");
+  if (/npm run release:check|release-archive-parity\.mjs --strict/.test(workflowText)) {
+    errors.push("Pages workflow must not run strict release readiness.");
+  }
+
+  if (staticBuildIndex >= 0 && pagesCheckIndex >= 0 && pagesCheckIndex < staticBuildIndex) {
+    errors.push("Pages workflow must build static release bytes before running Pages readiness.");
   }
 
   return errors;
@@ -301,6 +305,14 @@ export function checkPackageReleaseMetadata(packageJson, packageLock, tauriConfi
 
   if (!packageJson?.scripts?.["release:check"]?.includes("node scripts/release-archive-parity.mjs --strict")) {
     errors.push("package.json release:check must run strict archive parity.");
+  }
+
+  if (!packageJson?.scripts?.["release:check"]?.includes("node scripts/clean-static-repro-check.mjs")) {
+    errors.push("package.json release:check must verify a clean HEAD static build.");
+  }
+
+  if (packageJson?.scripts?.["pages:check"] !== "node scripts/release-readiness.mjs") {
+    errors.push("package.json must expose a non-strict pages:check readiness command.");
   }
 
   if (packageLock?.version !== packageJson?.version || packageLock?.packages?.[""]?.version !== packageJson?.version) {

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import * as nodeFs from "node:fs";
-import { constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { constants, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -21,6 +21,24 @@ import { assertStaticVersionArchivesMatch, runStaticSiteCheck } from "./static-s
 function createTempRoot() {
   return mkdtempSync(join(tmpdir(), "chat-to-image-static-versioning-"));
 }
+
+function canCreateDirectoryLink() {
+  const rootDir = createTempRoot();
+  const targetDir = join(rootDir, "target");
+  const linkDir = join(rootDir, "link");
+  mkdirSync(targetDir);
+
+  try {
+    symlinkSync(targetDir, linkDir, process.platform === "win32" ? "junction" : "dir");
+    return lstatSync(linkDir).isSymbolicLink();
+  } catch {
+    return false;
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+}
+
+const directoryLinksSupported = canCreateDirectoryLink();
 
 function writeJson(path, value) {
   mkdirSync(join(path, ".."), { recursive: true });
@@ -91,6 +109,33 @@ describe("static version archives", () => {
     expect(attributes).toMatch(/^\/static-versions\/versions\/\*\*\/index\.html -text$/m);
     expect(attributes).toMatch(/^\/dist-static\/index\.html -text$/m);
     expect(attributes).toMatch(/^\/dist-static\/gpt-image-2-studio-lite\.html -text$/m);
+    expect(attributes).toMatch(/^\/src\/assets\/app-logo\.svg text eol=lf$/m);
+  });
+
+  it("produces identical inlined SVG bytes from LF and CRLF checkouts", () => {
+    const buildFixture = (svg) => {
+      const rootDir = createTempRoot();
+      const distDir = join(rootDir, "dist-static");
+      writeJson(join(rootDir, "static-versions", "manifest.json"), {
+        latestStable: "1.0.0",
+        versions: ["1.0.0"],
+      });
+      writeSourceArchive(rootDir, "1.0.0", "<html>archive</html>\n");
+      mkdirSync(join(distDir, "assets"), { recursive: true });
+      writeFileSync(
+        join(distDir, "index.static.html"),
+        '<!doctype html><html><head><link rel="icon" href="./assets/app-logo.svg"></head></html>\n',
+        "utf8",
+      );
+      writeFileSync(join(distDir, "assets", "app-logo.svg"), svg, "utf8");
+      inlineStaticHtml({ rootDir, distDir });
+      return readFileSync(join(distDir, "index.html"));
+    };
+
+    const lfSvg = '<svg xmlns="http://www.w3.org/2000/svg">\n  <path d="M0 0"/>\n</svg>\n';
+    const crlfSvg = lfSvg.replace(/\n/g, "\r\n");
+
+    expect(buildFixture(crlfSvg)).toEqual(buildFixture(lfSvg));
   });
 
   it("runs the static build through the current Node and npm CLI paths", () => {
@@ -1107,7 +1152,9 @@ describe("static version archives", () => {
     })).toThrow(/tracked HEAD archive/i);
   });
 
-  it("strict release parity rejects archive link traversal where links are supported", () => {
+  it.skipIf(!directoryLinksSupported)(
+    "strict release parity rejects archive link traversal (skipped only when directory links are unavailable)",
+    () => {
     const fixture = createSiteFixture();
     const outsideRoot = createTempRoot();
     const archiveDirectory = join(fixture.rootDir, "static-versions", "versions", "v1.0.0");
@@ -1115,19 +1162,15 @@ describe("static version archives", () => {
     commitFixtureArchive(fixture.rootDir, "1.0.0");
     writeFileSync(join(outsideRoot, "index.html"), archiveBytes);
     rmSync(archiveDirectory, { recursive: true, force: true });
-
-    try {
-      symlinkSync(outsideRoot, archiveDirectory, process.platform === "win32" ? "junction" : "dir");
-    } catch {
-      return;
-    }
+    symlinkSync(outsideRoot, archiveDirectory, process.platform === "win32" ? "junction" : "dir");
 
     expect(() => runReleaseArchiveParity({
       ...fixture,
       strict: true,
       expectedTag: "v1.0.0",
     })).toThrow(/link|reparse|safe release path/i);
-  });
+    },
+  );
 
   it("rejects a source archive whose embedded manifest does not include its own version", () => {
     const fixture = createSiteFixture({

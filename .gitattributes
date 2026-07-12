@@ -1,3 +1,4 @@
 /static-versions/versions/**/index.html -text
 /dist-static/index.html -text
 /dist-static/gpt-image-2-studio-lite.html -text
+/src/assets/app-logo.svg text eol=lf

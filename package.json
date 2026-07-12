@@ -28,7 +28,8 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
-    "release:check": "vitest run scripts/release-readiness.test.mjs && node scripts/release-readiness.mjs && node scripts/release-archive-parity.mjs --strict",
+    "pages:check": "node scripts/release-readiness.mjs",
+    "release:check": "vitest run scripts/release-readiness.test.mjs && node scripts/release-readiness.mjs && node scripts/clean-static-repro-check.mjs && node scripts/release-archive-parity.mjs --strict",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build"

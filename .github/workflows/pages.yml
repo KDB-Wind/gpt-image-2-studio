@@ -41,8 +41,8 @@ jobs:
       - name: Build static site
         run: npm run build:static
 
-      - name: Check release readiness
-        run: npm run release:check
+      - name: Check Pages readiness
+        run: npm run pages:check
 
       - name: Run static page E2E
         run: npm run e2e:static:mock:run
