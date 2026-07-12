@@ -99,6 +99,30 @@ export function assertVersionManifestAndArchives({ rootDir = defaultRootDir, dis
   }
 
   assertStaticVersionArchivesMatch({ rootDir, distDir });
+  return sourceManifest;
+}
+
+function assertCurrentReleaseMatchesArchive(rootDir, distDir, manifest) {
+  const packagePath = join(rootDir, "package.json");
+  if (!existsSync(packagePath)) {
+    return;
+  }
+
+  const packageVersion = JSON.parse(readFileSync(packagePath, "utf8"))?.version;
+  if (packageVersion !== manifest.latestStable) {
+    return;
+  }
+
+  const archiveBytes = readFileSync(
+    join(rootDir, "static-versions", "versions", `v${packageVersion}`, "index.html"),
+  );
+  for (const fileName of ["index.html", "gpt-image-2-studio-lite.html"]) {
+    if (readFileSync(join(distDir, fileName)).compare(archiveBytes) !== 0) {
+      throw new Error(
+        `Current release ${fileName} must be byte-identical to static-versions/versions/v${packageVersion}/index.html.`,
+      );
+    }
+  }
 }
 
 function assertRequiredFiles(distDir) {
@@ -169,7 +193,8 @@ export function runStaticSiteCheck({ rootDir = defaultRootDir, distDir = join(ro
   assertRequiredFiles(distDir);
   assertSingleFileParity(distDir);
   assertCurrentReleaseHasNoPackageMetadata(distDir);
-  assertVersionManifestAndArchives({ rootDir, distDir });
+  const manifest = assertVersionManifestAndArchives({ rootDir, distDir });
+  assertCurrentReleaseMatchesArchive(rootDir, distDir, manifest);
   assertFaviconIsInlined(distDir);
   assertHeaderLogoIsSelfContained(distDir);
 }

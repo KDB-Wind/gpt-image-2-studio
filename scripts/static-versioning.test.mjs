@@ -38,18 +38,21 @@ function writeSourceArchive(rootDir, version, contents) {
 
 function versionedArchiveHtml({ latestStable, versions }) {
   const quotedVersions = versions.map((version) => `\`${version}\``).join(",");
-  return `<html><script>const manifest={latestStable:\`${latestStable}\`,versions:[${quotedVersions}]}</script></html>\n`;
+  return `<!doctype html><link rel="icon" href="data:image/svg+xml,test"><script>viewBox:"0 0 1024 1024";const manifest={latestStable:\`${latestStable}\`,versions:[${quotedVersions}]}</script>\n`;
 }
 
 function createSiteFixture({
   sourceContents = versionedArchiveHtml({ latestStable: "1.0.0", versions: ["1.0.0"] }),
   distContents = sourceContents,
+  packageVersion = "1.0.0",
+  appContents,
 } = {}) {
   const rootDir = createTempRoot();
   const distDir = join(rootDir, "dist-static");
   const manifest = { latestStable: "1.0.0", versions: ["1.0.0"] };
-  const appHtml = '<!doctype html><link rel="icon" href="data:image/svg+xml,test"><script>viewBox:"0 0 1024 1024"</script>';
+  const appHtml = appContents ?? sourceContents;
 
+  writeJson(join(rootDir, "package.json"), { version: packageVersion });
   writeJson(join(rootDir, "static-versions", "manifest.json"), manifest);
   writeSourceArchive(rootDir, "1.0.0", sourceContents);
   writeJson(join(distDir, "versions", "manifest.json"), manifest);
@@ -988,6 +991,23 @@ describe("static version archives", () => {
     expect(() => runStaticSiteCheck(fixture)).toThrow(/byte-identical/);
   });
 
+  it("rejects release-current HTML that differs from the immutable current-version archive", () => {
+    const fixture = createSiteFixture({
+      appContents: '<!doctype html><link rel="icon" href="data:image/svg+xml,test"><script>viewBox:"0 0 1024 1024";different</script>',
+    });
+
+    expect(() => runStaticSiteCheck(fixture)).toThrow(/current release.*byte-identical/i);
+  });
+
+  it("allows development latest HTML to differ when package version is newer than latestStable", () => {
+    const fixture = createSiteFixture({
+      packageVersion: "1.0.1",
+      appContents: '<!doctype html><link rel="icon" href="data:image/svg+xml,test"><script>viewBox:"0 0 1024 1024";development</script>',
+    });
+
+    expect(() => runStaticSiteCheck(fixture)).not.toThrow();
+  });
+
   it("rejects a source archive whose embedded manifest does not include its own version", () => {
     const fixture = createSiteFixture({
       sourceContents: versionedArchiveHtml({ latestStable: "0.9.0", versions: ["0.9.0"] }),
@@ -1009,6 +1029,7 @@ describe("static version archives", () => {
     const legacyArchive = '<html><script>const packageJson={name:`chat-to-image`,version:`0.9.0`}</script></html>\n';
     const appHtml = '<!doctype html><link rel="icon" href="data:image/svg+xml,test"><script>viewBox:"0 0 1024 1024"</script>';
 
+    writeJson(join(rootDir, "package.json"), { version: "1.0.1" });
     writeJson(join(rootDir, "static-versions", "manifest.json"), manifest);
     writeSourceArchive(rootDir, "1.0.0", currentArchive);
     writeSourceArchive(rootDir, "0.9.0", legacyArchive);
@@ -1059,8 +1080,11 @@ describe("static version archives", () => {
 
   it("does not scan immutable historical archive contents for package markers", () => {
     const fixture = createSiteFixture({
+      packageVersion: "1.0.1",
       sourceContents:
         '<html><script>const manifest={latestStable:`1.0.0`,versions:[`1.0.0`]};license:"ISC";vitest run;@tauri-apps/api</script></html>\n',
+      appContents:
+        '<!doctype html><link rel="icon" href="data:image/svg+xml,test"><script>viewBox:"0 0 1024 1024";development</script>',
     });
 
     expect(() => runStaticSiteCheck(fixture)).not.toThrow();

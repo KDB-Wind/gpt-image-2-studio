@@ -264,6 +264,19 @@ jobs:
     expect(checkReleaseWorkflow(readFileSync(".github/workflows/release.yml", "utf8"))).toEqual([]);
   });
 
+  it("requires static site and both static E2E gates before release upload", () => {
+    const workflow = readFileSync(".github/workflows/release.yml", "utf8")
+      .replace("npm run site:check", "echo skipped-site-check")
+      .replace("npm run e2e:static:mock:run", "echo skipped-mock-e2e")
+      .replace("npm run e2e:static:file:run", "echo skipped-file-e2e");
+
+    expect(checkReleaseWorkflow(workflow)).toEqual(expect.arrayContaining([
+      "Release workflow must check the built static site.",
+      "Release workflow must run mock static E2E tests.",
+      "Release workflow must run file-mode static E2E tests.",
+    ]));
+  });
+
   it("accepts a GitHub Pages workflow that publishes dist-static", () => {
     const workflow = `
 name: Pages

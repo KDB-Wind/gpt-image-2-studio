@@ -76,6 +76,7 @@ export function checkReleaseWorkflow(workflowText) {
   const checks = [
     [/v\*\.\*\.\*/, "Release workflow must trigger on v*.*.* tags."],
     [/workflow_dispatch:/, "Release workflow must support manual dispatch."],
+    [/description:\s*["'].*tag must already exist.*["']/i, "Manual release help must say the tag already exists."],
     [/permissions:\s*[\s\S]*contents:\s*write/, "Release workflow must grant contents: write."],
     [/runs-on:\s*windows-latest/, "Release workflow must build on windows-latest."],
     [/release-metadata:\s*[\s\S]*outputs:\s*[\s\S]*tag:\s*\$\{\{\s*steps\.[^.]+\.outputs\.tag\s*\}\}/, "Release workflow must resolve and expose a validated tag before checkout."],
@@ -99,6 +100,9 @@ export function checkReleaseWorkflow(workflowText) {
     [/npm run test:run/, "Release workflow must run tests before packaging."],
     [/npm run build/, "Release workflow must build the frontend before packaging."],
     [/npm run build:static/, "Release workflow must build the single-file HTML release asset."],
+    [/npm run site:check/, "Release workflow must check the built static site."],
+    [/npm run e2e:static:mock:run/, "Release workflow must run mock static E2E tests."],
+    [/npm run e2e:static:file:run/, "Release workflow must run file-mode static E2E tests."],
     [/npm run desktop:build/, "Release workflow must build Tauri desktop bundles."],
     [/Get-FileHash[\s\S]*SHA256SUMS\.txt/, "Release workflow must generate SHA256SUMS.txt for Windows installer assets."],
     [/actions\/upload-artifact@v4/, "Release workflow must upload installer artifacts."],
@@ -130,7 +134,11 @@ export function checkReleaseWorkflow(workflowText) {
   }
 
   const staticBuildIndex = commandIndex(workflowText, "npm run build:static");
+  const siteCheckIndex = commandIndex(workflowText, "npm run site:check");
+  const mockE2eIndex = commandIndex(workflowText, "npm run e2e:static:mock:run");
+  const fileE2eIndex = commandIndex(workflowText, "npm run e2e:static:file:run");
   const desktopBuildIndex = commandIndex(workflowText, "npm run desktop:build");
+  const uploadIndex = commandIndex(workflowText, "actions/upload-artifact@v4");
   const releaseScanIndices = commandIndices(workflowText, "npm run secret:scan:release");
   const checksumIndex = commandIndex(workflowText, "Get-FileHash");
   const firstReleaseScan = releaseScanIndices[0] ?? -1;
@@ -141,6 +149,16 @@ export function checkReleaseWorkflow(workflowText) {
     }
     if (releaseScanIndices.length < 2 || finalReleaseScan < desktopBuildIndex || (checksumIndex >= 0 && finalReleaseScan > checksumIndex)) {
       errors.push("Release workflow must scan final desktop release artifacts before checksums and upload.");
+    }
+  }
+
+  const staticGateIndices = [staticBuildIndex, siteCheckIndex, mockE2eIndex, fileE2eIndex];
+  if (staticGateIndices.every((index) => index >= 0)) {
+    if (!(staticBuildIndex < siteCheckIndex && siteCheckIndex < mockE2eIndex && mockE2eIndex < fileE2eIndex)) {
+      errors.push("Release workflow must run static build, site check, mock E2E, and file-mode E2E in order.");
+    }
+    if (uploadIndex >= 0 && staticGateIndices.some((index) => index > uploadIndex)) {
+      errors.push("Release workflow must finish all static release gates before upload.");
     }
   }
 
