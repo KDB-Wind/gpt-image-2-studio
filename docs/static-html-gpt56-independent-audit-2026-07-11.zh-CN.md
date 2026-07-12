@@ -299,19 +299,23 @@ OpenAI 官方 OpenAPI 对图片生成请求的说明是：GPT Image 模型总是
 
 ## 5. P2 质量与维护性问题
 
-### P2-001：MIT LICENSE 与 package 元数据冲突
+### P2-001：MIT LICENSE 与 package 元数据冲突（历史问题，已解决）
 
 - `LICENSE` 是 MIT。
 - `package.json:56` 是 ISC。
 
 应统一为 MIT。
 
-### P2-002：为读取版本号把完整 package.json 打进静态页面
+当前状态：**Resolved / Fixed and unit-tested**。`package.json:66` 与 `package-lock.json:10` 的根项目元数据均为 MIT；`scripts/release-readiness.mjs:236-249` 会拒绝不一致，`scripts/release-readiness.test.mjs:92-101` 有对应测试。本轮 `npm run release:check` 的 16 个测试全部通过。
+
+### P2-002：为读取版本号把完整 package.json 打进静态页面（历史问题，已解决）
 
 - `src/App.tsx:3,40` 默认导入整个 package.json。
 - 构建产物中可搜索到 npm scripts 和依赖信息。
 
 应通过 Vite define 或单独的版本模块注入 `APP_VERSION`。
+
+当前状态：**Resolved / Fixed and unit-tested**。`vite.config.ts:11` 和 `vite.static.config.ts:10` 在构建时注入 `__APP_VERSION__`，`src/App.tsx:43` 只消费注入后的版本常量；Task 10 的普通构建、静态构建、站点检查和 release check 均通过。
 
 ### P2-003：计划文档重复且状态失真
 
@@ -328,11 +332,13 @@ OpenAI 官方 OpenAPI 对图片生成请求的说明是：GPT Image 模型总是
 
 本轮新计划 `docs/superpowers/plans/2026-07-11-static-html-audit-remediation.md` 应作为后续唯一执行清单。
 
-### P2-004：真实测试环境加载顺序存在小缺陷
+### P2-004：真实测试环境加载顺序存在小缺陷（历史问题，已解决）
 
 - `tests/e2e/static-html-real-provider.spec.ts:55` 在 `beforeAll` 加载 `.env.e2e.local` 之前执行 `test.skip`。
 
 因此即使文件内设置了 `E2E_REAL_PROVIDER=1`，测试仍可能被跳过，除非 shell 环境另外设置。应在定义 skip 之前加载环境，或统一使用 dotenv。
+
+当前状态：**Resolved / Real-provider verified**。`tests/e2e/static-html-real-provider.spec.ts:17-58` 在计算运行开关前加载受控测试环境，`test.skip` 位于其后；Task 10 的真实 smoke 为 4 通过、0 失败。
 
 ### P2-005：安全和信任说明仍可更清晰
 
@@ -345,6 +351,8 @@ OpenAI 官方 OpenAPI 对图片生成请求的说明是：GPT Image 模型总是
 - 推荐中转站与默认协议行为分开表达。
 - 增加 Referrer-Policy，并确保没有第三方运行时脚本。
 
+当前状态：信任说明部分已经完成并通过 release check；安全响应头仍未完成。CSP、Referrer-Policy 和 Permissions-Policy 保留为未来加固项，不标记为已修复。
+
 ## 6. Task 10 验证结论（2026-07-12）
 
 本节记录本轮重新执行得到的证据，不把自动化浏览器结果等同于原生目录权限验收。
@@ -354,7 +362,7 @@ OpenAI 官方 OpenAPI 对图片生成请求的说明是：GPT Image 模型总是
 | Fixed and unit-tested | 已验证 | `npm run test:run`：31 个测试文件、419 个测试全部通过，Vitest 报告 13.69 秒；`npx tsc --noEmit` 0 诊断，5.339 秒；`cargo check` 通过，Cargo 报告 1.02 秒。 |
 | Mock E2E verified | 已验证 | `npm run e2e:static:mock`：10 通过、1 个按 project 设计跳过、0 失败，Playwright 报告 22.8 秒；`npm run e2e:static:file`：2 通过、0 失败，Playwright 报告 2.7 秒。覆盖桌面、移动端、file 模式、失败重试、批量参考图、保存回退和模拟目录恢复。 |
 | Real-provider verified | 已验证 | 受控真实配置 smoke：4 通过、0 失败，Playwright 报告 56.8 秒。文生图等待预览和历史；图生图等待成功响应和预览，且应用只在保存并重新加载历史后发布成功预览；双任务批量等待完成状态、两张预览和两条历史；AI 规划等待成功响应及最终四任务 UI。未记录真实配置、响应内容或服务身份。 |
-| Native Chrome/Edge | pending/manual evidence missing | 本轮没有执行原生 Chrome/Edge 目录选择、真实磁盘落盘和刷新恢复验收，不能标记为 verified。 |
+| Native Chrome/Edge | pending/manual evidence missing | 本轮没有在受支持的 Chromium 浏览器中执行原生目录选择、真实磁盘落盘和刷新恢复验收，不能标记为 verified。Chrome/Edge 表示可任选其中一个受支持浏览器，不要求两者分别执行。 |
 
 ## 7. 构建、发布与安全证据
 
@@ -392,10 +400,11 @@ OpenAI 官方 OpenAPI 对图片生成请求的说明是：GPT Image 模型总是
 - archive lease heartbeat：归档租约仍缺少长操作 heartbeat。
 - raw-text workflow validation brittleness：工作流的原始文本校验仍较脆弱。
 - public v0.1.4 metadata-leak policy decision：公开 `v0.1.4` 的历史元数据暴露是否保留，仍需明确策略决定。
+- security headers：CSP、Referrer-Policy、Permissions-Policy 仍属于未来安全加固，不标记为已修复。
 
 ## 9. 原生验收剩余清单
 
-Chrome 和 Edge 应分别记录以下字段，且只使用不含用户名和完整私人路径的脱敏位置描述：
+只需在一个受支持的 Chromium 浏览器中完成一次原生验收，可以选择 Chrome 或 Edge。该次验收应记录以下字段，并只使用不含用户名和完整私人路径的脱敏位置描述：
 
 - 浏览器名称和准确版本。
 - 授权目录类型。
@@ -408,4 +417,4 @@ Chrome 和 Edge 应分别记录以下字段，且只使用不含用户名和完�
 
 ## 10. 发布建议
 
-Task 10 的自动化验证已经完成；当前唯一未满足的发布验收门槛是 Chrome/Edge 原生目录落盘和刷新后历史恢复的人工证据。取得并审阅上述字段前，不得声称“完整 E2E 已闭环”或“Native Chrome/Edge verified”。
+Task 10 的自动化验证已经完成；当前唯一未满足的发布验收门槛是在 Chrome 或 Edge 任一受支持浏览器中完成一次原生目录落盘和刷新后历史恢复验收。取得并审阅上述字段前，不得声称“完整 E2E 已闭环”或“Native Chrome/Edge verified”。

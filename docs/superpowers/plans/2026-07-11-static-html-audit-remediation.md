@@ -45,6 +45,8 @@
 
 ### Task 1: Repair E2E Integrity And Pages Gate
 
+**Execution status:** completed and reviewed。真实页面等待逻辑、专用配置和 Pages 门禁已由 Task 10 自动化证据复核；下方 checkbox 保留原始执行步骤，不作为当前状态来源。
+
 - [ ] **Step 1: Write a failing real image-to-image assertion**
 
 把真实图生图测试改为等待真实请求和最终预览：
@@ -145,6 +147,8 @@ git commit -m "test: make static page e2e a trustworthy release gate"
 
 ### Task 2: Restore Official Image API Compatibility
 
+**Execution status:** completed and reviewed。请求契约与兼容模式由单元测试和 Task 10 全量测试复核。
+
 - [ ] **Step 1: Add failing request-construction tests**
 
 ```ts
@@ -233,6 +237,8 @@ git commit -m "fix: separate official image requests from relay compatibility"
 
 ### Task 3: Make Version Archives Immutable
 
+**Execution status:** completed and reviewed。归档不可变性、manifest 和 source/dist parity 已由 Task 10 站点检查及哈希证据复核。
+
 - [ ] **Step 1: Write archive script tests**
 
 测试必须证明：
@@ -319,6 +325,8 @@ git commit -m "fix: preserve immutable static version archives"
 
 ### Task 4: Make Save Results Truthful
 
+**Execution status:** implementation completed and reviewed；原生目录人工验收仍 pending。保存结果、回退和 mock 目录路径已自动化复核，但下方原生验收步骤及 Task 10 native gate 不得标记完成。
+
 - [ ] **Step 1: Add failing batch result tests**
 
 ```ts
@@ -382,7 +390,9 @@ type OutputDirectoryState =
 - 批量摘要统计回退数量。
 - manifest 包含 saveMode。
 
-- [ ] **Step 7: Run Chrome/Edge manual acceptance**
+- [ ] **Step 7: Run native acceptance in Chrome or Edge**
+
+在一个受支持的 Chromium 浏览器中执行一次即可，可选择 Chrome 或 Edge，并记录浏览器名称及准确版本；不要求两者分别执行。
 
 验收步骤：
 
@@ -402,6 +412,8 @@ git commit -m "fix: report authorized-folder saves and browser fallbacks accurat
 ```
 
 ### Task 5: Repair Batch State And AI Count Consistency
+
+**Execution status:** completed and reviewed。重试竞态和任务数量一致性由 Task 10 单元测试、mock E2E 与真实 smoke 复核。
 
 - [ ] **Step 1: Write failing retry race tests**
 
@@ -475,6 +487,8 @@ git commit -m "fix: make batch retries and ai task counts deterministic"
 ```
 
 ### Task 6: Centralize Error And Secret Handling
+
+**Execution status:** completed and reviewed。错误脱敏、短期凭据策略和构建产物扫描由 Task 10 测试及两层 secret scan 复核。
 
 - [ ] **Step 1: Write failing sanitizer tests**
 
@@ -550,6 +564,8 @@ git commit -m "security: protect provider errors and local api keys"
 
 ### Task 7: Complete Blob URL Lifecycle
 
+**Execution status:** completed and reviewed。单图、批量、历史与卸载清理由 Task 10 单元和组件测试复核。
+
 - [ ] **Step 1: Add failing cleanup tests**
 
 对 `URL.revokeObjectURL` 使用 spy，覆盖：
@@ -595,7 +611,7 @@ git commit -m "fix: release generated image blob urls"
 
 ### Task 8: Expand Static Page Coverage
 
-**执行状态：** 自动化覆盖已完成并在 Task 10 重新验证。以下已批准 P2 风险作为非阻断跟进项保留，不标记为已修复：
+**Execution status:** completed and reviewed。自动化覆盖已在 Task 10 重新验证。以下已批准 P2 风险作为非阻断跟进项保留，不标记为已修复：
 
 - async workspace-save ordering。
 - quota/write capability optimism。
@@ -662,11 +678,12 @@ git commit -m "test: cover mobile file mode retries and batch references"
 
 ### Task 9: Align Release Metadata And Documentation
 
-**执行状态：** 发布检查和元数据校验已在 Task 10 重新验证。以下已批准 P2 风险作为非阻断跟进项保留，不标记为已修复：
+**Execution status:** completed and reviewed。发布检查和元数据校验已在 Task 10 重新验证。MIT 元数据、构建时版本注入和测试环境加载顺序的原始 P2 已解决。以下已批准 P2 风险作为非阻断跟进项保留，不标记为已修复：
 
 - archive lease heartbeat。
 - raw-text workflow validation brittleness。
 - public v0.1.4 metadata-leak policy decision。
+- security headers：CSP、Referrer-Policy、Permissions-Policy 仍属于未来加固。
 
 - [ ] **Step 1: Fix package metadata**
 
@@ -799,6 +816,8 @@ Result: 4 通过、0 失败；Playwright 报告 56.8 秒，命令耗时 63.740 �
 
 Status: **pending/manual evidence missing**。本轮没有执行原生 Chrome/Edge 目录验收，不得标记为 verified。
 
+只需在一个受支持的 Chromium 浏览器中完成一次原生验收，可以选择 Chrome 或 Edge；Chrome/Edge 在本计划中表示二选一，不要求分别执行。
+
 必须记录：
 
 - 浏览器及版本。
@@ -808,7 +827,7 @@ Status: **pending/manual evidence missing**。本轮没有执行原生 Chrome/Ed
 - 批量真实位置。
 - 刷新后历史恢复结果。
 
-Chrome 和 Edge 应分别提供上述字段。位置必须脱敏，不得包含用户名或完整私人路径。
+所选浏览器的验收应提供上述字段。位置必须脱敏，不得包含用户名或完整私人路径。
 
 不得记录用户名、完整私人路径、API key、Base URL、模型名或供应商响应。
 
@@ -859,7 +878,7 @@ git commit -m "docs: record static html audit verification"
 - [x] 官方模式不发送 GPT Image 不支持的 response_format。
 - [x] 固定版本归档默认不可覆盖，旧版本不再等于 latest。
 - [x] 批量任务显示授权目录保存或浏览器回退的真实结果。
-- [ ] Chrome/Edge 真实目录落盘和历史恢复有人工证据。
+- [ ] Chrome/Edge 原生验收已有人工证据，即在 Chrome 或 Edge 任一受支持浏览器中完成真实目录落盘和历史恢复。
 - [x] 重试无竞态，AI 任务数量和 items 永远一致或明确拒绝。
 - [x] 用户错误不包含服务秘密，API key 默认不长期持久化。
 - [x] secret scan 覆盖非特定前缀形式和最终构建产物。
@@ -869,4 +888,4 @@ git commit -m "docs: record static html audit verification"
 
 **Task 10 status:** automated verification complete; native acceptance pending。自动化层级为 Fixed and unit-tested、Mock E2E verified、Real-provider verified；Native Chrome/Edge 仍为 pending/manual evidence missing。
 
-**Remaining blocker:** 缺少 Chrome 和 Edge 各自的浏览器准确版本、授权目录类型、目录测试文件脱敏真实位置、单图脱敏真实位置、批量图片及 manifest 脱敏真实位置、刷新后历史预览恢复结果。
+**Remaining blocker:** 缺少一次单浏览器原生验收。可选择 Chrome 或 Edge，需记录浏览器名称及准确版本、授权目录类型、目录测试文件脱敏真实位置、单图脱敏真实位置、批量图片及 manifest 脱敏真实位置、刷新后历史预览恢复结果。
