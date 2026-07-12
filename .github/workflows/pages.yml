@@ -59,8 +59,14 @@ jobs:
       - name: Run frontend tests
         run: npm run test:run
 
+      - name: Build frontend
+        run: npm run build
+
       - name: Build static site
         run: npm run build:static
+
+      - name: Check runtime bundle isolation
+        run: npm run artifact:check
 
       - name: Check Pages readiness
         run: npm run pages:check

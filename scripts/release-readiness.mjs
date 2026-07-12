@@ -103,6 +103,7 @@ export function checkReleaseWorkflow(workflowText) {
     [/npm run test:run/, "Release workflow must run tests before packaging."],
     [/npm run build/, "Release workflow must build the frontend before packaging."],
     [/npm run build:static/, "Release workflow must build the single-file HTML release asset."],
+    [/npm run artifact:check/, "Release workflow must inspect built normal and static artifacts for runtime isolation."],
     [/npm run site:check/, "Release workflow must check the built static site."],
     [/npm run e2e:static:mock:run/, "Release workflow must run mock static E2E tests."],
     [/npm run e2e:static:file:run/, "Release workflow must run file-mode static E2E tests."],
@@ -137,6 +138,8 @@ export function checkReleaseWorkflow(workflowText) {
   }
 
   const staticBuildIndex = commandIndex(workflowText, "npm run build:static");
+  const normalBuildIndex = commandIndex(workflowText, "npm run build");
+  const artifactCheckIndex = commandIndex(workflowText, "npm run artifact:check");
   const releaseCheckIndex = commandIndex(workflowText, "npm run release:check");
   const siteCheckIndex = commandIndex(workflowText, "npm run site:check");
   const mockE2eIndex = commandIndex(workflowText, "npm run e2e:static:mock:run");
@@ -178,6 +181,14 @@ export function checkReleaseWorkflow(workflowText) {
 
   if (staticBuildIndex >= 0 && releaseCheckIndex >= 0 && releaseCheckIndex < staticBuildIndex) {
     errors.push("Release workflow must build static release bytes before running release readiness.");
+  }
+  if (
+    normalBuildIndex >= 0
+    && staticBuildIndex >= 0
+    && artifactCheckIndex >= 0
+    && (!(normalBuildIndex < artifactCheckIndex) || !(staticBuildIndex < artifactCheckIndex))
+  ) {
+    errors.push("Release workflow must run runtime isolation inspection after both frontend builds.");
   }
 
   if (
@@ -232,7 +243,9 @@ export function checkPagesWorkflow(workflowText) {
     [/npm run pages:check/, "Pages workflow must run the non-strict Pages readiness check."],
     [/node scripts\/release-archive-parity\.mjs --historical-only/, "Pages workflow must run the historical-only archive immutability gate."],
     [/npm run test:run/, "Pages workflow must run frontend tests."],
+    [/npm run build(?!:static)/, "Pages workflow must build the normal frontend artifact."],
     [/npm run build:static/, "Pages workflow must build the static HTML site."],
+    [/npm run artifact:check/, "Pages workflow must inspect built normal and static artifacts for runtime isolation."],
     [/npm run site:check/, "Pages workflow must check static site output."],
     [/actions\/upload-pages-artifact@v3/, "Pages workflow must upload a Pages artifact."],
     [/path:\s*dist-static/, "Pages workflow must publish dist-static."],
@@ -244,6 +257,8 @@ export function checkPagesWorkflow(workflowText) {
     .map(([, message]) => message);
 
   const staticBuildIndex = commandIndex(workflowText, "npm run build:static");
+  const normalBuildIndex = commandIndex(workflowText, "npm run build");
+  const artifactCheckIndex = commandIndex(workflowText, "npm run artifact:check");
   const pagesCheckIndex = commandIndex(workflowText, "npm run pages:check");
   const siteCheckIndex = commandIndex(workflowText, "npm run site:check");
   const secretScanIndex = commandIndex(workflowText, "npm run secret:scan", true);
@@ -265,6 +280,14 @@ export function checkPagesWorkflow(workflowText) {
   if (staticBuildIndex >= 0 && pagesCheckIndex >= 0 && pagesCheckIndex < staticBuildIndex) {
     errors.push("Pages workflow must build static release bytes before running Pages readiness.");
   }
+  if (
+    normalBuildIndex >= 0
+    && staticBuildIndex >= 0
+    && artifactCheckIndex >= 0
+    && (!(normalBuildIndex < artifactCheckIndex) || !(staticBuildIndex < artifactCheckIndex))
+  ) {
+    errors.push("Pages workflow must run runtime isolation inspection after both frontend builds.");
+  }
 
   return errors;
 }
@@ -276,6 +299,9 @@ export function checkCiWorkflow(workflowText) {
     [/github\.event\.before/, "Push CI must use the explicit prior event SHA as the archive base."],
     [/STATIC_ARCHIVE_BASE_REF=\$baseSha/, "CI must export the resolved archive base for strict release checks."],
     [/npm run release:check/, "CI must run strict release readiness."],
+    [/npm run build(?!:static)/, "CI must build the normal frontend artifact."],
+    [/npm run build:static/, "CI must build the static frontend artifact."],
+    [/npm run artifact:check/, "CI must inspect built normal and static artifacts for runtime isolation."],
   ];
   return checks.filter(([pattern]) => !pattern.test(workflowText)).map(([, message]) => message);
 }
@@ -323,6 +349,10 @@ export function checkPackageReleaseMetadata(packageJson, packageLock, tauriConfi
 
   if (packageJson?.scripts?.["secret:scan:release"] !== "node scripts/secret-scan.mjs --release-artifacts") {
     errors.push("package.json must expose the release artifact secret scan script.");
+  }
+
+  if (packageJson?.scripts?.["artifact:check"] !== "node scripts/check-runtime-bundle-isolation.mjs") {
+    errors.push("package.json must expose the runtime bundle isolation checker.");
   }
 
   if (!packageJson?.scripts?.["release:check"]?.includes("node scripts/release-archive-parity.mjs --strict")) {

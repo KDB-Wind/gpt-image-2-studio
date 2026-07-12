@@ -66,6 +66,12 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Build static frontend
+        run: npm run build:static
+
+      - name: Check runtime bundle isolation
+        run: npm run artifact:check
+
       - name: Check Tauri Rust code
         run: cargo check --manifest-path src-tauri/Cargo.toml
 

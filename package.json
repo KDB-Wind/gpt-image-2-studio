@@ -14,6 +14,7 @@
     "site:check": "node scripts/static-site-check.mjs",
     "secret:scan": "node scripts/secret-scan.mjs",
     "secret:scan:release": "node scripts/secret-scan.mjs --release-artifacts",
+    "artifact:check": "node scripts/check-runtime-bundle-isolation.mjs",
     "site:verify": "npm run build:static && npm run site:check && npm run secret:scan",
     "e2e:install": "playwright install chromium",
     "e2e:static": "npm run e2e:static:mock",

@@ -60,6 +60,7 @@ describe("release readiness checks", () => {
     expect(packageJson.scripts["release:check"]).toContain("node scripts/clean-static-repro-check.mjs");
     expect(packageJson.scripts["release:check"]).not.toContain("npm run site:check");
     expect(packageJson.scripts["pages:check"]).toBe("node scripts/release-readiness.mjs");
+    expect(packageJson.scripts["artifact:check"]).toBe("node scripts/check-runtime-bundle-isolation.mjs");
     expect(result.status).toBe(1);
     expect(result.stderr).toMatch(/current release index\.html.*byte-identical/i);
   });
@@ -103,6 +104,9 @@ describe("release readiness checks", () => {
     expect(workflow).toMatch(/ref:\s*refs\/tags\/\$\{\{\s*needs\.[^.]+\.outputs\.tag\s*\}\}/);
     expect(workflow).toMatch(/git rev-parse HEAD[\s\S]*git rev-list -n 1/);
     expect(checkReleaseWorkflow(workflow)).toEqual([]);
+    expect(checkReleaseWorkflow(workflow.replace("npm run artifact:check", "npm run site:check"))).toContain(
+      "Release workflow must inspect built normal and static artifacts for runtime isolation.",
+    );
 
     const branchHeadWorkflow = workflow.replace(
       "ref: refs/tags/${{ needs.release-metadata.outputs.tag }}",
@@ -323,6 +327,9 @@ jobs:
     expect(checkCiWorkflow(workflow.replace("git merge-base HEAD origin/main", "git rev-parse HEAD^"))).toContain(
       "PR CI must derive the archive base from merge-base/origin/main.",
     );
+    expect(checkCiWorkflow(workflow.replace("npm run artifact:check", "npm run build"))).toContain(
+      "CI must inspect built normal and static artifacts for runtime isolation.",
+    );
   });
 
   it("accepts a GitHub Pages workflow that publishes dist-static", () => {
@@ -359,7 +366,9 @@ jobs:
       - uses: actions/setup-node@v4
       - run: npm ci
       - run: npm run test:run
+      - run: npm run build
       - run: npm run build:static
+      - run: npm run artifact:check
       - run: npm run pages:check
       - run: node scripts/release-archive-parity.mjs --historical-only
       - run: npm run site:check
@@ -384,6 +393,9 @@ jobs:
     );
     expect(checkPagesWorkflow(workflow.replace("node scripts/release-archive-parity.mjs --historical-only", "npm run site:check"))).toContain(
       "Pages workflow must run the historical-only archive immutability gate.",
+    );
+    expect(checkPagesWorkflow(workflow.replace("npm run artifact:check", "npm run build:static"))).toContain(
+      "Pages workflow must inspect built normal and static artifacts for runtime isolation.",
     );
   });
 
@@ -414,7 +426,9 @@ steps:
   - run: npm run secret:scan
   - run: npm run pages:check
   - run: npm run test:run
+  - run: npm run build
   - run: npm run build:static
+  - run: npm run artifact:check
   - run: node scripts/release-archive-parity.mjs --historical-only
   - run: npm run site:check
   - uses: actions/upload-pages-artifact@v3
