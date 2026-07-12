@@ -18,9 +18,9 @@
 - `v0.1.6` 已绑定发布与归档；Git blob、链接和路径均受守卫；Release 使用严格校验、Pages 使用非严格校验；校验和生成前执行最终一致性检查；已验证 clean HEAD 可复现性和非空工作流测试。
 - 先前 clean 构建不一致的根因是 Windows 下内联 SVG 的 CRLF 行尾；统一为 LF 后已解决。
 
-### 2.1 P1 修复台账
+### 2.1 完整 P1 状态台账
 
-下列项目均为既有任务的 **已修复并审阅** 状态；证据类别只引用本轮已有的 451 单元测试、mock/file/真实服务 E2E、两层密钥扫描和发布/站点门禁，不新增任何证据声明。
+下列台账包含已修复项和仍待人工验收项；证据类别只引用本轮已有的 451 单元测试、mock/file/真实服务 E2E、两层密钥扫描和发布/站点门禁，不新增任何证据声明。
 
 | P1 项目 | 状态 | 证据类别 |
 | --- | --- | --- |
@@ -30,6 +30,7 @@
 | 密钥持久化策略与测试 artifact 秘密处理 | Fixed and unit-tested | 已审阅任务；451 测试与两层密钥扫描。 |
 | 仓库与发布产物的扩展密钥扫描 | Fixed and unit-tested | 已审阅任务；两层密钥扫描及 release/site 门禁。 |
 | 单图、批量、历史、设置、移动端、file、重试、参考图、保存目录页面覆盖 | Mock E2E verified | 10 个 mock 通过、1 个预期跳过；2 个 file 通过。 |
+| 保存目录 / Native File System Access（历史 P1-003） | Native manual pending | 自动化 mock/code paths 已通过；真实选择器、权限、磁盘落点和刷新后恢复仍待人工验收。 |
 | Blob URL 生命周期清理 | Fixed and unit-tested | 已审阅任务；451 测试。 |
 | 发布元数据/版本一致性及真实服务测试激活顺序 | Fixed and unit-tested；Real-provider verified | 已审阅任务；release/site 门禁及 4 个真实服务 E2E 通过。 |
 | 目录碰撞不覆盖与同一实例文件/历史原子事务 | Fixed and unit-tested | 已审阅任务；451 测试与 mock/file E2E。 |

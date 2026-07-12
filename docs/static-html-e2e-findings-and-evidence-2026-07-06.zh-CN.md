@@ -28,7 +28,7 @@
 - `v0.1.6` 发布/归档绑定、Git blob/链接/路径守卫、严格 Release 与非严格 Pages 的分层、校验和前最终一致性、clean HEAD 可复现性与非空工作流测试。
 - Windows 内联 SVG CRLF 导致的先前 clean 不一致；LF 规范化已修复。
 
-早期 P1 的完整已解决台账见[独立审计](static-html-gpt56-independent-audit-2026-07-11.zh-CN.md)和[修复计划](superpowers/plans/2026-07-11-static-html-audit-remediation.md)：其中明确保留重试竞态、AI 数量一致性、错误脱敏、密钥与 artifact 处理、扩展扫描、页面覆盖、Blob URL、发布元数据及真实服务测试激活顺序的状态与证据类别。
+早期 P1 的完整 P1 状态台账见[独立审计](static-html-gpt56-independent-audit-2026-07-11.zh-CN.md)和[修复计划](superpowers/plans/2026-07-11-static-html-audit-remediation.md)：其中明确保留重试竞态、AI 数量一致性、错误脱敏、密钥与 artifact 处理、扩展扫描、页面覆盖、保存目录原生验收、Blob URL、发布元数据及真实服务测试激活顺序的状态与证据类别。
 
 归档哈希：
 
