@@ -33,7 +33,7 @@ rg -n "sk-[A-Za-z0-9_-]{24,}|KNOWN_REAL_KEY_PREFIX|YOUR_REAL_KEY" . --glob "!nod
 
 ## 3. 测试环境
 
-- 工作目录：`D:\DemoProject\chatToImage\.worktrees\public-lite-cleanup`
+- 工作目录：`<REPO_ROOT>`
 - 本地预览：优先使用 `npm run build:static` 后的静态预览。
 - 浏览器：Chromium / Edge 优先，因为保存目录依赖 File System Access API。
 - 真实供应商配置：

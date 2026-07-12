@@ -4,7 +4,7 @@
 
 日期：2026-07-06
 
-工作区：`D:\DemoProject\chatToImage\.worktrees\public-lite-cleanup`
+工作区：`<REPO_ROOT>`
 
 测试对象：GitHub Pages / 单文件静态 HTML 版本，核心目标是确认新用户能否完成配置、单图生成、批量生成、AI 拆分提示词、图生图、历史回看与保存目录授权。
 

@@ -124,7 +124,7 @@ Interval seconds: 20 to 60
 Max retries: 1
 ```
 
-Automatic retries are limited to HTTP 429 rejections. Timeout, HTTP 408, network, 5xx, and unknown outcomes are not resubmitted automatically because a manual retry may duplicate provider cost.
+Automatic retries are limited to plain HTTP 429 responses that definitively rejected the request. A 429 carrying accepted, billed, or ambiguous-completion evidence is treated as cost risk and is not resubmitted automatically. Timeout, HTTP 408, network, 5xx, and unknown outcomes also require a user-triggered retry because another submission may duplicate provider cost.
 
 If your provider is stable, you may increase concurrency gradually. The current maximum is 3. If the provider returns a cost-risk failure, the batch may pause to avoid repeated waste.
 

@@ -12,38 +12,38 @@
 
 ## 2. 已修复并复核的事项
 
-- 真实目录保存已实现同一浏览器应用实例内的文件与历史原子事务，并拒绝真实目录碰撞覆盖。
+- 真实目录保存已实现同一浏览器应用实例内的文件与历史串行化及显式持久性，并拒绝真实目录碰撞覆盖。
 - 每个单图或批量任务恰好请求一张图片；旧数量值已规范化。
 - 前端与桌面端的配置持久化完整覆盖图片响应模式与批量设置。
-- `v0.1.6` 已绑定发布与归档；Git blob、链接和路径均受守卫；Release 使用严格校验、Pages 使用非严格校验；校验和生成前执行最终一致性检查；已验证 clean HEAD 可复现性和非空工作流测试。
+- `v0.1.6` 已绑定发布与归档；Git blob、链接和路径均受守卫；Release 使用严格校验，Pages 保留非严格当前版本检查并增加历史基线门禁；校验和生成前执行最终一致性检查；已验证 clean HEAD 可复现性和非空工作流测试。
 - 先前 clean 构建不一致的根因是 Windows 下内联 SVG 的 CRLF 行尾；统一为 LF 后已解决。
 
 ### 2.1 完整 P1 状态台账
 
-下列台账包含已修复项和仍待人工验收项；证据类别只引用本轮已有的 451 单元测试、mock/file/真实服务 E2E、两层密钥扫描和发布/站点门禁，不新增任何证据声明。
+下列台账包含已修复项和仍待人工验收项；证据类别只引用本轮已有的 479 单元测试、mock/file/真实服务 E2E、两层密钥扫描和发布/站点门禁，不新增任何证据声明。
 
 | P1 项目 | 状态 | 证据类别 |
 | --- | --- | --- |
-| 单任务重试并发与陈旧状态覆盖 | Fixed and unit-tested | 已审阅任务；451 测试与 retry mock E2E。 |
-| AI 规划数量与 items 一致性 | Fixed and unit-tested；Real-provider verified | 已审阅任务；451 测试、mock E2E、真实服务规划 smoke。 |
-| 面向用户的服务错误脱敏 | Fixed and unit-tested | 已审阅任务；451 测试与两层密钥扫描。 |
-| 密钥持久化策略与测试 artifact 秘密处理 | Fixed and unit-tested | 已审阅任务；451 测试与两层密钥扫描。 |
+| 单任务重试并发与陈旧状态覆盖 | Fixed and unit-tested | 已审阅任务；479 测试与 retry mock E2E。 |
+| AI 规划数量与 items 一致性 | Fixed and unit-tested；Real-provider verified | 已审阅任务；479 测试、mock E2E、真实服务规划 smoke。 |
+| 面向用户的服务错误脱敏 | Fixed and unit-tested | 已审阅任务；479 测试与两层密钥扫描。 |
+| 密钥持久化策略与测试 artifact 秘密处理 | Fixed and unit-tested | 已审阅任务；479 测试与两层密钥扫描。 |
 | 仓库与发布产物的扩展密钥扫描 | Fixed and unit-tested | 已审阅任务；两层密钥扫描及 release/site 门禁。 |
 | 单图、批量、历史、设置、移动端、file、重试、参考图、保存目录页面覆盖 | Mock E2E verified | 10 个 mock 通过、1 个预期跳过；2 个 file 通过。 |
 | 保存目录 / Native File System Access（历史 P1-003） | Native manual pending | 自动化 mock/code paths 已通过；真实选择器、权限、磁盘落点和刷新后恢复仍待人工验收。 |
-| Blob URL 生命周期清理 | Fixed and unit-tested | 已审阅任务；451 测试。 |
+| Blob URL 生命周期清理 | Fixed and unit-tested | 已审阅任务；479 测试。 |
 | 发布元数据/版本一致性及真实服务测试激活顺序 | Fixed and unit-tested；Real-provider verified | 已审阅任务；release/site 门禁及 4 个真实服务 E2E 通过。 |
-| 目录碰撞不覆盖与同一实例文件/历史原子事务 | Fixed and unit-tested | 已审阅任务；451 测试与 mock/file E2E。 |
-| 每任务恰好一张图片及旧数量规范化 | Fixed and unit-tested；Real-provider verified | 已审阅任务；451 测试、mock E2E、真实服务 E2E。 |
-| 前端与桌面端完整配置持久化 | Fixed and unit-tested | 已审阅任务；451 测试与 mock E2E。 |
+| 目录碰撞不覆盖与同一实例文件/历史串行化与显式持久性 | Fixed and unit-tested | 已审阅任务；479 测试与 mock/file E2E。 |
+| 每任务恰好一张图片及旧数量规范化 | Fixed and unit-tested；Real-provider verified | 已审阅任务；479 测试、mock E2E、真实服务 E2E。 |
+| 前端与桌面端完整配置持久化 | Fixed and unit-tested | 已审阅任务；479 测试与 mock E2E。 |
 | `v0.1.6` 发布/归档守卫、最终一致性、可复现性和工作流测试 | Fixed and unit-tested | 已审阅任务；release/site 门禁、clean HEAD 可复现性及严格归档一致性。 |
 
 ## 3. 2026-07-12 控制器复核
 
 | 证据层级 | 状态 | 证据 |
 | --- | --- | --- |
-| Fixed and unit-tested | 已验证 | `npm run test:run`：32 个文件、451 个测试通过；`npx tsc --noEmit` 通过；`cargo test`：25 通过；`cargo check` 通过。 |
-| 构建与发布检查 | 已验证 | `npm run build`、`npm run build:static` 均通过，均为 47 个模块；`npm run site:check` 通过；`npm run release:check` 的 21 个 readiness 测试及 readiness、clean HEAD 可复现性、严格归档一致性均通过。 |
+| Fixed and unit-tested | 已验证 | `npm run test:run`：33 个文件、479 个测试通过；`npx tsc --noEmit` 通过；`cargo test`：28 通过；`cargo check` 通过。 |
+| 构建与发布检查 | 已验证 | `npm run build` 通过（46 个模块），`npm run build:static` 通过（42 个模块）；`npm run site:check` 通过；`npm run release:check` 的 22 个 readiness 测试及 readiness、clean HEAD 可复现性、严格归档一致性均通过。 |
 | Mock E2E verified | 已验证 | `npm run e2e:static:mock`：10 通过、1 个预期跳过；`npm run e2e:static:file`：2 通过。 |
 | Real-provider verified | 已验证 | `npm run e2e:static:real`：4 通过，无重试。未记录或暴露任何服务配置、服务身份或响应内容。 |
 | 安全与变更卫生 | 已验证 | 两层密钥扫描均通过；`git diff --check` 通过。 |
@@ -51,9 +51,9 @@
 
 ### 3.1 归档校验和
 
-- `v0.1.4`：`2921ACDD0350D487E0659B0A143C7AC3597DA36AF80DA7FD0A4980190CF19A64`
-- `v0.1.5`：`50D653FECF24AFD86F7FB7C9F082555A987BB1610ACABC5AAB93E48F74326056`
-- `v0.1.6` 源归档、分发 index 与 lite HTML：`0E67C34BAF4C4289D4864F6CC8E842DF84C23B14CE94E34C8C2354ECA059AEB3`
+- `v0.1.4`：`1923F7169B032F5FD7105C54E58B1FC10CE01D6E253B70E06661E46B3A84AC2D`
+- `v0.1.5`：`72CB38132E9B25F74D960B15D49BC9B105F07E75F254269463889EB4AE64FE22`
+- `v0.1.6` 源归档、分发 index 与 lite HTML：`63C131116175AC1ACD527BBBAB34BE72BE5A590A70BDA29D5C01254A7DAD6CAE`
 
 ## 4. 原生手工验收
 
@@ -78,23 +78,23 @@
 
 可表述为“自动化验证完成，真实服务 smoke 已验证”。不得表述为“完整 E2E 已闭环”或“Native File System Access 已验证”，直到第 4 节的手工验收完成并有可复核证据。
 
-## 2026-07-12 Final Whole-Branch Closure
+## 2026-07-12 SPEC Review Closure
 
-Status: `DONE` for automated branch gates. Native manual acceptance remains pending; Computer Use observations are not counted as release evidence. No full/native E2E claim is made.
+Status: automated branch gates passed. Native File System Access manual acceptance remains pending, and the aborted Computer Use attempt is not release evidence. No full/native E2E claim is made.
 
-- Frontend/unit: `32` files, `468` tests passed.
-- Static mock E2E: `10` passed, `1` intentionally skipped by project selection.
-- Static file-mode E2E: `2` passed.
-- Real-provider static E2E: `4` passed after unit/mock gates.
-- Rust: `28` tests passed; `cargo check` passed.
-- Clean-HEAD static reproducibility, strict release parity, Pages readiness, both secret scans, TypeScript, and archive second-attempt rejection passed.
-- Link traversal was genuinely exercised on Windows; it was not conditionally skipped.
-- Exact final range check: `git diff --check 989ea2cb0c55fe6ed3735f12eaa2e835f0357e9e..HEAD`.
+- Frontend/unit: 33 files, 479 tests passed.
+- Builds: normal 46 modules; static 42 modules.
+- Emitted-artifact isolation: normal dist retains the Tauri adapter and bridge markers; current static HTML/assets exclude them. Immutable historical copies are governed by the raw archive gate.
+- Static mock E2E: 10 passed, 1 intentionally skipped by project selection.
+- Static file-mode E2E: 2 passed.
+- Real-service static E2E: 4 passed after unit/mock gates; no service configuration, identity, signed URL, or response body is recorded.
+- Rust: 28 tests passed; cargo check passed.
+- Release readiness: 22 readiness tests passed. Clean-HEAD reproducibility, Pages readiness, both secret scans, TypeScript, archive second-attempt rejection, and strict parity passed with explicit trusted base 5c8a3481680496f21628464eb67901886ee0c1e9 and with the default base selection.
 
-Archive SHA-256 evidence:
+Raw Git archive evidence:
 
-- `v0.1.4`: `2921acdd0350d487e0659b0a143c7ac3597da36af80da7fd0a4980190cf19a64`
-- `v0.1.5`: `50d653fecf24afd86f7fb7c9f082555a987bb1610acabc5aab93e48f74326056`
-- `v0.1.6` source, dist version copy, current index, and release HTML: `0e67c34baf4c4289d4864f6cc8e842df84c23b14ce94e34c8c2354eca059aeb3`
+- `v0.1.4`: blob 6e35c4fd1e1a02f10c1a2df02032ceb9593a793d; SHA-256 1923F7169B032F5FD7105C54E58B1FC10CE01D6E253B70E06661E46B3A84AC2D.
+- `v0.1.5`: blob dc342cf3cf8e04a5e1b02d2d70f4de9f1dc09ac7; SHA-256 72CB38132E9B25F74D960B15D49BC9B105F07E75F254269463889EB4AE64FE22.
+- `v0.1.6`: SHA-256 63C131116175AC1ACD527BBBAB34BE72BE5A590A70BDA29D5C01254A7DAD6CAE for the source archive and current generated release HTML.
 
-The v0.1.4/v0.1.5 filesystem bytes and hashes remain unchanged. Their Git index entries were corrected to preserve those exact bytes under the existing `-text` archive policy; strict historical comparison includes a narrowly tested legacy single-CR materialization for the prior commit representation. Current HTML generation normalizes carriage returns at the source and rejects trailing whitespace.
+Correction: earlier Windows checkout-transformed hash claims were not canonical. Historical evidence now uses raw Git blob bytes only. No carriage-return reconstruction or byte normalization is permitted, and a historical archive change still fails even when its digest metadata is changed with it.

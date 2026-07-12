@@ -72,7 +72,7 @@ Directory exists.
 Use the current local static HTML:
 
 ```text
-D:\DemoProject\chatToImage\.worktrees\public-lite-cleanup\dist-static\gpt-image-2-studio-lite.html
+<REPO_ROOT>\dist-static\gpt-image-2-studio-lite.html
 ```
 
 Expected:
