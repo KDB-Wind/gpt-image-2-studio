@@ -88,12 +88,17 @@ export function materializeTrackedArchiveBytes(bytes, expectedDigest, label) {
     return bytes;
   }
 
-  const crlfBytes = Buffer.from(bytes.toString("utf8").replace(/(?<!\r)\n/g, "\r\n"), "utf8");
-  if (sha256(crlfBytes) === expectedDigest) {
-    return crlfBytes;
+  for (let index = 0; index < bytes.length; index += 1) {
+    if (bytes[index] !== 0x0a || (index > 0 && bytes[index - 1] === 0x0d)) {
+      continue;
+    }
+    const legacyBytes = Buffer.concat([bytes.subarray(0, index), Buffer.from("\r"), bytes.subarray(index)]);
+    if (sha256(legacyBytes) === expectedDigest) {
+      return legacyBytes;
+    }
   }
 
-  throw new Error(`${label} does not match its committed trusted digest, including the legacy LF-to-CRLF materialization.`);
+  throw new Error(`${label} does not match its committed trusted digest, including the legacy single-CR materialization.`);
 }
 
 function assertSameBytes(actualPath, expectedBytes, message) {

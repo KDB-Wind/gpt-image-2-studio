@@ -53,7 +53,7 @@
 
 - `v0.1.4`：`2921ACDD0350D487E0659B0A143C7AC3597DA36AF80DA7FD0A4980190CF19A64`
 - `v0.1.5`：`50D653FECF24AFD86F7FB7C9F082555A987BB1610ACABC5AAB93E48F74326056`
-- `v0.1.6` 源归档、分发 index 与 lite HTML：`A81D9D9C0E6E76C95BB66D16ED74F7283B0B3D90397060EF37B44AD2E5FEF129`
+- `v0.1.6` 源归档、分发 index 与 lite HTML：`0E67C34BAF4C4289D4864F6CC8E842DF84C23B14CE94E34C8C2354ECA059AEB3`
 
 ## 4. 原生手工验收
 
@@ -77,3 +77,24 @@
 ## 6. 发布表述
 
 可表述为“自动化验证完成，真实服务 smoke 已验证”。不得表述为“完整 E2E 已闭环”或“Native File System Access 已验证”，直到第 4 节的手工验收完成并有可复核证据。
+
+## 2026-07-12 Final Whole-Branch Closure
+
+Status: `DONE` for automated branch gates. Native manual acceptance remains pending; Computer Use observations are not counted as release evidence. No full/native E2E claim is made.
+
+- Frontend/unit: `32` files, `468` tests passed.
+- Static mock E2E: `10` passed, `1` intentionally skipped by project selection.
+- Static file-mode E2E: `2` passed.
+- Real-provider static E2E: `4` passed after unit/mock gates.
+- Rust: `28` tests passed; `cargo check` passed.
+- Clean-HEAD static reproducibility, strict release parity, Pages readiness, both secret scans, TypeScript, and archive second-attempt rejection passed.
+- Link traversal was genuinely exercised on Windows; it was not conditionally skipped.
+- Exact final range check: `git diff --check 989ea2cb0c55fe6ed3735f12eaa2e835f0357e9e..HEAD`.
+
+Archive SHA-256 evidence:
+
+- `v0.1.4`: `2921acdd0350d487e0659b0a143c7ac3597da36af80da7fd0a4980190cf19a64`
+- `v0.1.5`: `50d653fecf24afd86f7fb7c9f082555a987bb1610acabc5aab93e48f74326056`
+- `v0.1.6` source, dist version copy, current index, and release HTML: `0e67c34baf4c4289d4864f6cc8e842df84c23b14ce94e34c8c2354eca059aeb3`
+
+The v0.1.4/v0.1.5 filesystem bytes and hashes remain unchanged. Their Git index entries were corrected to preserve those exact bytes under the existing `-text` archive policy; strict historical comparison includes a narrowly tested legacy single-CR materialization for the prior commit representation. Current HTML generation normalizes carriage returns at the source and rejects trailing whitespace.

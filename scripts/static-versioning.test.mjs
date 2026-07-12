@@ -126,13 +126,13 @@ describe("static version archives", () => {
     expect(existsSync(".gitattributes")).toBe(true);
     const attributes = readFileSync(".gitattributes", "utf8");
 
-    expect(attributes).toMatch(/^\/static-versions\/versions\/\*\*\/index\.html -text$/m);
+    expect(attributes).toMatch(/^\/static-versions\/versions\/\*\*\/index\.html -text whitespace=cr-at-eol$/m);
     expect(attributes).toMatch(/^\/dist-static\/index\.html -text$/m);
     expect(attributes).toMatch(/^\/dist-static\/gpt-image-2-studio-lite\.html -text$/m);
     expect(attributes).toMatch(/^\/src\/assets\/app-logo\.svg text eol=lf$/m);
   });
 
-  it("materializes legacy tracked LF archive bytes to their committed CRLF digest", () => {
+  it("materializes a legacy tracked LF archive byte to its committed single-CR digest", () => {
     const lfBytes = Buffer.from("<html>legacy</html>\n", "utf8");
     const crlfBytes = Buffer.from("<html>legacy</html>\r\n", "utf8");
     const digest = createHash("sha256").update(crlfBytes).digest("hex");

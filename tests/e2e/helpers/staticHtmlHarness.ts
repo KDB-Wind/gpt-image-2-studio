@@ -234,6 +234,15 @@ export async function installMockOutputDirectory(page: Page, options: MockOutput
             },
           } as FileSystemFileHandle;
         },
+        async removeEntry(fileName: string) {
+          const key = `${path}/${fileName}`;
+          const files = readFiles();
+          if (!files[key]) {
+            throw new DOMException(`File not found: ${fileName}`, "NotFoundError");
+          }
+          delete files[key];
+          writeFiles(files);
+        },
       };
     }
 

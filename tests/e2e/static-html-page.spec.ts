@@ -292,7 +292,7 @@ test("static batch preserves browser-download fallbacks in its summary and manif
 
   await expect(page.locator(".batch-task-list .status-pill.succeeded")).toHaveCount(2, { timeout: 60_000 });
   await expect(page.getByTestId("batch-save-summary")).toHaveText(
-    "Generated successfully 2, saved to authorized directory 0, fell back to browser download 2.",
+    "Generated successfully 2, saved to authorized directory 0, fell back to browser download 2, history available only in this session 0.",
   );
   await expect(page.locator('[data-testid^="batch-save-fallback-task-"]')).toHaveCount(2);
   await expect(page.locator('[data-testid^="batch-save-fallback-task-"]').first()).toContainText("[redacted-url]");
@@ -332,7 +332,7 @@ test("static batch records authorized-directory saves in its summary and manifes
   await page.getByTestId("batch-start").click();
 
   await expect(page.getByTestId("batch-save-summary")).toHaveText(
-    "Generated successfully 2, saved to authorized directory 2, fell back to browser download 0.",
+    "Generated successfully 2, saved to authorized directory 2, fell back to browser download 0, history available only in this session 0.",
     { timeout: 60_000 },
   );
 

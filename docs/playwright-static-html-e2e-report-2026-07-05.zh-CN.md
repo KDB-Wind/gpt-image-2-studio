@@ -352,3 +352,24 @@ payload.append("image[]", image, image.name);
 - 若供应商返回 URL 且浏览器无法下载，页面错误信息能说明 CORS / URL 下载问题。
 - 保存目录授权仍需保留人工验收步骤，并在报告中明确记录结果。
 - 修复后再次执行密钥扫描，确认无真实密钥进入仓库。
+
+## 2026-07-12 Final Whole-Branch Closure
+
+Status: `DONE` for automated branch gates. Native manual acceptance remains pending; Computer Use observations are not counted as release evidence. No full/native E2E claim is made.
+
+- Frontend/unit: `32` files, `468` tests passed.
+- Static mock E2E: `10` passed, `1` intentionally skipped by project selection.
+- Static file-mode E2E: `2` passed.
+- Real-provider static E2E: `4` passed after unit/mock gates.
+- Rust: `28` tests passed; `cargo check` passed.
+- Clean-HEAD static reproducibility, strict release parity, Pages readiness, both secret scans, TypeScript, and archive second-attempt rejection passed.
+- Link traversal was genuinely exercised on Windows; it was not conditionally skipped.
+- Exact final range check: `git diff --check 989ea2cb0c55fe6ed3735f12eaa2e835f0357e9e..HEAD`.
+
+Archive SHA-256 evidence:
+
+- `v0.1.4`: `2921acdd0350d487e0659b0a143c7ac3597da36af80da7fd0a4980190cf19a64`
+- `v0.1.5`: `50d653fecf24afd86f7fb7c9f082555a987bb1610acabc5aab93e48f74326056`
+- `v0.1.6` source, dist version copy, current index, and release HTML: `0e67c34baf4c4289d4864f6cc8e842df84c23b14ce94e34c8c2354eca059aeb3`
+
+The v0.1.4/v0.1.5 filesystem bytes and hashes remain unchanged. Their Git index entries were corrected to preserve those exact bytes under the existing `-text` archive policy; strict historical comparison includes a narrowly tested legacy single-CR materialization for the prior commit representation. Current HTML generation normalizes carriage returns at the source and rejects trailing whitespace.
