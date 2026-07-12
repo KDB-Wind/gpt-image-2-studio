@@ -18,6 +18,8 @@
 
 以下最终复核项均已修复并审阅：真实目录碰撞不覆盖、同一实例内文件与历史原子事务、每任务恰好一张图片及旧数量规范化、完整配置持久化、`v0.1.6` 发布/归档绑定与 Git 守卫、严格 Release 与非严格 Pages 分层、校验和前最终一致性、clean HEAD 可复现性、非空工作流测试。此前 clean 不一致由 Windows 内联 SVG CRLF 引起，LF 规范化已消除该差异。
 
+早期 P1 的完整已解决台账见[独立审计](static-html-gpt56-independent-audit-2026-07-11.zh-CN.md)和[修复计划](superpowers/plans/2026-07-11-static-html-audit-remediation.md)：其中明确保留重试竞态、AI 数量一致性、错误脱敏、密钥与 artifact 处理、扩展扫描、页面覆盖、Blob URL、发布元数据及真实服务测试激活顺序的状态与证据类别。
+
 归档哈希：
 
 - `v0.1.4`：`2921ACDD0350D487E0659B0A143C7AC3597DA36AF80DA7FD0A4980190CF19A64`
