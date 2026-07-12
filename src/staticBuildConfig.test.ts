@@ -18,6 +18,12 @@ describe("static basic tool build", () => {
     expect(staticViteConfig.build?.assetsInlineLimit).toBeGreaterThan(1024 * 1024);
     expect(staticViteConfig.build?.outDir).toBe("dist-static");
     expect(staticViteConfig.build?.rollupOptions?.input).toBe("index.static.html");
+    expect(staticViteConfig.plugins).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "static-runtime-only" }),
+    ]));
+    expect(staticViteConfig.resolve?.alias).toMatchObject({
+      "@tauri-apps/plugin-opener": expect.stringContaining("staticOpener.ts"),
+    });
   });
 
   it("injects the package version and a compile-time runtime target into both Vite builds", () => {

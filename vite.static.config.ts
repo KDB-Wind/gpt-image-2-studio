@@ -11,6 +11,17 @@ const publicStaticVersionManifest = {
   versions: trustedStaticVersionManifest.versions,
 };
 
+const staticRuntimePlugin = {
+  name: "static-runtime-only",
+  enforce: "pre" as const,
+  resolveId(source: string, importer?: string) {
+    if (source === "./runtime" && importer?.replace(/\\/g, "/").endsWith("/src/App.tsx")) {
+      return resolve("src/runtime/staticIndex.ts");
+    }
+    return null;
+  },
+};
+
 export default defineConfig({
   base: "./",
   clearScreen: false,
@@ -19,7 +30,12 @@ export default defineConfig({
     __STATIC_BUILD__: "true",
     __STATIC_VERSION_MANIFEST__: JSON.stringify(publicStaticVersionManifest),
   },
-  plugins: [react()],
+  plugins: [staticRuntimePlugin, react()],
+  resolve: {
+    alias: {
+      "@tauri-apps/plugin-opener": resolve("src/runtime/staticOpener.ts"),
+    },
+  },
   build: {
     assetsInlineLimit: 10 * 1024 * 1024,
     cssCodeSplit: false,
