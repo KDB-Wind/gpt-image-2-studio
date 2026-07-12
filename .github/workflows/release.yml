@@ -43,6 +43,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       RELEASE_TAG: ${{ needs.release-metadata.outputs.tag }}
+      STATIC_ARCHIVE_TRUSTED_BASE: ${{ vars.STATIC_ARCHIVE_TRUSTED_BASE }}
     steps:
       - name: Checkout validated release tag
         uses: actions/checkout@v4
@@ -57,6 +58,24 @@ jobs:
           $tagCommit = git rev-list -n 1 $env:RELEASE_TAG --
           if (-not $tagCommit -or $headCommit -ne $tagCommit) {
             throw "Checked-out HEAD does not match the validated release tag commit."
+          }
+
+      - name: Validate external archive trust root
+        shell: pwsh
+        run: |
+          if (-not $env:STATIC_ARCHIVE_TRUSTED_BASE) {
+            throw "Repository variable STATIC_ARCHIVE_TRUSTED_BASE is required. Configure it under Settings > Secrets and variables > Actions > Variables."
+          }
+          if ($env:STATIC_ARCHIVE_TRUSTED_BASE -notmatch '^[a-f0-9]{40}$') {
+            throw "Repository variable STATIC_ARCHIVE_TRUSTED_BASE must be a full 40-character commit SHA."
+          }
+          $resolvedBase = git rev-parse --verify "$env:STATIC_ARCHIVE_TRUSTED_BASE^{commit}"
+          if (-not $resolvedBase -or $resolvedBase -ne $env:STATIC_ARCHIVE_TRUSTED_BASE) {
+            throw "Repository variable STATIC_ARCHIVE_TRUSTED_BASE could not be resolved exactly."
+          }
+          git merge-base --is-ancestor $env:STATIC_ARCHIVE_TRUSTED_BASE HEAD
+          if ($LASTEXITCODE -ne 0) {
+            throw "Repository variable STATIC_ARCHIVE_TRUSTED_BASE must be HEAD or an ancestor of HEAD."
           }
 
       - name: Setup Node.js
@@ -96,16 +115,6 @@ jobs:
 
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "release_notes=$releaseNotes" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          $releaseConfig = Get-Content -Raw "static-versions/release-config.json" | ConvertFrom-Json
-          $baseSha = $releaseConfig.trustedArchiveBase
-          if (-not $baseSha -or $baseSha -notmatch '^[a-f0-9]{40}$') {
-            throw "Configured previous stable archive anchor is missing or invalid."
-          }
-          $resolvedBaseSha = git rev-parse --verify "$baseSha^{commit}"
-          if (-not $resolvedBaseSha -or $resolvedBaseSha -ne $baseSha) {
-            throw "Configured previous stable archive anchor could not be resolved."
-          }
-          "base_sha=$baseSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Scan source for secrets
         run: npm run secret:scan
@@ -125,7 +134,6 @@ jobs:
       - name: Check release readiness
         env:
           RELEASE_VERSION: ${{ steps.release_metadata.outputs.version }}
-          STATIC_ARCHIVE_BASE_REF: ${{ steps.release_metadata.outputs.base_sha }}
         run: npm run release:check
 
       - name: Check built static site
@@ -155,7 +163,6 @@ jobs:
       - name: Final strict release parity
         env:
           RELEASE_VERSION: ${{ steps.release_metadata.outputs.version }}
-          STATIC_ARCHIVE_BASE_REF: ${{ steps.release_metadata.outputs.base_sha }}
         run: node scripts/release-archive-parity.mjs --strict
 
       - name: Generate release checksums

@@ -19,31 +19,31 @@
 
 ### 完整 P1 状态台账
 
-下表包含已修复项和仍待人工验收项，仅归纳现有 487 单元测试、mock/file/真实服务 E2E、两层密钥扫描和发布/站点门禁。
+下表包含已修复项和仍待人工验收项，仅归纳现有 495 单元测试、mock/file/真实服务 E2E、两层密钥扫描和发布/站点门禁。
 
 | P1 项目 | 状态 | 证据类别 |
 | --- | --- | --- |
-| 单任务重试并发与陈旧状态覆盖 | Fixed and unit-tested | 已审阅任务；487 测试与 retry mock E2E。 |
-| AI 规划数量与 items 一致性 | Fixed and unit-tested；Real-provider verified | 已审阅任务；487 测试、mock E2E、真实服务规划 smoke。 |
-| 面向用户的服务错误脱敏 | Fixed and unit-tested | 已审阅任务；487 测试与两层密钥扫描。 |
-| 密钥持久化策略与测试 artifact 秘密处理 | Fixed and unit-tested | 已审阅任务；487 测试与两层密钥扫描。 |
+| 单任务重试并发与陈旧状态覆盖 | Fixed and unit-tested | 已审阅任务；495 测试与 retry mock E2E。 |
+| AI 规划数量与 items 一致性 | Fixed and unit-tested；Real-provider verified | 已审阅任务；495 测试、mock E2E、真实服务规划 smoke。 |
+| 面向用户的服务错误脱敏 | Fixed and unit-tested | 已审阅任务；495 测试与两层密钥扫描。 |
+| 密钥持久化策略与测试 artifact 秘密处理 | Fixed and unit-tested | 已审阅任务；495 测试与两层密钥扫描。 |
 | 仓库与发布产物的扩展密钥扫描 | Fixed and unit-tested | 已审阅任务；两层密钥扫描及 release/site 门禁。 |
 | 单图、批量、历史、设置、移动端、file、重试、参考图、保存目录页面覆盖 | Mock E2E verified | 10 个 mock 通过、1 个预期跳过；2 个 file 通过。 |
 | 保存目录 / Native File System Access（历史 P1-003） | Native manual pending | 自动化 mock/code paths 已通过；真实选择器、权限、磁盘落点和刷新后恢复仍待人工验收。 |
-| Blob URL 生命周期清理 | Fixed and unit-tested | 已审阅任务；487 测试。 |
+| Blob URL 生命周期清理 | Fixed and unit-tested | 已审阅任务；495 测试。 |
 | 发布元数据/版本一致性及真实服务测试激活顺序 | Fixed and unit-tested；Real-provider verified | 已审阅任务；release/site 门禁及 4 个真实服务 E2E 通过。 |
-| 目录碰撞不覆盖与同一实例文件/历史串行化与显式持久性 | Fixed and unit-tested | 已审阅任务；487 测试与 mock/file E2E。 |
-| 每任务恰好一张图片及旧数量规范化 | Fixed and unit-tested；Real-provider verified | 已审阅任务；487 测试、mock E2E、真实服务 E2E。 |
-| 前端与桌面端完整配置持久化 | Fixed and unit-tested | 已审阅任务；487 测试与 mock E2E。 |
+| 目录碰撞不覆盖与同一实例文件/历史串行化与显式持久性 | Fixed and unit-tested | 已审阅任务；495 测试与 mock/file E2E。 |
+| 每任务恰好一张图片及旧数量规范化 | Fixed and unit-tested；Real-provider verified | 已审阅任务；495 测试、mock E2E、真实服务 E2E。 |
+| 前端与桌面端完整配置持久化 | Fixed and unit-tested | 已审阅任务；495 测试与 mock E2E。 |
 | `v0.1.7` 发布/归档守卫、`v0.1.6` 稳定锚点、最终一致性、可复现性和工作流测试 | Fixed and unit-tested | 已审阅任务；release/site 门禁、clean HEAD 可复现性及严格归档一致性。 |
 
 ### 2026-07-12 验证证据
 
-- [x] `npm run test:run`：33 个文件、487 个测试通过。
+- [x] `npm run test:run`：33 个文件、495 个测试通过。
 - [x] `npm run build`：通过，46 个模块。
 - [x] `npm run build:static`：通过，42 个模块。
 - [x] `npm run site:check`：通过。
-- [x] `npm run release:check`：23 个 readiness 测试，以及 readiness、clean HEAD 可复现性、严格归档一致性均通过。
+- [x] 设置外部 `STATIC_ARCHIVE_TRUSTED_BASE` 后，`npm run release:check`：25 个 readiness 测试，以及 readiness、clean HEAD 可复现性、严格归档一致性均通过。
 - [x] `npm run e2e:static:mock`：10 通过、1 个预期跳过。
 - [x] `npm run e2e:static:file`：2 通过。
 - [x] `npm run e2e:static:real`：4 通过、无重试；不记录服务配置、服务身份或响应内容。

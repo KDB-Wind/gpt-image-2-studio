@@ -20,30 +20,30 @@
 
 ### 2.1 完整 P1 状态台账
 
-下列台账包含已修复项和仍待人工验收项；证据类别只引用本轮已有的 487 单元测试、mock/file/真实服务 E2E、两层密钥扫描和发布/站点门禁，不新增任何证据声明。
+下列台账包含已修复项和仍待人工验收项；证据类别只引用本轮已有的 495 单元测试、mock/file/真实服务 E2E、两层密钥扫描和发布/站点门禁，不新增任何证据声明。
 
 | P1 项目 | 状态 | 证据类别 |
 | --- | --- | --- |
-| 单任务重试并发与陈旧状态覆盖 | Fixed and unit-tested | 已审阅任务；487 测试与 retry mock E2E。 |
-| AI 规划数量与 items 一致性 | Fixed and unit-tested；Real-provider verified | 已审阅任务；487 测试、mock E2E、真实服务规划 smoke。 |
-| 面向用户的服务错误脱敏 | Fixed and unit-tested | 已审阅任务；487 测试与两层密钥扫描。 |
-| 密钥持久化策略与测试 artifact 秘密处理 | Fixed and unit-tested | 已审阅任务；487 测试与两层密钥扫描。 |
+| 单任务重试并发与陈旧状态覆盖 | Fixed and unit-tested | 已审阅任务；495 测试与 retry mock E2E。 |
+| AI 规划数量与 items 一致性 | Fixed and unit-tested；Real-provider verified | 已审阅任务；495 测试、mock E2E、真实服务规划 smoke。 |
+| 面向用户的服务错误脱敏 | Fixed and unit-tested | 已审阅任务；495 测试与两层密钥扫描。 |
+| 密钥持久化策略与测试 artifact 秘密处理 | Fixed and unit-tested | 已审阅任务；495 测试与两层密钥扫描。 |
 | 仓库与发布产物的扩展密钥扫描 | Fixed and unit-tested | 已审阅任务；两层密钥扫描及 release/site 门禁。 |
 | 单图、批量、历史、设置、移动端、file、重试、参考图、保存目录页面覆盖 | Mock E2E verified | 10 个 mock 通过、1 个预期跳过；2 个 file 通过。 |
 | 保存目录 / Native File System Access（历史 P1-003） | Native manual pending | 自动化 mock/code paths 已通过；真实选择器、权限、磁盘落点和刷新后恢复仍待人工验收。 |
-| Blob URL 生命周期清理 | Fixed and unit-tested | 已审阅任务；487 测试。 |
+| Blob URL 生命周期清理 | Fixed and unit-tested | 已审阅任务；495 测试。 |
 | 发布元数据/版本一致性及真实服务测试激活顺序 | Fixed and unit-tested；Real-provider verified | 已审阅任务；release/site 门禁及 4 个真实服务 E2E 通过。 |
-| 目录碰撞不覆盖与同一实例文件/历史串行化与显式持久性 | Fixed and unit-tested | 已审阅任务；487 测试与 mock/file E2E。 |
-| 每任务恰好一张图片及旧数量规范化 | Fixed and unit-tested；Real-provider verified | 已审阅任务；487 测试、mock E2E、真实服务 E2E。 |
-| 前端与桌面端完整配置持久化 | Fixed and unit-tested | 已审阅任务；487 测试与 mock E2E。 |
+| 目录碰撞不覆盖与同一实例文件/历史串行化与显式持久性 | Fixed and unit-tested | 已审阅任务；495 测试与 mock/file E2E。 |
+| 每任务恰好一张图片及旧数量规范化 | Fixed and unit-tested；Real-provider verified | 已审阅任务；495 测试、mock E2E、真实服务 E2E。 |
+| 前端与桌面端完整配置持久化 | Fixed and unit-tested | 已审阅任务；495 测试与 mock E2E。 |
 | `v0.1.7` 发布/归档守卫、`v0.1.6` 稳定锚点、最终一致性、可复现性和工作流测试 | Fixed and unit-tested | 已审阅任务；release/site 门禁、clean HEAD 可复现性及严格归档一致性。 |
 
 ## 3. 2026-07-12 控制器复核
 
 | 证据层级 | 状态 | 证据 |
 | --- | --- | --- |
-| Fixed and unit-tested | 已验证 | `npm run test:run`：33 个文件、487 个测试通过；`npx tsc --noEmit` 通过；`cargo test`：28 通过；`cargo check` 通过。 |
-| 构建与发布检查 | 已验证 | `npm run build` 通过（46 个模块），`npm run build:static` 通过（42 个模块）；`npm run site:check` 通过；`npm run release:check` 的 23 个 readiness 测试及 readiness、clean HEAD 可复现性、严格归档一致性均通过。 |
+| Fixed and unit-tested | 已验证 | `npm run test:run`：33 个文件、495 个测试通过；`npx tsc --noEmit` 通过；`cargo test`：28 通过；`cargo check` 通过。 |
+| 构建与发布检查 | 已验证 | `npm run build` 通过（46 个模块），`npm run build:static` 通过（42 个模块）；`npm run site:check` 通过；设置外部 `STATIC_ARCHIVE_TRUSTED_BASE` 后，`npm run release:check` 的 25 个 readiness 测试及 readiness、clean HEAD 可复现性、严格归档一致性均通过。 |
 | Mock E2E verified | 已验证 | `npm run e2e:static:mock`：10 通过、1 个预期跳过；`npm run e2e:static:file`：2 通过。 |
 | Real-provider verified | 已验证 | `npm run e2e:static:real`：4 通过，无重试。未记录或暴露任何服务配置、服务身份或响应内容。 |
 | 安全与变更卫生 | 已验证 | 两层密钥扫描均通过；`git diff --check` 通过。 |
@@ -82,14 +82,14 @@
 
 Status: automated branch gates passed. Native File System Access manual acceptance remains pending, and the aborted Computer Use attempt is not release evidence. No full/native E2E claim is made.
 
-- Frontend/unit: 33 files, 487 tests passed.
+- Frontend/unit: 33 files, 495 tests passed.
 - Builds: normal 46 modules; static 42 modules.
 - Emitted-artifact isolation: the normal HTML entry graph reaches the Tauri adapter and bridge markers through the Vite manifest; current static HTML/assets exclude native markers.
 - Static mock E2E: 10 passed, 1 intentionally skipped by project selection.
 - Static file-mode E2E: 2 passed.
 - Real-service static E2E: 4 passed after unit/mock gates; no service configuration, identity, signed URL, or response body is recorded.
 - Rust: 28 tests passed; cargo check passed.
-- Release readiness: 23 readiness tests passed. Clean-HEAD reproducibility, Pages readiness, both secret scans, TypeScript, archive second-attempt rejection, and strict parity passed with configured/default anchor 1c35245852f95a7aa0baad14d8b1817d968c685c and with the same explicit trusted base.
+- Release readiness: 25 readiness tests passed. Clean-HEAD reproducibility, Pages readiness, both secret scans, TypeScript, archive second-attempt rejection, and strict parity passed with external `STATIC_ARCHIVE_TRUSTED_BASE=1c35245852f95a7aa0baad14d8b1817d968c685c`; missing external trust-root checks failed closed as intended.
 
 Raw Git archive evidence:
 
@@ -98,4 +98,4 @@ Raw Git archive evidence:
 - `v0.1.6`: blob f1721e4a937ffc887c1159402aeec9383a47ceb8; SHA-256 0E67C34BAF4C4289D4864F6CC8E842DF84C23B14CE94E34C8C2354ECA059AEB3.
 - `v0.1.7`: blob 0af8bb435142d59c1cce601a91600ac3555df033; SHA-256 EBDBE76F4E9F731FCA70BDECDC303DA635258F3B8CEC2B96AAEF6C53EB11A9C4 for the source archive and current generated release HTML.
 
-Correction: commit 1c35245852f95a7aa0baad14d8b1817d968c685c is the authoritative immutable baseline because its manifest already declares v0.1.6 as latestStable with trusted digests. Strict parity compares every version in that anchor, including v0.1.6; versions absent from the anchor, such as v0.1.7, are treated as new. No byte normalization or newer-base bypass is permitted.
+Correction: the authoritative trust root is external `STATIC_ARCHIVE_TRUSTED_BASE`, not any file or commit selected by the ref under validation. Automated local evidence supplied public commit 1c35245852f95a7aa0baad14d8b1817d968c685c through that environment variable. Strict parity compares every version in its manifest, including v0.1.6; versions absent from the base, such as v0.1.7, are new. Missing or invalid external values fail closed, and no tracked configuration, `HEAD^`, workflow input, or byte normalization can replace the trust root.

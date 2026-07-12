@@ -13,7 +13,10 @@ Each Release should include two user-facing assets:
 
 ## Local Pre-Release Checks
 
+Set the external immutable trust root before running strict or historical archive checks. The current intended public repository commit is `1c35245852f95a7aa0baad14d8b1817d968c685c`.
+
 ```powershell
+$env:STATIC_ARCHIVE_TRUSTED_BASE = "<FULL_TRUSTED_COMMIT_SHA>"
 npm run release:check
 npm run test:run
 npm run build
@@ -26,9 +29,13 @@ If Rust is unavailable on the current machine, complete the frontend and static 
 
 ## Archive Anchor
 
-`static-versions/release-config.json` records the full previous stable commit used by strict archive parity. The default strict check and Release workflow use this configured anchor, not `HEAD^`. CI pushes and pull requests, plus Pages pushes, add their event or merge base as a second comparison and never replace the configured anchor for versions already present there.
+The trust root is not stored in this repository. Strict release and historical Pages parity require `STATIC_ARCHIVE_TRUSTED_BASE` to contain a full immutable commit SHA supplied outside the ref being validated. Missing, empty, malformed, unresolved, or non-ancestor values fail closed; there is no `HEAD^` or tracked-configuration fallback.
 
-Every version listed by the trusted anchor manifest is immutable, including that manifest's `latestStable`. Only versions absent from the anchor may be added as a new release archive.
+Every version listed by that external base manifest is immutable, including its `latestStable`. Only versions absent from the base may be added as a new release archive. CI and Pages push events additionally compare their event or merge base, without replacing the external trust root.
+
+## GitHub Repository Setup
+
+Before enabling CI, Pages, or Release, open **Settings > Secrets and variables > Actions > Variables** and create `STATIC_ARCHIVE_TRUSTED_BASE` with the full trusted commit SHA. The current intended value is `1c35245852f95a7aa0baad14d8b1817d968c685c`. Workflows fail early with a setup error when this variable is missing or invalid; workflow inputs are not accepted as the trust root.
 
 ## Single-File HTML
 

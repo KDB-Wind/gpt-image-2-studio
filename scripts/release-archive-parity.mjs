@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
@@ -124,32 +124,6 @@ function parseTrackedManifest(bytes, label, { requireDigests = true } = {}) {
   }
 }
 
-function readTrustedArchiveConfig(rootDir, readGitBlob) {
-  const relativePath = join("static-versions", "release-config.json");
-  const configPath = join(rootDir, relativePath);
-  if (!existsSync(configPath)) {
-    return null;
-  }
-
-  const safeConfigPath = assertSafeReleaseFile(rootDir, configPath, "Static release configuration");
-  const workingBytes = readFileSync(safeConfigPath);
-  const headBytes = readGitBlob(rootDir, "HEAD", relativePath);
-  if (workingBytes.compare(headBytes) !== 0) {
-    throw new Error("Working-tree static release configuration must be byte-identical to tracked HEAD.");
-  }
-
-  let config;
-  try {
-    config = JSON.parse(workingBytes.toString("utf8"));
-  } catch (error) {
-    throw new Error("Static release configuration is invalid JSON.", { cause: error });
-  }
-  if (typeof config?.trustedArchiveBase !== "string" || !/^[a-f0-9]{40}$/i.test(config.trustedArchiveBase)) {
-    throw new Error("Static release configuration must contain a full trustedArchiveBase commit SHA.");
-  }
-  return config;
-}
-
 function compareBaseManifestToHead({
   rootDir,
   manifest,
@@ -270,34 +244,28 @@ export function runReleaseArchiveParity({
     }
   }
 
-  const releaseConfig = readTrustedArchiveConfig(rootDir, readGitBlob);
-  const configuredAnchorRef = releaseConfig?.trustedArchiveBase;
-  const requestedBaseRef = baseRef || process.env.STATIC_ARCHIVE_BASE_REF;
-  if (!configuredAnchorRef && !requestedBaseRef) {
-    throw new Error("Strict archive parity requires a configured trusted archive anchor or an explicit legacy base ref.");
+  const trustedBaseRef = baseRef ?? process.env.STATIC_ARCHIVE_TRUSTED_BASE;
+  if (typeof trustedBaseRef !== "string" || !/^[a-f0-9]{40}$/i.test(trustedBaseRef)) {
+    throw new Error("STATIC_ARCHIVE_TRUSTED_BASE is required and must be a full 40-character commit SHA.");
   }
 
-  const resolvedAnchorRef = configuredAnchorRef ? resolveBaseRef(rootDir, configuredAnchorRef) : null;
-  const comparisonRefs = [];
-  if (resolvedAnchorRef) {
-    comparisonRefs.push(resolvedAnchorRef);
+  const resolvedTrustedBaseRef = resolveBaseRef(rootDir, trustedBaseRef);
+  if (resolvedTrustedBaseRef.toLowerCase() !== trustedBaseRef.toLowerCase()) {
+    throw new Error("STATIC_ARCHIVE_TRUSTED_BASE must resolve exactly to the supplied commit SHA.");
   }
-  if (requestedBaseRef) {
-    const resolvedRequestedBaseRef = resolveBaseRef(rootDir, requestedBaseRef);
-    if (
-      resolvedAnchorRef
-      && resolvedRequestedBaseRef !== resolvedAnchorRef
-      && !isAncestorRef(rootDir, resolvedRequestedBaseRef, resolvedAnchorRef)
-    ) {
-      throw new Error("Explicit archive base must equal or be an ancestor of the configured trusted anchor; a newer base cannot bypass it.");
-    }
-    comparisonRefs.push(resolvedRequestedBaseRef);
+  const resolvedHeadRef = resolveBaseRef(rootDir, "HEAD");
+  if (
+    resolvedTrustedBaseRef !== resolvedHeadRef
+    && !isAncestorRef(rootDir, resolvedTrustedBaseRef, resolvedHeadRef)
+  ) {
+    throw new Error("STATIC_ARCHIVE_TRUSTED_BASE must be HEAD or an ancestor of HEAD.");
   }
+
+  const comparisonRefs = [resolvedTrustedBaseRef];
 
   const requestedEventBaseRef = eventBaseRef || process.env.STATIC_ARCHIVE_EVENT_BASE_REF;
   if (requestedEventBaseRef) {
     const resolvedEventBaseRef = resolveBaseRef(rootDir, requestedEventBaseRef);
-    const resolvedHeadRef = resolveBaseRef(rootDir, "HEAD");
     if (resolvedEventBaseRef !== resolvedHeadRef && !isAncestorRef(rootDir, resolvedEventBaseRef, resolvedHeadRef)) {
       throw new Error("Event archive base must resolve to HEAD or one of its ancestors.");
     }

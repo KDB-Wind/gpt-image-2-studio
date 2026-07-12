@@ -7,6 +7,7 @@
 在 `main` 分支运行：
 
 ```powershell
+$env:STATIC_ARCHIVE_TRUSTED_BASE = "<FULL_TRUSTED_COMMIT_SHA>"
 npm run release:check
 npm run test:run
 npm run build
@@ -50,7 +51,7 @@ $env:SITE_ORIGIN = "https://kdb-wind.github.io"
 npm run cors:check
 ```
 
-Archive parity uses the full previous stable commit recorded in `static-versions/release-config.json`. Manual Pages and Release runs must not substitute `HEAD^`; CI event or merge bases are additional comparisons only.
+Before Pages or Release, create the GitHub Repository Variable `STATIC_ARCHIVE_TRUSTED_BASE` under **Settings > Secrets and variables > Actions > Variables**. The current intended public value is `1c35245852f95a7aa0baad14d8b1817d968c685c`. Local strict or historical checks use `$env:STATIC_ARCHIVE_TRUSTED_BASE = "<FULL_TRUSTED_COMMIT_SHA>"`. There is no tracked-config, `HEAD^`, or workflow-input fallback; event or merge bases are additional comparisons only.
 
 通过时应返回 `CORS preflight check passed.`。
 

@@ -115,9 +115,6 @@ function createHistoricalParityFixture({
   const baseRef = runFixtureGit(rootDir, ["rev-parse", "HEAD"]);
 
   writeJson(join(rootDir, "package.json"), { version: "1.1.0" });
-  writeJson(join(rootDir, "static-versions", "release-config.json"), {
-    trustedArchiveBase: baseRef,
-  });
   writeSourceArchiveBytes(rootDir, "1.1.0", currentBytes);
   const releaseManifest = {
     latestStable: "1.1.0",
@@ -143,6 +140,16 @@ function createHistoricalParityFixture({
   writeFileSync(join(distDir, "gpt-image-2-studio-lite.html"), currentBytes);
 
   return { rootDir, distDir, baseRef, currentBytes, historicalBytes, releaseManifest };
+}
+
+function parityCliEnvironment(overrides = {}) {
+  const env = { ...process.env, ...overrides };
+  delete env.STATIC_ARCHIVE_BASE_REF;
+  delete env.STATIC_ARCHIVE_EVENT_BASE_REF;
+  if (!("STATIC_ARCHIVE_TRUSTED_BASE" in overrides)) {
+    delete env.STATIC_ARCHIVE_TRUSTED_BASE;
+  }
+  return env;
 }
 
 function createAnchoredLatestMutationFixture() {
@@ -172,9 +179,6 @@ function createAnchoredLatestMutationFixture() {
     versions: [version],
     sha256: { [version]: createHash("sha256").update(changedBytes).digest("hex") },
   };
-  writeJson(join(rootDir, "static-versions", "release-config.json"), {
-    trustedArchiveBase: anchorRef,
-  });
   writeSourceArchiveBytes(rootDir, version, changedBytes);
   writeJson(join(rootDir, "static-versions", "manifest.json"), currentManifest);
   writeJson(join(distDir, "versions", "manifest.json"), currentManifest);
@@ -1363,6 +1367,41 @@ describe("static version archives", () => {
     rmSync(fixture.rootDir, { recursive: true, force: true });
   });
 
+  it.each(["--strict", "--historical-only"])(
+    "direct %s parity fails closed without an external trusted base",
+    (mode) => {
+      const fixture = createHistoricalParityFixture();
+      const parityScript = join(process.cwd(), "scripts", "release-archive-parity.mjs");
+      const result = spawnSync(process.execPath, [parityScript, mode], {
+        cwd: fixture.rootDir,
+        encoding: "utf8",
+        env: parityCliEnvironment(),
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/STATIC_ARCHIVE_TRUSTED_BASE.*required/i);
+
+      rmSync(fixture.rootDir, { recursive: true, force: true });
+    },
+  );
+
+  it.each(["--strict", "--historical-only"])(
+    "direct %s parity accepts the external trusted base",
+    (mode) => {
+      const fixture = createHistoricalParityFixture();
+      const parityScript = join(process.cwd(), "scripts", "release-archive-parity.mjs");
+      const result = spawnSync(process.execPath, [parityScript, mode], {
+        cwd: fixture.rootDir,
+        encoding: "utf8",
+        env: parityCliEnvironment({ STATIC_ARCHIVE_TRUSTED_BASE: fixture.baseRef }),
+      });
+
+      expect(result.status).toBe(0);
+
+      rmSync(fixture.rootDir, { recursive: true, force: true });
+    },
+  );
+
   it("strict release parity rejects historical archive and digest changes across commits", () => {
     const fixture = createHistoricalParityFixture();
     const changedBytes = Buffer.concat([
@@ -1410,12 +1449,13 @@ describe("static version archives", () => {
       distDir: fixture.distDir,
       strict: true,
       expectedTag: "v1.1.0",
+      baseRef: fixture.baseRef,
     })).toThrow(/historical archive (?:digest metadata|blob|bytes) changed/i);
 
     rmSync(fixture.rootDir, { recursive: true, force: true });
   });
 
-  it("strict release parity rejects a newer explicit base that bypasses the trusted anchor", () => {
+  it("a legacy newer base environment value cannot replace the external trust root", () => {
     const fixture = createHistoricalParityFixture();
     const changedBytes = Buffer.concat([
       fixture.historicalBytes,
@@ -1425,13 +1465,18 @@ describe("static version archives", () => {
     runFixtureGit(fixture.rootDir, ["commit", "--allow-empty", "-m", "later unrelated commit"]);
     const newerBypassRef = runFixtureGit(fixture.rootDir, ["rev-parse", "HEAD^"]);
 
-    expect(() => runReleaseArchiveParity({
-      rootDir: fixture.rootDir,
-      distDir: fixture.distDir,
-      strict: true,
-      expectedTag: "v1.1.0",
-      baseRef: newerBypassRef,
-    })).toThrow(/explicit.*base.*trusted anchor|newer.*base.*anchor/i);
+    const parityScript = join(process.cwd(), "scripts", "release-archive-parity.mjs");
+    const result = spawnSync(process.execPath, [parityScript, "--historical-only"], {
+      cwd: fixture.rootDir,
+      encoding: "utf8",
+      env: parityCliEnvironment({
+        STATIC_ARCHIVE_TRUSTED_BASE: fixture.baseRef,
+        STATIC_ARCHIVE_BASE_REF: newerBypassRef,
+      }),
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/historical archive (?:digest metadata|blob|bytes) changed/i);
 
     rmSync(fixture.rootDir, { recursive: true, force: true });
   });
@@ -1444,6 +1489,7 @@ describe("static version archives", () => {
       distDir: fixture.distDir,
       strict: true,
       expectedTag: "v1.1.0",
+      baseRef: fixture.baseRef,
     })).not.toThrow();
 
     rmSync(fixture.rootDir, { recursive: true, force: true });
@@ -1463,6 +1509,7 @@ describe("static version archives", () => {
       distDir: fixture.distDir,
       strict: true,
       expectedTag: "v1.1.0",
+      baseRef: fixture.baseRef,
       eventBaseRef,
     })).toThrow(/historical archive (?:digest metadata|blob|bytes) changed/i);
 
@@ -1489,7 +1536,7 @@ describe("static version archives", () => {
     rmSync(fixture.rootDir, { recursive: true, force: true });
   });
 
-  it("strict release parity fails closed when an explicit historical base ref is missing", () => {
+  it("strict release parity rejects a trusted base that is not a full commit SHA", () => {
     const fixture = createSiteFixture();
     commitFixtureArchive(fixture.rootDir, "1.0.0");
 
@@ -1498,6 +1545,18 @@ describe("static version archives", () => {
       strict: true,
       expectedTag: "v1.0.0",
       baseRef: "refs/heads/does-not-exist",
+    })).toThrow(/full 40-character commit SHA/i);
+  });
+
+  it("strict release parity fails closed when a full trusted base SHA is missing", () => {
+    const fixture = createSiteFixture();
+    commitFixtureArchive(fixture.rootDir, "1.0.0");
+
+    expect(() => runReleaseArchiveParity({
+      ...fixture,
+      strict: true,
+      expectedTag: "v1.0.0",
+      baseRef: "f".repeat(40),
     })).toThrow(/base ref could not be resolved/i);
   });
 
@@ -1512,6 +1571,36 @@ describe("static version archives", () => {
       historicalOnly: true,
       baseRef: fixture.baseRef,
     })).not.toThrow();
+
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  });
+
+  it("external trust root rejects a mutation hidden behind a later in-repository anchor change", () => {
+    const fixture = createHistoricalParityFixture();
+    const changedBytes = Buffer.concat([
+      fixture.historicalBytes,
+      Buffer.from("<!-- reviewer bypass mutation -->\n", "utf8"),
+    ]);
+    replaceHistoricalArchiveAndCommit(fixture, changedBytes, "mutate archive and digest");
+    const newerBypassRef = runFixtureGit(fixture.rootDir, ["rev-parse", "HEAD"]);
+    writeJson(join(fixture.rootDir, "static-versions", "release-config.json"), {
+      trustedArchiveBase: newerBypassRef,
+    });
+    runFixtureGit(fixture.rootDir, ["add", "static-versions/release-config.json"]);
+    runFixtureGit(fixture.rootDir, ["commit", "-m", "move in-repository anchor past mutation"]);
+
+    const parityScript = join(process.cwd(), "scripts", "release-archive-parity.mjs");
+    const result = spawnSync(process.execPath, [parityScript, "--historical-only"], {
+      cwd: fixture.rootDir,
+      encoding: "utf8",
+      env: parityCliEnvironment({
+        STATIC_ARCHIVE_TRUSTED_BASE: fixture.baseRef,
+        STATIC_ARCHIVE_BASE_REF: newerBypassRef,
+      }),
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/historical archive (?:digest metadata|blob|bytes) changed/i);
 
     rmSync(fixture.rootDir, { recursive: true, force: true });
   });

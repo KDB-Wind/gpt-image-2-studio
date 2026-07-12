@@ -8,11 +8,11 @@
 
 ## 2. 当前证据（2026-07-12）
 
-- `npm run test:run`：33 个文件、487 个测试通过。
+- `npm run test:run`：33 个文件、495 个测试通过。
 - `npm run build`：通过，46 个模块。
 - `npm run build:static`：通过，42 个模块。
 - `npm run site:check`：通过。
-- `npm run release:check`：23 个 readiness 测试，以及 readiness、clean HEAD 可复现性、严格归档一致性均通过。
+- 设置外部 `STATIC_ARCHIVE_TRUSTED_BASE` 后，`npm run release:check`：25 个 readiness 测试，以及 readiness、clean HEAD 可复现性、严格归档一致性均通过。
 - `npm run e2e:static:mock`：10 通过、1 个预期跳过。
 - `npm run e2e:static:file`：2 通过。
 - `npm run e2e:static:real`：4 通过、无重试；未记录服务配置、服务身份或响应内容。
@@ -54,14 +54,14 @@
 
 Status: automated branch gates passed. Native File System Access manual acceptance remains pending, and the aborted Computer Use attempt is not release evidence. No full/native E2E claim is made.
 
-- Frontend/unit: 33 files, 487 tests passed.
+- Frontend/unit: 33 files, 495 tests passed.
 - Builds: normal 46 modules; static 42 modules.
 - Emitted-artifact isolation: the normal HTML entry graph reaches the Tauri adapter and bridge markers through the Vite manifest; current static HTML/assets exclude native markers.
 - Static mock E2E: 10 passed, 1 intentionally skipped by project selection.
 - Static file-mode E2E: 2 passed.
 - Real-service static E2E: 4 passed after unit/mock gates; no service configuration, identity, signed URL, or response body is recorded.
 - Rust: 28 tests passed; cargo check passed.
-- Release readiness: 23 readiness tests passed. Clean-HEAD reproducibility, Pages readiness, both secret scans, TypeScript, archive second-attempt rejection, and strict parity passed with configured/default anchor 1c35245852f95a7aa0baad14d8b1817d968c685c and with the same explicit trusted base.
+- Release readiness: 25 readiness tests passed. Clean-HEAD reproducibility, Pages readiness, both secret scans, TypeScript, archive second-attempt rejection, and strict parity passed with external `STATIC_ARCHIVE_TRUSTED_BASE=1c35245852f95a7aa0baad14d8b1817d968c685c`; missing external trust-root checks failed closed as intended.
 
 Raw Git archive evidence:
 
@@ -70,4 +70,4 @@ Raw Git archive evidence:
 - `v0.1.6`: blob f1721e4a937ffc887c1159402aeec9383a47ceb8; SHA-256 0E67C34BAF4C4289D4864F6CC8E842DF84C23B14CE94E34C8C2354ECA059AEB3.
 - `v0.1.7`: blob 0af8bb435142d59c1cce601a91600ac3555df033; SHA-256 EBDBE76F4E9F731FCA70BDECDC303DA635258F3B8CEC2B96AAEF6C53EB11A9C4 for the source archive and current generated release HTML.
 
-Correction: commit 1c35245852f95a7aa0baad14d8b1817d968c685c is the authoritative immutable baseline because its manifest already declares v0.1.6 as latestStable with trusted digests. Strict parity compares every version in that anchor, including v0.1.6; versions absent from the anchor, such as v0.1.7, are treated as new. No byte normalization or newer-base bypass is permitted.
+Correction: the authoritative trust root is external `STATIC_ARCHIVE_TRUSTED_BASE`, not any file or commit selected by the ref under validation. Automated local evidence supplied public commit 1c35245852f95a7aa0baad14d8b1817d968c685c through that environment variable. Strict parity compares every version in its manifest, including v0.1.6; versions absent from the base, such as v0.1.7, are new. Missing or invalid external values fail closed, and no tracked configuration, `HEAD^`, workflow input, or byte normalization can replace the trust root.

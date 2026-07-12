@@ -19,13 +19,33 @@ jobs:
   build:
     name: Build static HTML site
     runs-on: ubuntu-latest
+    env:
+      STATIC_ARCHIVE_TRUSTED_BASE: ${{ vars.STATIC_ARCHIVE_TRUSTED_BASE }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Resolve historical archive base
+      - name: Validate external archive trust root
+        shell: pwsh
+        run: |
+          if (-not $env:STATIC_ARCHIVE_TRUSTED_BASE) {
+            throw "Repository variable STATIC_ARCHIVE_TRUSTED_BASE is required. Configure it under Settings > Secrets and variables > Actions > Variables."
+          }
+          if ($env:STATIC_ARCHIVE_TRUSTED_BASE -notmatch '^[a-f0-9]{40}$') {
+            throw "Repository variable STATIC_ARCHIVE_TRUSTED_BASE must be a full 40-character commit SHA."
+          }
+          $resolvedBase = git rev-parse --verify "$env:STATIC_ARCHIVE_TRUSTED_BASE^{commit}"
+          if (-not $resolvedBase -or $resolvedBase -ne $env:STATIC_ARCHIVE_TRUSTED_BASE) {
+            throw "Repository variable STATIC_ARCHIVE_TRUSTED_BASE could not be resolved exactly."
+          }
+          git merge-base --is-ancestor $env:STATIC_ARCHIVE_TRUSTED_BASE HEAD
+          if ($LASTEXITCODE -ne 0) {
+            throw "Repository variable STATIC_ARCHIVE_TRUSTED_BASE must be HEAD or an ancestor of HEAD."
+          }
+
+      - name: Resolve additional push archive base
         shell: pwsh
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -36,17 +56,15 @@ jobs:
             if (-not $baseSha -or $baseSha -match '^0+$') {
               throw "Pages push did not provide a prior commit for archive immutability."
             }
-            "STATIC_ARCHIVE_EVENT_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
-          } else {
-            $releaseConfig = Get-Content -Raw "static-versions/release-config.json" | ConvertFrom-Json
-            $baseSha = $releaseConfig.trustedArchiveBase
-            if (-not $baseSha -or $baseSha -notmatch '^[a-f0-9]{40}$') {
-              throw "Pages trusted archive anchor is missing or invalid."
+            $resolvedBase = git rev-parse --verify "$baseSha^{commit}"
+            if (-not $resolvedBase -or $resolvedBase -ne $baseSha) {
+              throw "Pages push archive base could not be resolved exactly."
             }
-            "STATIC_ARCHIVE_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
-          }
-          if (-not $baseSha) {
-            throw "Pages historical archive base could not be resolved."
+            git merge-base --is-ancestor $baseSha HEAD
+            if ($LASTEXITCODE -ne 0) {
+              throw "Pages push archive base must be HEAD or an ancestor of HEAD."
+            }
+            "STATIC_ARCHIVE_EVENT_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
           }
 
       - name: Setup Node.js
@@ -75,9 +93,6 @@ jobs:
 
       - name: Check Pages readiness
         run: npm run pages:check
-
-      - name: Check historical archive immutability
-        run: node scripts/release-archive-parity.mjs --historical-only
 
       - name: Run static page E2E
         run: npm run e2e:static:mock:run

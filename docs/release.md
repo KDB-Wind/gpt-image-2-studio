@@ -4,7 +4,9 @@
 
 ## Archive Anchor
 
-`static-versions/release-config.json` records the full previous stable commit used by strict archive parity. Release and manual Pages runs use this configured anchor rather than `HEAD^`. CI and Pages push events may add an event or merge base as a second comparison, but cannot replace the configured anchor for versions already present there.
+The archive trust root is external to the repository. Before local strict or historical checks, set `$env:STATIC_ARCHIVE_TRUSTED_BASE = "<FULL_TRUSTED_COMMIT_SHA>"`. The current intended public value is `1c35245852f95a7aa0baad14d8b1817d968c685c`. Missing, malformed, unresolved, or non-ancestor values fail closed; repository files, `HEAD^`, and workflow inputs are not fallbacks.
+
+Before CI, Pages, or Release can run, create the GitHub Repository Variable `STATIC_ARCHIVE_TRUSTED_BASE` under **Settings > Secrets and variables > Actions > Variables**. Push event or merge bases are additional comparisons only and cannot replace this external trust root.
 
 ## 发布产物
 
@@ -22,6 +24,7 @@ GitHub Pages 发布由 `.github/workflows/pages.yml` 负责。
 发布前确认：
 
 ```powershell
+$env:STATIC_ARCHIVE_TRUSTED_BASE = "<FULL_TRUSTED_COMMIT_SHA>"
 npm run release:check
 npm run test:run
 npm run site:verify
@@ -38,6 +41,7 @@ https://kdb-wind.github.io/gpt-image-2-studio/
 ## 本地发布前检查
 
 ```powershell
+$env:STATIC_ARCHIVE_TRUSTED_BASE = "<FULL_TRUSTED_COMMIT_SHA>"
 npm run release:check
 npm run test:run
 npm run build

@@ -72,6 +72,40 @@ function commandIndices(workflowText, command) {
   return indices;
 }
 
+function externalArchiveTrustRootErrors(workflowText, workflowName) {
+  const errors = [];
+  const assignments = [...workflowText.matchAll(/^\s*STATIC_ARCHIVE_TRUSTED_BASE:\s*(.+)$/gm)]
+    .map((match) => match[1].trim());
+  const repositoryVariable = "${{ vars.STATIC_ARCHIVE_TRUSTED_BASE }}";
+
+  if (!assignments.length || assignments.some((value) => value !== repositoryVariable)) {
+    errors.push(`${workflowName} workflow must source STATIC_ARCHIVE_TRUSTED_BASE only from vars.STATIC_ARCHIVE_TRUSTED_BASE.`);
+  }
+  if (!/Repository variable STATIC_ARCHIVE_TRUSTED_BASE is required/i.test(workflowText)) {
+    errors.push(`${workflowName} workflow must fail early with a repository-variable setup message when the trusted base is unset.`);
+  }
+  if (!/STATIC_ARCHIVE_TRUSTED_BASE\s+-notmatch\s+['"]\^\[a-f0-9\]\{40\}\$['"]/i.test(workflowText)) {
+    errors.push(`${workflowName} workflow must validate the trusted base as a full commit SHA.`);
+  }
+  if (!/git rev-parse --verify ["']\$env:STATIC_ARCHIVE_TRUSTED_BASE\^\{commit\}["']/i.test(workflowText)) {
+    errors.push(`${workflowName} workflow must verify that the external trusted base commit exists.`);
+  }
+  if (!/git merge-base --is-ancestor \$env:STATIC_ARCHIVE_TRUSTED_BASE HEAD/i.test(workflowText)) {
+    errors.push(`${workflowName} workflow must verify that the external trusted base is an ancestor of HEAD.`);
+  }
+  if (/static-versions\/release-config\.json|trustedArchiveBase|STATIC_ARCHIVE_BASE_REF/i.test(workflowText)) {
+    errors.push(`${workflowName} workflow must not load or override the archive trust root from repository content.`);
+  }
+  if (/inputs\.[A-Za-z0-9_-]*(?:archive|trusted)[A-Za-z0-9_-]*base/i.test(workflowText)) {
+    errors.push(`${workflowName} workflow must not accept the archive trust root through workflow inputs.`);
+  }
+  if (shellScriptBodies(workflowText).some((body) => /(?:\$env:)?STATIC_ARCHIVE_TRUSTED_BASE\s*=/i.test(body))) {
+    errors.push(`${workflowName} workflow must not assign STATIC_ARCHIVE_TRUSTED_BASE inside shell commands.`);
+  }
+
+  return errors;
+}
+
 export function checkReleaseWorkflow(workflowText) {
   const checks = [
     [/v\*\.\*\.\*/, "Release workflow must trigger on v*.*.* tags."],
@@ -83,6 +117,7 @@ export function checkReleaseWorkflow(workflowText) {
     [/-notmatch\s+\$semverTagPattern/, "Release workflow must strictly validate the requested v<SemVer> tag."],
     [/\\Av\(0\|\[1-9\]\\d\*\)[\s\S]*\\z/, "Release workflow must use strict SemVer tag validation."],
     [/actions\/checkout@v4/, "Release workflow must check out the repository."],
+    [/fetch-depth:\s*0/, "Release checkout must fetch full history for archive immutability."],
     [/ref:\s*refs\/tags\/\$\{\{\s*needs\.[^.]+\.outputs\.tag\s*\}\}/, "Release workflow must check out the validated tag ref."],
     [/git rev-parse HEAD[\s\S]*git rev-list -n 1/, "Release workflow must verify checked-out HEAD equals the validated tag commit."],
     [/actions\/setup-node@v4/, "Release workflow must install Node.js."],
@@ -94,9 +129,6 @@ export function checkReleaseWorkflow(workflowText) {
     [/\$releaseNotes\s*=\s*["']docs\/release-notes\/v\$version\.md["']/, "Release workflow must derive the release-notes path from package metadata."],
     [/Test-Path\s+-LiteralPath\s+\$releaseNotes/, "Release workflow must fail when derived release notes are missing."],
     [/release_notes=\$releaseNotes/, "Release workflow must expose the derived release-notes path."],
-    [/Get-Content\s+-Raw\s+["']static-versions\/release-config\.json["']\s*\|\s*ConvertFrom-Json/, "Release workflow must load the configured previous stable archive anchor."],
-    [/\$baseSha\s*=\s*\$releaseConfig\.trustedArchiveBase/, "Release workflow must use the configured previous stable archive anchor."],
-    [/base_sha=\$baseSha/, "Release workflow must expose an explicit prior commit for archive immutability."],
     [/npm run secret:scan/, "Release workflow must run the unified secret scan."],
     [/npm run secret:scan:release/, "Release workflow must scan ignored release artifacts."],
     [/npm run release:check/, "Release workflow must run the release readiness check."],
@@ -124,13 +156,14 @@ export function checkReleaseWorkflow(workflowText) {
   const errors = checks
     .filter(([pattern]) => !pattern.test(workflowText))
     .map(([, message]) => message);
+  errors.push(...externalArchiveTrustRootErrors(workflowText, "Release"));
 
   if (/body_path:\s*docs\/release-notes\/v[^\s]+\.md/.test(workflowText)) {
     errors.push("Release workflow must derive the release-notes path from package metadata.");
   }
 
   if (/git rev-parse ["']HEAD\^["']/.test(workflowText)) {
-    errors.push("Release workflow must use the configured previous stable archive anchor.");
+    errors.push("Release workflow must use the external trusted archive base instead of HEAD^.");
   }
 
   if (shellScriptBodies(workflowText).some((body) => /\$\{\{\s*(?:inputs\.|github\.event\.|github\.ref_name)/.test(body))) {
@@ -154,16 +187,12 @@ export function checkReleaseWorkflow(workflowText) {
   const releasePublishIndex = commandIndex(workflowText, "softprops/action-gh-release@v2");
   const releaseScanIndices = commandIndices(workflowText, "npm run secret:scan:release");
   const releaseVersionInputIndices = commandIndices(workflowText, "RELEASE_VERSION: ${{ steps.release_metadata.outputs.version }}");
-  const archiveBaseInputIndices = commandIndices(workflowText, "STATIC_ARCHIVE_BASE_REF: ${{ steps.release_metadata.outputs.base_sha }}");
   const checksumIndex = commandIndex(workflowText, "Get-FileHash");
   const finalStrictParityIndex = commandIndex(workflowText, "node scripts/release-archive-parity.mjs --strict", true);
   const firstReleaseScan = releaseScanIndices[0] ?? -1;
   const finalReleaseScan = releaseScanIndices.at(-1) ?? -1;
   if (releaseVersionInputIndices.length < 2) {
     errors.push("Release workflow must pass the resolved release version into both strict parity gates.");
-  }
-  if (archiveBaseInputIndices.length < 2) {
-    errors.push("Release workflow must pass the explicit prior commit into both strict parity gates.");
   }
   if (staticBuildIndex >= 0 && desktopBuildIndex >= 0) {
     if (firstReleaseScan < staticBuildIndex || firstReleaseScan > desktopBuildIndex) {
@@ -240,15 +269,11 @@ export function checkPagesWorkflow(workflowText) {
     [/actions\/checkout@v4/, "Pages workflow must check out the repository."],
     [/fetch-depth:\s*0/, "Pages checkout must fetch full history for archive immutability."],
     [/BEFORE_SHA/, "Pages push deployments must use the explicit prior event SHA as an additional archive base."],
-    [/static-versions\/release-config\.json/, "Pages manual deployments must load the configured trusted archive anchor."],
-    [/\$releaseConfig\.trustedArchiveBase/, "Pages manual deployments must use the configured trusted archive anchor."],
-    [/STATIC_ARCHIVE_EVENT_BASE_REF=\$baseSha/, "Pages push deployments must export the event base separately from the trusted anchor."],
-    [/STATIC_ARCHIVE_BASE_REF=\$baseSha/, "Pages manual deployments must export the configured trusted archive anchor."],
+    [/STATIC_ARCHIVE_EVENT_BASE_REF=\$baseSha/, "Pages push deployments must export the event base separately from the external trusted base."],
     [/actions\/setup-node@v4/, "Pages workflow must install Node.js."],
     [/npm ci/, "Pages workflow must install dependencies with npm ci."],
     [/npm run secret:scan/, "Pages workflow must run the unified secret scan."],
     [/npm run pages:check/, "Pages workflow must run the non-strict Pages readiness check."],
-    [/node scripts\/release-archive-parity\.mjs --historical-only/, "Pages workflow must run the historical-only archive immutability gate."],
     [/npm run test:run/, "Pages workflow must run frontend tests."],
     [/npm run build(?!:static)/, "Pages workflow must build the normal frontend artifact."],
     [/npm run build:static/, "Pages workflow must build the static HTML site."],
@@ -262,6 +287,7 @@ export function checkPagesWorkflow(workflowText) {
   const errors = checks
     .filter(([pattern]) => !pattern.test(workflowText))
     .map(([, message]) => message);
+  errors.push(...externalArchiveTrustRootErrors(workflowText, "Pages"));
 
   const staticBuildIndex = commandIndex(workflowText, "npm run build:static");
   const normalBuildIndex = commandIndex(workflowText, "npm run build");
@@ -285,7 +311,7 @@ export function checkPagesWorkflow(workflowText) {
   }
 
   if (/git rev-parse HEAD\^/.test(workflowText)) {
-    errors.push("Pages manual deployments must use the configured trusted archive anchor.");
+    errors.push("Pages workflow must use the external trusted archive base instead of HEAD^.");
   }
 
   if (staticBuildIndex >= 0 && pagesCheckIndex >= 0 && pagesCheckIndex < staticBuildIndex) {
@@ -308,13 +334,15 @@ export function checkCiWorkflow(workflowText) {
     [/fetch-depth:\s*0/, "CI checkout must fetch full history for archive immutability."],
     [/git merge-base HEAD origin\/main/, "PR CI must derive the archive base from merge-base/origin/main."],
     [/github\.event\.before/, "Push CI must use the explicit prior event SHA as the archive base."],
-    [/STATIC_ARCHIVE_EVENT_BASE_REF=\$baseSha/, "CI must export the event or merge base separately from the configured trusted anchor."],
+    [/STATIC_ARCHIVE_EVENT_BASE_REF=\$baseSha/, "CI must export the event or merge base separately from the external trusted base."],
     [/npm run release:check/, "CI must run strict release readiness."],
     [/npm run build(?!:static)/, "CI must build the normal frontend artifact."],
     [/npm run build:static/, "CI must build the static frontend artifact."],
     [/npm run artifact:check/, "CI must inspect built normal and static artifacts for runtime isolation."],
   ];
-  return checks.filter(([pattern]) => !pattern.test(workflowText)).map(([, message]) => message);
+  const errors = checks.filter(([pattern]) => !pattern.test(workflowText)).map(([, message]) => message);
+  errors.push(...externalArchiveTrustRootErrors(workflowText, "CI"));
+  return errors;
 }
 
 export function checkTauriWindowsBundleConfig(config) {
@@ -370,12 +398,20 @@ export function checkPackageReleaseMetadata(packageJson, packageLock, tauriConfi
     errors.push("package.json release:check must run strict archive parity.");
   }
 
+  if ([packageJson?.scripts?.["release:check"], packageJson?.scripts?.["pages:check"]]
+    .some((script) => /STATIC_ARCHIVE_TRUSTED_BASE\s*=/i.test(script ?? ""))) {
+    errors.push("package.json release and Pages scripts must not assign STATIC_ARCHIVE_TRUSTED_BASE.");
+  }
+
   if (!packageJson?.scripts?.["release:check"]?.includes("node scripts/clean-static-repro-check.mjs")) {
     errors.push("package.json release:check must verify a clean HEAD static build.");
   }
 
-  if (packageJson?.scripts?.["pages:check"] !== "node scripts/release-readiness.mjs") {
-    errors.push("package.json must expose a non-strict pages:check readiness command.");
+  if (
+    !packageJson?.scripts?.["pages:check"]?.includes("node scripts/release-readiness.mjs")
+    || !packageJson?.scripts?.["pages:check"]?.includes("node scripts/release-archive-parity.mjs --historical-only")
+  ) {
+    errors.push("package.json pages:check must run readiness plus historical archive parity.");
   }
 
   if (packageLock?.version !== packageJson?.version || packageLock?.packages?.[""]?.version !== packageJson?.version) {

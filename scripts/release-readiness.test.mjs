@@ -59,7 +59,8 @@ describe("release readiness checks", () => {
     expect(packageJson.scripts["release:check"]).toContain("node scripts/release-archive-parity.mjs --strict");
     expect(packageJson.scripts["release:check"]).toContain("node scripts/clean-static-repro-check.mjs");
     expect(packageJson.scripts["release:check"]).not.toContain("npm run site:check");
-    expect(packageJson.scripts["pages:check"]).toBe("node scripts/release-readiness.mjs");
+    expect(packageJson.scripts["pages:check"]).toContain("node scripts/release-readiness.mjs");
+    expect(packageJson.scripts["pages:check"]).toContain("node scripts/release-archive-parity.mjs --historical-only");
     expect(packageJson.scripts["artifact:check"]).toBe("node scripts/check-runtime-bundle-isolation.mjs");
     expect(result.status).toBe(1);
     expect(result.stderr).toMatch(/current release index\.html.*byte-identical/i);
@@ -268,7 +269,7 @@ jobs:
 
   it("requires a final strict parity gate after desktop packaging and immediately before checksums", () => {
     const workflow = readFileSync(".github/workflows/release.yml", "utf8");
-    const finalStrictStep = `      - name: Final strict release parity\n        env:\n          RELEASE_VERSION: \${{ steps.release_metadata.outputs.version }}\n          STATIC_ARCHIVE_BASE_REF: \${{ steps.release_metadata.outputs.base_sha }}\n        run: node scripts/release-archive-parity.mjs --strict\n\n`;
+    const finalStrictStep = `      - name: Final strict release parity\n        env:\n          RELEASE_VERSION: \${{ steps.release_metadata.outputs.version }}\n        run: node scripts/release-archive-parity.mjs --strict\n\n`;
     const validWorkflow = workflow;
 
     expect(checkReleaseWorkflow(validWorkflow)).toEqual([]);
@@ -317,16 +318,60 @@ jobs:
     );
   });
 
-  it("requires Release to use the configured previous stable anchor instead of HEAD^", () => {
+  it("requires Release to use the external trusted base instead of HEAD^", () => {
     const workflow = readFileSync(".github/workflows/release.yml", "utf8");
     const headFallbackWorkflow = workflow.replace(
-      "$baseSha = $releaseConfig.trustedArchiveBase",
-      '$baseSha = git rev-parse "HEAD^"',
+      "STATIC_ARCHIVE_TRUSTED_BASE: ${{ vars.STATIC_ARCHIVE_TRUSTED_BASE }}",
+      "STATIC_ARCHIVE_TRUSTED_BASE: HEAD^",
     );
 
     expect(checkReleaseWorkflow(headFallbackWorkflow)).toContain(
-      "Release workflow must use the configured previous stable archive anchor.",
+      "Release workflow must source STATIC_ARCHIVE_TRUSTED_BASE only from vars.STATIC_ARCHIVE_TRUSTED_BASE.",
     );
+  });
+
+  it("keeps the archive trust root external to repository files and workflow inputs", () => {
+    expect(existsSync(join("static-versions", "release-config.json"))).toBe(false);
+
+    for (const workflowPath of [
+      join(".github", "workflows", "ci.yml"),
+      join(".github", "workflows", "pages.yml"),
+      join(".github", "workflows", "release.yml"),
+    ]) {
+      const workflow = readFileSync(workflowPath, "utf8");
+      expect(workflow).toContain("STATIC_ARCHIVE_TRUSTED_BASE: ${{ vars.STATIC_ARCHIVE_TRUSTED_BASE }}");
+      expect(workflow).toMatch(/Repository variable STATIC_ARCHIVE_TRUSTED_BASE is required/i);
+      expect(workflow).not.toContain("static-versions/release-config.json");
+      expect(workflow).not.toContain("STATIC_ARCHIVE_BASE_REF");
+      expect(workflow).not.toMatch(/inputs\.(?:archive|trusted).*base/i);
+    }
+  });
+
+  it("rejects repository scripts or workflow shell bodies that override the external trust root", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+    const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+    const tauriConfig = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
+    const cargoToml = readFileSync("src-tauri/Cargo.toml", "utf8");
+    const cargoLock = readFileSync("src-tauri/Cargo.lock", "utf8");
+    packageJson.scripts["release:check"] = `$env:STATIC_ARCHIVE_TRUSTED_BASE='${"f".repeat(40)}'; ${packageJson.scripts["release:check"]}`;
+
+    expect(checkPackageReleaseMetadata(packageJson, packageLock, tauriConfig, cargoToml, cargoLock)).toContain(
+      "package.json release and Pages scripts must not assign STATIC_ARCHIVE_TRUSTED_BASE.",
+    );
+
+    for (const [workflowPath, checker, command] of [
+      [join(".github", "workflows", "ci.yml"), checkCiWorkflow, "npm run release:check"],
+      [join(".github", "workflows", "pages.yml"), checkPagesWorkflow, "npm run pages:check"],
+      [join(".github", "workflows", "release.yml"), checkReleaseWorkflow, "npm run release:check"],
+    ]) {
+      const workflow = readFileSync(workflowPath, "utf8").replace(
+        `run: ${command}`,
+        `run: $env:STATIC_ARCHIVE_TRUSTED_BASE='${"f".repeat(40)}'; ${command}`,
+      );
+      expect(checker(workflow)).toContain(
+        `${workflowPath.includes("ci.yml") ? "CI" : workflowPath.includes("pages.yml") ? "Pages" : "Release"} workflow must not assign STATIC_ARCHIVE_TRUSTED_BASE inside shell commands.`,
+      );
+    }
   });
 
   it("requires CI to resolve an explicit historical archive base for PRs and pushes", () => {
@@ -343,7 +388,7 @@ jobs:
       "CI must inspect built normal and static artifacts for runtime isolation.",
     );
     expect(checkCiWorkflow(workflow.replace("STATIC_ARCHIVE_EVENT_BASE_REF=$baseSha", "STATIC_ARCHIVE_BASE_REF=$baseSha"))).toContain(
-      "CI must export the event or merge base separately from the configured trusted anchor.",
+      "CI must export the event or merge base separately from the external trusted base.",
     );
   });
 
@@ -361,11 +406,21 @@ permissions:
   id-token: write
 jobs:
   build:
+    env:
+      STATIC_ARCHIVE_TRUSTED_BASE: \${{ vars.STATIC_ARCHIVE_TRUSTED_BASE }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Resolve historical archive base
+      - name: Validate external archive trust root
+        run: |
+          if (-not $env:STATIC_ARCHIVE_TRUSTED_BASE) { throw "Repository variable STATIC_ARCHIVE_TRUSTED_BASE is required." }
+          if ($env:STATIC_ARCHIVE_TRUSTED_BASE -notmatch '^[a-f0-9]{40}$') { throw "Invalid trusted base." }
+          $resolvedBase = git rev-parse --verify "$env:STATIC_ARCHIVE_TRUSTED_BASE^{commit}"
+          if (-not $resolvedBase) { throw "Missing trusted base." }
+          git merge-base --is-ancestor $env:STATIC_ARCHIVE_TRUSTED_BASE HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Trusted base is not an ancestor." }
+      - name: Resolve additional push archive base
         env:
           EVENT_NAME: push
           BEFORE_SHA: abc123
@@ -374,11 +429,6 @@ jobs:
             $baseSha = $env:BEFORE_SHA
             if (-not $baseSha -or $baseSha -match '^0+$') { throw "Missing push base." }
             "STATIC_ARCHIVE_EVENT_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
-          } else {
-            $releaseConfig = Get-Content -Raw "static-versions/release-config.json" | ConvertFrom-Json
-            $baseSha = $releaseConfig.trustedArchiveBase
-            if (-not $baseSha) { throw "Missing trusted archive anchor." }
-            "STATIC_ARCHIVE_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
           }
       - uses: actions/setup-node@v4
       - run: npm ci
@@ -387,7 +437,6 @@ jobs:
       - run: npm run build:static
       - run: npm run artifact:check
       - run: npm run pages:check
-      - run: node scripts/release-archive-parity.mjs --historical-only
       - run: npm run site:check
       - run: npm run secret:scan
       - uses: actions/upload-pages-artifact@v3
@@ -408,14 +457,17 @@ jobs:
     expect(checkPagesWorkflow(workflow.replace("fetch-depth: 0", "fetch-depth: 1"))).toContain(
       "Pages checkout must fetch full history for archive immutability.",
     );
-    expect(checkPagesWorkflow(workflow.replace("node scripts/release-archive-parity.mjs --historical-only", "npm run site:check"))).toContain(
-      "Pages workflow must run the historical-only archive immutability gate.",
+    expect(checkPagesWorkflow(workflow.replace("npm run pages:check", "node scripts/release-readiness.mjs"))).toContain(
+      "Pages workflow must run the non-strict Pages readiness check.",
     );
     expect(checkPagesWorkflow(workflow.replace("npm run artifact:check", "npm run build:static"))).toContain(
       "Pages workflow must inspect built normal and static artifacts for runtime isolation.",
     );
-    expect(checkPagesWorkflow(workflow.replace("$baseSha = $releaseConfig.trustedArchiveBase", "$baseSha = git rev-parse HEAD^"))).toContain(
-      "Pages manual deployments must use the configured trusted archive anchor.",
+    expect(checkPagesWorkflow(workflow.replace(
+      "STATIC_ARCHIVE_TRUSTED_BASE: ${{ vars.STATIC_ARCHIVE_TRUSTED_BASE }}",
+      "STATIC_ARCHIVE_TRUSTED_BASE: ${{ inputs.archive_base }}",
+    ))).toContain(
+      "Pages workflow must source STATIC_ARCHIVE_TRUSTED_BASE only from vars.STATIC_ARCHIVE_TRUSTED_BASE.",
     );
   });
 
