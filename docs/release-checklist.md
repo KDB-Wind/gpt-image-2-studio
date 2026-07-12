@@ -45,10 +45,12 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ## CORS 验收
 
 ```powershell
-$env:BASE_URL = "https://ruoli.dev/v1"
+$env:BASE_URL = "<PROVIDER_BASE_URL>"
 $env:SITE_ORIGIN = "https://kdb-wind.github.io"
 npm run cors:check
 ```
+
+Archive parity uses the full previous stable commit recorded in `static-versions/release-config.json`. Manual Pages and Release runs must not substitute `HEAD^`; CI event or merge bases are additional comparisons only.
 
 通过时应返回 `CORS preflight check passed.`。
 

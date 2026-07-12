@@ -24,6 +24,12 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 If Rust is unavailable on the current machine, complete the frontend and static HTML checks locally, then rely on a Rust-ready machine or GitHub Actions for desktop checks.
 
+## Archive Anchor
+
+`static-versions/release-config.json` records the full previous stable commit used by strict archive parity. The default strict check and Release workflow use this configured anchor, not `HEAD^`. CI pushes and pull requests, plus Pages pushes, add their event or merge base as a second comparison and never replace the configured anchor for versions already present there.
+
+Every version listed by the trusted anchor manifest is immutable, including that manifest's `latestStable`. Only versions absent from the anchor may be added as a new release archive.
+
 ## Single-File HTML
 
 Build:
@@ -61,9 +67,9 @@ This produces a normal-user `setup.exe`.
 2. Create and push a version tag:
 
 ```powershell
-git tag v0.1.3
+git tag v0.1.7
 git push origin main
-git push origin v0.1.3
+git push origin v0.1.7
 ```
 
 3. Wait for `.github/workflows/release.yml`.
@@ -77,7 +83,7 @@ You can also use `workflow_dispatch` to trigger the Release workflow manually an
 
 ```powershell
 Get-FileHash .\gpt-image-2-studio-lite.html -Algorithm SHA256
-Get-FileHash .\GPT-Image-2-Studio_0.1.3_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\GPT-Image-2-Studio_0.1.7_x64-setup.exe -Algorithm SHA256
 Get-Content .\SHA256SUMS.txt
 ```
 

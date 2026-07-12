@@ -353,23 +353,24 @@ payload.append("image[]", image, image.name);
 - 保存目录授权仍需保留人工验收步骤，并在报告中明确记录结果。
 - 修复后再次执行密钥扫描，确认无真实密钥进入仓库。
 
-## 2026-07-12 SPEC Review Closure
+## 2026-07-12 v0.1.7 SPEC Review Closure
 
 Status: automated branch gates passed. Native File System Access manual acceptance remains pending, and the aborted Computer Use attempt is not release evidence. No full/native E2E claim is made.
 
-- Frontend/unit: 33 files, 479 tests passed.
+- Frontend/unit: 33 files, 487 tests passed.
 - Builds: normal 46 modules; static 42 modules.
-- Emitted-artifact isolation: normal dist retains the Tauri adapter and bridge markers; current static HTML/assets exclude them. Immutable historical copies are governed by the raw archive gate.
+- Emitted-artifact isolation: the normal HTML entry graph reaches the Tauri adapter and bridge markers through the Vite manifest; current static HTML/assets exclude native markers.
 - Static mock E2E: 10 passed, 1 intentionally skipped by project selection.
 - Static file-mode E2E: 2 passed.
 - Real-service static E2E: 4 passed after unit/mock gates; no service configuration, identity, signed URL, or response body is recorded.
 - Rust: 28 tests passed; cargo check passed.
-- Release readiness: 22 readiness tests passed. Clean-HEAD reproducibility, Pages readiness, both secret scans, TypeScript, archive second-attempt rejection, and strict parity passed with explicit trusted base 5c8a3481680496f21628464eb67901886ee0c1e9 and with the default base selection.
+- Release readiness: 23 readiness tests passed. Clean-HEAD reproducibility, Pages readiness, both secret scans, TypeScript, archive second-attempt rejection, and strict parity passed with configured/default anchor 1c35245852f95a7aa0baad14d8b1817d968c685c and with the same explicit trusted base.
 
 Raw Git archive evidence:
 
-- `v0.1.4`: blob 6e35c4fd1e1a02f10c1a2df02032ceb9593a793d; SHA-256 1923F7169B032F5FD7105C54E58B1FC10CE01D6E253B70E06661E46B3A84AC2D.
-- `v0.1.5`: blob dc342cf3cf8e04a5e1b02d2d70f4de9f1dc09ac7; SHA-256 72CB38132E9B25F74D960B15D49BC9B105F07E75F254269463889EB4AE64FE22.
-- `v0.1.6`: SHA-256 63C131116175AC1ACD527BBBAB34BE72BE5A590A70BDA29D5C01254A7DAD6CAE for the source archive and current generated release HTML.
+- `v0.1.4`: blob c352aadac324fa8935d3db02735477dafdb02b89; SHA-256 2921ACDD0350D487E0659B0A143C7AC3597DA36AF80DA7FD0A4980190CF19A64.
+- `v0.1.5`: blob 77b0000781289d756f75d6c6efc7b763886464e5; SHA-256 50D653FECF24AFD86F7FB7C9F082555A987BB1610ACABC5AAB93E48F74326056.
+- `v0.1.6`: blob f1721e4a937ffc887c1159402aeec9383a47ceb8; SHA-256 0E67C34BAF4C4289D4864F6CC8E842DF84C23B14CE94E34C8C2354ECA059AEB3.
+- `v0.1.7`: blob 0af8bb435142d59c1cce601a91600ac3555df033; SHA-256 EBDBE76F4E9F731FCA70BDECDC303DA635258F3B8CEC2B96AAEF6C53EB11A9C4 for the source archive and current generated release HTML.
 
-Correction: earlier Windows checkout-transformed hash claims were not canonical. Historical evidence now uses raw Git blob bytes only. No carriage-return reconstruction or byte normalization is permitted, and a historical archive change still fails even when its digest metadata is changed with it.
+Correction: commit 1c35245852f95a7aa0baad14d8b1817d968c685c is the authoritative immutable baseline because its manifest already declares v0.1.6 as latestStable with trusted digests. Strict parity compares every version in that anchor, including v0.1.6; versions absent from the anchor, such as v0.1.7, are treated as new. No byte normalization or newer-base bypass is permitted.

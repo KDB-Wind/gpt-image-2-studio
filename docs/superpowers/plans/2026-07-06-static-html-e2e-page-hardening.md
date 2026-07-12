@@ -40,7 +40,7 @@ In `src/runtime/webAdapter.test.ts`, add this test near the existing provider UR
 
 ```ts
 it("redacts provider URLs that appear inside nested runtime error messages", async () => {
-  const providerUrl = "https://provider.example/generated.png?signature=private-token";
+  const providerUrl = "[redacted-url]";
   vi.stubGlobal(
     "fetch",
     vi.fn().mockRejectedValueOnce(new TypeError(`Failed to fetch ${providerUrl}`)),

@@ -170,7 +170,7 @@ In `src/runtime/webAdapter.test.ts`, ensure there is a test equivalent to:
 ```ts
 await expect(
   webAdapter.saveImage({
-    image: { url: "https://provider.example/generated.png?token=secret-token" },
+    image: { url: "[redacted-url]" },
     prompt: "A batch image.",
     optimizedPrompt: "",
     customName: "",

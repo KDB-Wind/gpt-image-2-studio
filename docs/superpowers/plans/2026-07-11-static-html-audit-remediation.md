@@ -13,37 +13,37 @@
 - [x] 真实目录碰撞不覆盖；同一浏览器应用实例内文件写入与历史写入串行执行，并显式报告持久性。
 - [x] 单图与批量任务均恰好请求一张图片；旧数量已规范化。
 - [x] 桌面端和前端配置持久化完整覆盖图片响应模式及批量设置。
-- [x] `v0.1.6` 发布与归档绑定；Git blob、链接、路径守卫完整；Release 严格校验、Pages 非严格当前版本检查与历史基线门禁区分明确。
+- [x] `v0.1.7` 发布与归档绑定，`v0.1.6` 作为前一稳定锚点；Git blob、链接、路径守卫完整；Release 严格校验、Pages 非严格当前版本检查与历史基线门禁区分明确。
 - [x] 最终一致性检查在校验和之前执行；clean HEAD 可复现性和非空工作流测试已验证。
 - [x] Windows 内联 SVG 的 CRLF 是先前 clean 不一致根因；LF 规范化已修复。
 
 ### 完整 P1 状态台账
 
-下表包含已修复项和仍待人工验收项，仅归纳现有 479 单元测试、mock/file/真实服务 E2E、两层密钥扫描和发布/站点门禁。
+下表包含已修复项和仍待人工验收项，仅归纳现有 487 单元测试、mock/file/真实服务 E2E、两层密钥扫描和发布/站点门禁。
 
 | P1 项目 | 状态 | 证据类别 |
 | --- | --- | --- |
-| 单任务重试并发与陈旧状态覆盖 | Fixed and unit-tested | 已审阅任务；479 测试与 retry mock E2E。 |
-| AI 规划数量与 items 一致性 | Fixed and unit-tested；Real-provider verified | 已审阅任务；479 测试、mock E2E、真实服务规划 smoke。 |
-| 面向用户的服务错误脱敏 | Fixed and unit-tested | 已审阅任务；479 测试与两层密钥扫描。 |
-| 密钥持久化策略与测试 artifact 秘密处理 | Fixed and unit-tested | 已审阅任务；479 测试与两层密钥扫描。 |
+| 单任务重试并发与陈旧状态覆盖 | Fixed and unit-tested | 已审阅任务；487 测试与 retry mock E2E。 |
+| AI 规划数量与 items 一致性 | Fixed and unit-tested；Real-provider verified | 已审阅任务；487 测试、mock E2E、真实服务规划 smoke。 |
+| 面向用户的服务错误脱敏 | Fixed and unit-tested | 已审阅任务；487 测试与两层密钥扫描。 |
+| 密钥持久化策略与测试 artifact 秘密处理 | Fixed and unit-tested | 已审阅任务；487 测试与两层密钥扫描。 |
 | 仓库与发布产物的扩展密钥扫描 | Fixed and unit-tested | 已审阅任务；两层密钥扫描及 release/site 门禁。 |
 | 单图、批量、历史、设置、移动端、file、重试、参考图、保存目录页面覆盖 | Mock E2E verified | 10 个 mock 通过、1 个预期跳过；2 个 file 通过。 |
 | 保存目录 / Native File System Access（历史 P1-003） | Native manual pending | 自动化 mock/code paths 已通过；真实选择器、权限、磁盘落点和刷新后恢复仍待人工验收。 |
-| Blob URL 生命周期清理 | Fixed and unit-tested | 已审阅任务；479 测试。 |
+| Blob URL 生命周期清理 | Fixed and unit-tested | 已审阅任务；487 测试。 |
 | 发布元数据/版本一致性及真实服务测试激活顺序 | Fixed and unit-tested；Real-provider verified | 已审阅任务；release/site 门禁及 4 个真实服务 E2E 通过。 |
-| 目录碰撞不覆盖与同一实例文件/历史串行化与显式持久性 | Fixed and unit-tested | 已审阅任务；479 测试与 mock/file E2E。 |
-| 每任务恰好一张图片及旧数量规范化 | Fixed and unit-tested；Real-provider verified | 已审阅任务；479 测试、mock E2E、真实服务 E2E。 |
-| 前端与桌面端完整配置持久化 | Fixed and unit-tested | 已审阅任务；479 测试与 mock E2E。 |
-| `v0.1.6` 发布/归档守卫、最终一致性、可复现性和工作流测试 | Fixed and unit-tested | 已审阅任务；release/site 门禁、clean HEAD 可复现性及严格归档一致性。 |
+| 目录碰撞不覆盖与同一实例文件/历史串行化与显式持久性 | Fixed and unit-tested | 已审阅任务；487 测试与 mock/file E2E。 |
+| 每任务恰好一张图片及旧数量规范化 | Fixed and unit-tested；Real-provider verified | 已审阅任务；487 测试、mock E2E、真实服务 E2E。 |
+| 前端与桌面端完整配置持久化 | Fixed and unit-tested | 已审阅任务；487 测试与 mock E2E。 |
+| `v0.1.7` 发布/归档守卫、`v0.1.6` 稳定锚点、最终一致性、可复现性和工作流测试 | Fixed and unit-tested | 已审阅任务；release/site 门禁、clean HEAD 可复现性及严格归档一致性。 |
 
 ### 2026-07-12 验证证据
 
-- [x] `npm run test:run`：33 个文件、479 个测试通过。
+- [x] `npm run test:run`：33 个文件、487 个测试通过。
 - [x] `npm run build`：通过，46 个模块。
 - [x] `npm run build:static`：通过，42 个模块。
 - [x] `npm run site:check`：通过。
-- [x] `npm run release:check`：22 个 readiness 测试，以及 readiness、clean HEAD 可复现性、严格归档一致性均通过。
+- [x] `npm run release:check`：23 个 readiness 测试，以及 readiness、clean HEAD 可复现性、严格归档一致性均通过。
 - [x] `npm run e2e:static:mock`：10 通过、1 个预期跳过。
 - [x] `npm run e2e:static:file`：2 通过。
 - [x] `npm run e2e:static:real`：4 通过、无重试；不记录服务配置、服务身份或响应内容。
@@ -54,9 +54,10 @@
 
 ### 归档一致性
 
-- [x] `v0.1.4`：`1923F7169B032F5FD7105C54E58B1FC10CE01D6E253B70E06661E46B3A84AC2D`
-- [x] `v0.1.5`：`72CB38132E9B25F74D960B15D49BC9B105F07E75F254269463889EB4AE64FE22`
-- [x] `v0.1.6` 的源归档、分发 index 与 lite HTML：`63C131116175AC1ACD527BBBAB34BE72BE5A590A70BDA29D5C01254A7DAD6CAE`
+- [x] `v0.1.4`：`2921ACDD0350D487E0659B0A143C7AC3597DA36AF80DA7FD0A4980190CF19A64`
+- [x] `v0.1.5`：`50D653FECF24AFD86F7FB7C9F082555A987BB1610ACABC5AAB93E48F74326056`
+- [x] `v0.1.6` immutable archive：`0E67C34BAF4C4289D4864F6CC8E842DF84C23B14CE94E34C8C2354ECA059AEB3`
+- [x] `v0.1.7` current source archive and generated release HTML：`EBDBE76F4E9F731FCA70BDECDC303DA635258F3B8CEC2B96AAEF6C53EB11A9C4`
 
 ## 唯一待完成门槛
 

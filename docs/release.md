@@ -2,6 +2,10 @@
 
 本仓库发布的是公开本地基础工具版，不发布平台版、平台部署文件、平台后台或托管 Key 相关代码。
 
+## Archive Anchor
+
+`static-versions/release-config.json` records the full previous stable commit used by strict archive parity. Release and manual Pages runs use this configured anchor rather than `HEAD^`. CI and Pages push events may add an event or merge base as a second comparison, but cannot replace the configured anchor for versions already present there.
+
 ## 发布产物
 
 Release 应包含两类普通用户可用的附件：
@@ -83,9 +87,9 @@ Tauri Windows 配置要求：
 2. 创建版本 tag，例如：
 
 ```powershell
-git tag v0.1.3
+git tag v0.1.7
 git push origin main
-git push origin v0.1.3
+git push origin v0.1.7
 ```
 
 3. 等待 `.github/workflows/release.yml` 完成。
@@ -101,7 +105,7 @@ Windows PowerShell：
 
 ```powershell
 Get-FileHash .\gpt-image-2-studio-lite.html -Algorithm SHA256
-Get-FileHash .\GPT-Image-2-Studio_0.1.3_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\GPT-Image-2-Studio_0.1.7_x64-setup.exe -Algorithm SHA256
 Get-Content .\SHA256SUMS.txt
 ```
 

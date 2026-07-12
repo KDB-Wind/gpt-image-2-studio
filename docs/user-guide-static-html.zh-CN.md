@@ -60,9 +60,9 @@ gpt-image-2-studio-lite.html
 - 文字模型：用于提示词优化、文字模型测试和批量任务拆分。
 - 图片模型：用于文生图和图生图。
 
-如果你还没有模型服务，可以参考作者推荐中转站：
+配置你自己的模型服务地址：
 
-[https://ruoli.dev/register?aff=mR35](https://ruoli.dev/register?aff=mR35)
+`<PROVIDER_BASE_URL>`
 
 请自行评估服务稳定性、价格和合规性。
 
@@ -168,7 +168,7 @@ HTML 版刷新后能否预览旧图片，取决于你是否在“设置”里完
 如果你是开发者或维护者，可以用命令测试供应商是否允许静态页访问：
 
 ```powershell
-$env:BASE_URL = "https://ruoli.dev/v1"
+$env:BASE_URL = "<PROVIDER_BASE_URL>"
 $env:SITE_ORIGIN = "https://kdb-wind.github.io"
 npm run cors:check
 ```

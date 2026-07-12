@@ -21,7 +21,7 @@
 维护者可以测试：
 
 ```powershell
-$env:BASE_URL = "https://ruoli.dev/v1"
+$env:BASE_URL = "<PROVIDER_BASE_URL>"
 $env:SITE_ORIGIN = "https://kdb-wind.github.io"
 npm run cors:check
 ```

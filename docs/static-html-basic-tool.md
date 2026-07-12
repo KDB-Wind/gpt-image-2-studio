@@ -46,7 +46,7 @@ dist-static/gpt-image-2-studio-lite.html
 维护者可以用下面的命令检查 CORS：
 
 ```powershell
-$env:BASE_URL = "https://ruoli.dev/v1"
+$env:BASE_URL = "<PROVIDER_BASE_URL>"
 $env:SITE_ORIGIN = "https://kdb-wind.github.io"
 npm run cors:check
 ```

@@ -62,7 +62,7 @@ Whether the static site can call an image model directly depends on the provider
 Test the recommended relay with:
 
 ```powershell
-$env:BASE_URL = "https://ruoli.dev/v1"
+$env:BASE_URL = "<PROVIDER_BASE_URL>"
 $env:SITE_ORIGIN = "https://kdb-wind.github.io"
 npm run cors:check
 ```

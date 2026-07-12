@@ -281,7 +281,7 @@ rg -n "sk-[A-Za-z0-9_-]{24,}|1ts[A-Za-z0-9_-]{20,}" . --glob "!node_modules/**" 
 
 - 用户可看到错误类型，例如 `Failed to fetch`、`HTTP 403`。
 - 不应展示完整签名 URL、query string、私有 token、私有 Base URL。
-- 测试应构造 `TypeError("Failed to fetch https://provider.example/generated.png?signature=private-token")`，并断言最终 UI 错误不包含完整 URL 和 token。
+- 测试应构造 `TypeError("Failed to fetch [redacted-url]")`，并断言最终 UI 错误不包含完整 URL 和 token。
 
 安全影响：
 
@@ -312,6 +312,8 @@ rg -n "sk-[A-Za-z0-9_-]{24,}|1ts[A-Za-z0-9_-]{20,}" . --glob "!node_modules/**" 
 - 这是 P2 测试完整性问题。当前真实 smoke 已证明供应商能返回 base64，但长期回归测试还不够强。
 
 ### P2-004：`static-versions` 源归档一致性仍依赖人工检查
+
+> 2026-07-12 closure: resolved in v0.1.7. Strict parity is anchored to commit `1c35245852f95a7aa0baad14d8b1817d968c685c`, compares every version in that manifest including v0.1.6, and permits only versions absent from the anchor as new archives.
 
 模块：静态发布 / 版本固定目录 / 发布前检查
 

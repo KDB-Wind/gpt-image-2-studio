@@ -61,9 +61,9 @@ Required fields:
 - Text model: used for prompt optimization, text connectivity testing, and batch planning.
 - Image model: used for text-to-image and image-to-image.
 
-Author recommended relay provider:
+Configure your own model provider endpoint:
 
-[https://ruoli.dev/register?aff=mR35](https://ruoli.dev/register?aff=mR35)
+`<PROVIDER_BASE_URL>`
 
 Evaluate provider stability, pricing, and compliance yourself.
 
@@ -158,7 +158,7 @@ If the browser refuses the Downloads root folder, create and authorize a `Downlo
 Developers and maintainers can test whether a provider allows static-page browser access:
 
 ```powershell
-$env:BASE_URL = "https://ruoli.dev/v1"
+$env:BASE_URL = "<PROVIDER_BASE_URL>"
 $env:SITE_ORIGIN = "https://kdb-wind.github.io"
 npm run cors:check
 ```
