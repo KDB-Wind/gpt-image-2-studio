@@ -71,7 +71,7 @@ git push origin v0.1.3
 5. Download `gpt-image-2-studio-lite.html` and `setup.exe` for manual QA.
 6. Publish the draft Release after QA passes.
 
-You can also trigger the Release workflow manually from GitHub Actions and provide `tag_name`.
+You can also use `workflow_dispatch` to trigger the Release workflow manually and provide `tag_name`. This is only a rerun or controlled dispatch path: the matching tag must already exist remotely, and it does not create a missing tag.
 
 ## Verify Downloads
 

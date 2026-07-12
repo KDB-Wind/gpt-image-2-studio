@@ -102,12 +102,12 @@ export function assertVersionManifestAndArchives({ rootDir = defaultRootDir, dis
   return sourceManifest;
 }
 
-function assertCurrentReleaseMatchesArchive(rootDir, distDir, manifest) {
+export function assertCurrentReleaseMatchesArchive({
+  rootDir = defaultRootDir,
+  distDir = join(rootDir, "dist-static"),
+  manifest = readManifest(join(rootDir, "static-versions", "manifest.json")),
+} = {}) {
   const packagePath = join(rootDir, "package.json");
-  if (!existsSync(packagePath)) {
-    return;
-  }
-
   const packageVersion = JSON.parse(readFileSync(packagePath, "utf8"))?.version;
   if (packageVersion !== manifest.latestStable) {
     return;
@@ -194,7 +194,7 @@ export function runStaticSiteCheck({ rootDir = defaultRootDir, distDir = join(ro
   assertSingleFileParity(distDir);
   assertCurrentReleaseHasNoPackageMetadata(distDir);
   const manifest = assertVersionManifestAndArchives({ rootDir, distDir });
-  assertCurrentReleaseMatchesArchive(rootDir, distDir, manifest);
+  assertCurrentReleaseMatchesArchive({ rootDir, distDir, manifest });
   assertFaviconIsInlined(distDir);
   assertHeaderLogoIsSelfContained(distDir);
 }

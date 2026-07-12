@@ -35,14 +35,14 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Check release readiness
-        run: npm run release:check
-
       - name: Run frontend tests
         run: npm run test:run
 
       - name: Build static site
         run: npm run build:static
+
+      - name: Check release readiness
+        run: npm run release:check
 
       - name: Run static page E2E
         run: npm run e2e:static:mock:run

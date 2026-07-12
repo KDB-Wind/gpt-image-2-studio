@@ -41,6 +41,43 @@ describe("App batch workspace", () => {
     vi.restoreAllMocks();
   });
 
+  it("keeps legacy Single generation to one outbound and one persisted image", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([createSaveImageResult("blob:single-one-image")]);
+    runtime.loadConfig = vi.fn().mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      apiKey: "test-key",
+      defaultCount: 4,
+      uiLanguage: "en-US",
+      hasDismissedWelcome: true,
+    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: [
+        { b64_json: "first-image" },
+        { b64_json: "unexpected-extra-image" },
+      ],
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderApp();
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create one poster.");
+    await clickButtonAsync(copy.actions.generate);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(request.body))).toMatchObject({ n: 1 });
+    expect(runtime.saveImage).toHaveBeenCalledTimes(1);
+    expect(runtime.saveImage).toHaveBeenCalledWith(expect.objectContaining({
+      image: { base64: "first-image" },
+      config: expect.objectContaining({ defaultCount: 1 }),
+    }));
+    expect(container.querySelectorAll('.preview-success img[src="blob:single-one-image"]')).toHaveLength(1);
+  });
+
   it("releases the old generated preview when a new single-image preview replaces it", async () => {
     const copy = getTranslations("en-US");
     const runtime = createPreviewRuntime([

@@ -1164,16 +1164,16 @@ export default function App() {
       if (!isMountedRef.current) {
         return;
       }
-      const firstImage = generatedImages[0];
+      const [singleImage] = generatedImages;
 
-      if (!firstImage) {
+      if (!singleImage) {
         throw new Error(copy.messages.generationNoImages);
       }
 
       const generatedAt = new Date();
       const durationMs = Date.now() - startedAt;
       const savedResult = await runtime.saveImage({
-        image: firstImage,
+        image: singleImage,
         prompt: sourcePrompt,
         optimizedPrompt: optimizedPrompt.trim(),
         customName: customName.trim(),

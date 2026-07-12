@@ -1,10 +1,13 @@
 // @vitest-environment node
-import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import {
   checkPackageReleaseMetadata,
+  checkManualReleaseDocumentation,
   checkReleaseWorkflow,
   checkPagesWorkflow,
   checkTauriWindowsBundleConfig,
@@ -13,6 +16,51 @@ import {
 } from "./release-readiness.mjs";
 
 describe("release readiness checks", () => {
+  it("makes release:check independently reject current release bytes that differ from the archive", () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "chat-to-image-release-parity-"));
+    const archiveHtml = "<html>immutable release</html>\n";
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+    const parityScript = join(process.cwd(), "scripts", "release-archive-parity.mjs");
+
+    writeFixtureJson(join(rootDir, "package.json"), { version: "1.2.3" });
+    writeFixtureJson(join(rootDir, "static-versions", "manifest.json"), {
+      latestStable: "1.2.3",
+      versions: ["1.2.3"],
+    });
+    writeFixtureFile(
+      join(rootDir, "static-versions", "versions", "v1.2.3", "index.html"),
+      archiveHtml,
+    );
+    writeFixtureFile(join(rootDir, "dist-static", "index.html"), "<html>mismatched release</html>\n");
+    writeFixtureFile(join(rootDir, "dist-static", "gpt-image-2-studio-lite.html"), archiveHtml);
+
+    const result = spawnSync(process.execPath, [parityScript], {
+      cwd: rootDir,
+      encoding: "utf8",
+    });
+
+    expect(packageJson.scripts["release:check"]).toContain("node scripts/release-archive-parity.mjs");
+    expect(packageJson.scripts["release:check"]).not.toContain("npm run site:check");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/current release index\.html.*byte-identical/i);
+  });
+
+  it("requires release documentation to state that manual dispatch only reruns an existing remote tag", () => {
+    const documents = {
+      [join("docs", "release-checklist.md")]: readFileSync("docs/release-checklist.md", "utf8"),
+      [join("docs", "release.md")]: readFileSync("docs/release.md", "utf8"),
+      [join("docs", "release.en.md")]: readFileSync("docs/release.en.md", "utf8"),
+    };
+
+    expect(checkManualReleaseDocumentation(documents)).toEqual([]);
+
+    documents[join("docs", "release.en.md")] =
+      "You can use workflow_dispatch and provide tag_name to publish a release.";
+    expect(checkManualReleaseDocumentation(documents)).toEqual([
+      expect.stringMatching(/release\.en\.md.*workflow_dispatch only reruns an existing remote tag/),
+    ]);
+  });
+
   it("keeps untrusted dispatch tags out of shell script bodies", () => {
     const workflow = readFileSync(".github/workflows/release.yml", "utf8");
     const runBodies = [...workflow.matchAll(/\brun:\s*\|\s*\n((?:\s{10,}.*(?:\r?\n|$))*)/g)].map((match) => match[1]);
@@ -295,9 +343,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
       - run: npm ci
-      - run: npm run release:check
       - run: npm run test:run
       - run: npm run build:static
+      - run: npm run release:check
       - run: npm run site:check
       - run: npm run secret:scan
       - uses: actions/upload-pages-artifact@v3
@@ -456,3 +504,12 @@ jobs:
     expect(runReleaseReadiness(process.cwd())).toEqual([]);
   });
 });
+
+function writeFixtureJson(path, value) {
+  writeFixtureFile(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function writeFixtureFile(path, contents) {
+  mkdirSync(join(path, ".."), { recursive: true });
+  writeFileSync(path, contents, "utf8");
+}

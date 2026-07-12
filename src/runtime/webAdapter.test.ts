@@ -635,6 +635,38 @@ describe("webAdapter history deletion", () => {
     await expect(readHandleFileText(dateFolder, "poster-2.png")).resolves.toBe("existing-two");
   });
 
+  it("serializes concurrent authorized saves before allocating and writing file names", async () => {
+    const downloadsHandle = createDirectoryHandle({}, {
+      name: "gpt-image-2-studio",
+      writeDelayMs: 20,
+    });
+    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
+    vi.spyOn(URL, "createObjectURL")
+      .mockReturnValueOnce("blob:parallel-first")
+      .mockReturnValueOnce("blob:parallel-second");
+
+    await webAdapter.chooseOutputDirectory();
+    const saveInput = {
+      image: { base64: ONE_PIXEL_PNG },
+      prompt: "Parallel poster",
+      optimizedPrompt: "",
+      customName: "parallel-poster",
+      config: { ...DEFAULT_CONFIG, defaultFormat: "png" as const },
+      generatedAt: new Date(2026, 4, 26, 2, 4, 5),
+      durationMs: 1000,
+    };
+
+    const results = await Promise.all([
+      webAdapter.saveImage(saveInput),
+      webAdapter.saveImage(saveInput),
+    ]);
+
+    expect(results.map((result) => result.record.outputPath).sort()).toEqual([
+      "gpt-image-2-studio/2026-05-26/parallel-poster-2.png",
+      "gpt-image-2-studio/2026-05-26/parallel-poster.png",
+    ]);
+  });
+
   it("keeps existing batch image bytes when browser history is unavailable", async () => {
     const downloadsHandle = createDirectoryHandle({}, { name: "gpt-image-2-studio" });
     const batchCreatedAt = "2026-05-24T00:00:00.000Z";
@@ -982,6 +1014,7 @@ function createDirectoryHandle(
     writable?: boolean;
     writeError?: string;
     probeError?: string;
+    writeDelayMs?: number;
   } = {},
 ): FileSystemDirectoryHandle {
   const files = new Map<string, File>(Object.entries(entries));
@@ -1007,6 +1040,7 @@ function createDirectoryHandle(
           writable: handleOptions.writable,
           writeError: handleOptions.writeError,
           probeError: handleOptions.probeError,
+          writeDelayMs: handleOptions.writeDelayMs,
         });
         directories.set(name, nextHandle);
         return nextHandle;
@@ -1039,6 +1073,9 @@ function createDirectoryHandle(
 
           return {
             async write(data: BufferSource | Blob | string) {
+              if (handleOptions.writeDelayMs) {
+                await new Promise((resolve) => setTimeout(resolve, handleOptions.writeDelayMs));
+              }
               const blob = data instanceof Blob ? data : new Blob([data]);
               files.set(name, new File([blob], name, { type: blob.type }));
             },

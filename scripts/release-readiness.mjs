@@ -134,6 +134,7 @@ export function checkReleaseWorkflow(workflowText) {
   }
 
   const staticBuildIndex = commandIndex(workflowText, "npm run build:static");
+  const releaseCheckIndex = commandIndex(workflowText, "npm run release:check");
   const siteCheckIndex = commandIndex(workflowText, "npm run site:check");
   const mockE2eIndex = commandIndex(workflowText, "npm run e2e:static:mock:run");
   const fileE2eIndex = commandIndex(workflowText, "npm run e2e:static:file:run");
@@ -160,6 +161,10 @@ export function checkReleaseWorkflow(workflowText) {
     if (uploadIndex >= 0 && staticGateIndices.some((index) => index > uploadIndex)) {
       errors.push("Release workflow must finish all static release gates before upload.");
     }
+  }
+
+  if (staticBuildIndex >= 0 && releaseCheckIndex >= 0 && releaseCheckIndex < staticBuildIndex) {
+    errors.push("Release workflow must build static release bytes before running release readiness.");
   }
 
   const checkoutIndex = commandIndex(workflowText, "actions/checkout@v4");
@@ -198,6 +203,7 @@ export function checkPagesWorkflow(workflowText) {
     .map(([, message]) => message);
 
   const staticBuildIndex = commandIndex(workflowText, "npm run build:static");
+  const releaseCheckIndex = commandIndex(workflowText, "npm run release:check");
   const siteCheckIndex = commandIndex(workflowText, "npm run site:check");
   const secretScanIndex = commandIndex(workflowText, "npm run secret:scan", true);
   const uploadIndex = commandIndex(workflowText, "actions/upload-pages-artifact@v3");
@@ -209,6 +215,10 @@ export function checkPagesWorkflow(workflowText) {
     && (secretScanIndex < Math.max(staticBuildIndex, siteCheckIndex) || secretScanIndex > uploadIndex)
   ) {
     errors.push("Pages workflow must scan built static artifacts before upload.");
+  }
+
+  if (staticBuildIndex >= 0 && releaseCheckIndex >= 0 && releaseCheckIndex < staticBuildIndex) {
+    errors.push("Pages workflow must build static release bytes before running release readiness.");
   }
 
   return errors;
@@ -300,9 +310,61 @@ function checkPublicProjectDocs(rootDir, releaseVersion) {
     join(".github", "ISSUE_TEMPLATE", "feature_request.yml"),
   ];
 
-  return requiredFiles
+  const missingErrors = requiredFiles
     .filter((file) => !existsSync(join(rootDir, file)))
     .map((file) => `${file} is missing.`);
+
+  const releaseDocPaths = [
+    join("docs", "release-checklist.md"),
+    join("docs", "release.md"),
+    join("docs", "release.en.md"),
+  ];
+  const releaseDocs = Object.fromEntries(
+    releaseDocPaths
+      .filter((file) => existsSync(join(rootDir, file)))
+      .map((file) => [file, readText(join(rootDir, file))]),
+  );
+
+  return [...missingErrors, ...checkManualReleaseDocumentation(releaseDocs)];
+}
+
+export function checkManualReleaseDocumentation(documents) {
+  const checks = [
+    {
+      file: join("docs", "release-checklist.md"),
+      patterns: [
+        /workflow_dispatch/,
+        /匹配的 tag 必须在远程仓库中已存在/,
+        /只用于重跑或受控调度/,
+        /不会创建缺失的标签/,
+      ],
+    },
+    {
+      file: join("docs", "release.md"),
+      patterns: [
+        /workflow_dispatch/,
+        /匹配的 tag 必须在远程仓库中已存在/,
+        /只用于重跑或受控调度/,
+        /不会创建缺失的标签/,
+      ],
+    },
+    {
+      file: join("docs", "release.en.md"),
+      patterns: [
+        /workflow_dispatch/,
+        /matching tag must already exist remotely/i,
+        /only a rerun or controlled dispatch path/i,
+        /does not create a missing tag/i,
+      ],
+    },
+  ];
+
+  return checks
+    .filter(({ file, patterns }) => {
+      const contents = documents[file];
+      return typeof contents === "string" && patterns.some((pattern) => !pattern.test(contents));
+    })
+    .map(({ file }) => `${file} must state that workflow_dispatch only reruns an existing remote tag.`);
 }
 
 export function runReleaseReadiness(rootDir) {

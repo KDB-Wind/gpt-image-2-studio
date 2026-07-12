@@ -33,7 +33,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 ## GitHub Release 验收
 
-1. 推送版本 tag，或手动触发 `Release` workflow。
+1. 推送版本 tag。`workflow_dispatch` 只用于重跑或受控调度；匹配的 tag 必须在远程仓库中已存在，它不会创建缺失的标签。
 2. 等待 `Release` workflow 完成。
 3. 确认生成草稿 Release。
 4. 确认附件包含 `gpt-image-2-studio-lite.html`、Windows `setup.exe` 和 `SHA256SUMS.txt`。

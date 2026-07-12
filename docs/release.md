@@ -93,7 +93,7 @@ git push origin v0.1.3
 5. 下载 `gpt-image-2-studio-lite.html` 和 `setup.exe` 做一次手动验收。
 6. 验收通过后，手动发布草稿 Release。
 
-也可以在 GitHub Actions 页面手动触发 Release workflow，并填写 `tag_name`。
+也可以通过 `workflow_dispatch` 在 GitHub Actions 页面手动触发 Release workflow，并填写 `tag_name`。该入口只用于重跑或受控调度；匹配的 tag 必须在远程仓库中已存在，它不会创建缺失的标签。
 
 ## 校验下载文件
 

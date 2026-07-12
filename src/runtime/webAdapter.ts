@@ -28,6 +28,7 @@ const OUTPUT_DIRECTORY_TEST_PNG =
 
 let directoryHandle: FileSystemDirectoryHandle | null = null;
 let readyOutputDirectory: PersistedReadyOutputDirectory | null = null;
+let authorizedDirectorySaveQueue: Promise<void> = Promise.resolve();
 const memoryStorageFallback = new Map<string, string>();
 const memorySessionStorageFallback = new Map<string, string>();
 
@@ -489,6 +490,22 @@ async function chooseAvailableFileName(
   }
 }
 
+async function withAuthorizedDirectorySaveLock<T>(operation: () => Promise<T>): Promise<T> {
+  let releaseLock!: () => void;
+  const previousOperation = authorizedDirectorySaveQueue;
+  authorizedDirectorySaveQueue = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+
+  await previousOperation;
+  try {
+    // File System Access has no exclusive-create primitive. This closes same-instance races only.
+    return await operation();
+  } finally {
+    releaseLock();
+  }
+}
+
 function isNotFoundError(error: unknown): boolean {
   return error instanceof DOMException
     ? error.name === "NotFoundError"
@@ -784,17 +801,24 @@ export const webAdapter: RuntimeAdapter = {
 
     if (outputDirectoryHandle) {
       try {
-        const targetDirectory = await outputDirectoryHandle.getDirectoryHandle(dateFolder, { create: true });
-        const initialFileName = buildImageFileName({
-          customName: input.customName,
-          prompt: input.prompt,
-          generatedAt: input.generatedAt,
-          format: input.config.defaultFormat,
-          existingFileNames: [],
+        const authorizedSave = await withAuthorizedDirectorySaveLock(async () => {
+          const targetDirectory = await outputDirectoryHandle.getDirectoryHandle(dateFolder, { create: true });
+          const initialFileName = buildImageFileName({
+            customName: input.customName,
+            prompt: input.prompt,
+            generatedAt: input.generatedAt,
+            format: input.config.defaultFormat,
+            existingFileNames: [],
+          });
+          const allocatedFileName = await chooseAvailableFileName(targetDirectory, initialFileName, existingFileNames);
+          const allocatedPreviewUrl = await saveWithFileSystemAccess(targetDirectory, "", allocatedFileName, blob);
+          return {
+            fileName: allocatedFileName,
+            outputPath: buildFileSystemAccessOutputPath(outputDirectoryHandle.name, dateFolder, allocatedFileName),
+            previewUrl: allocatedPreviewUrl,
+          };
         });
-        fileName = await chooseAvailableFileName(targetDirectory, initialFileName, existingFileNames);
-        previewUrl = await saveWithFileSystemAccess(targetDirectory, "", fileName, blob);
-        outputPath = buildFileSystemAccessOutputPath(outputDirectoryHandle.name, dateFolder, fileName);
+        ({ fileName, outputPath, previewUrl } = authorizedSave);
         saveMode = "authorized-directory";
       } catch (error) {
         fileName = fallbackFileName;
@@ -830,16 +854,23 @@ export const webAdapter: RuntimeAdapter = {
 
     if (outputDirectoryHandle) {
       try {
-        const batchHandle = await outputDirectoryHandle.getDirectoryHandle(batchFolder, { create: true });
-        const initialFileName = buildBatchImageFileName(input.task, input.config.defaultFormat, []);
-        fileName = await chooseAvailableFileName(batchHandle, initialFileName, existingFileNames);
-        previewUrl = await saveWithFileSystemAccess(
-          batchHandle,
-          "",
-          fileName,
-          blob,
-        );
-        outputPath = buildFileSystemAccessOutputPath(outputDirectoryHandle.name, batchFolder, fileName);
+        const authorizedSave = await withAuthorizedDirectorySaveLock(async () => {
+          const batchHandle = await outputDirectoryHandle.getDirectoryHandle(batchFolder, { create: true });
+          const initialFileName = buildBatchImageFileName(input.task, input.config.defaultFormat, []);
+          const allocatedFileName = await chooseAvailableFileName(batchHandle, initialFileName, existingFileNames);
+          const allocatedPreviewUrl = await saveWithFileSystemAccess(
+            batchHandle,
+            "",
+            allocatedFileName,
+            blob,
+          );
+          return {
+            fileName: allocatedFileName,
+            outputPath: buildFileSystemAccessOutputPath(outputDirectoryHandle.name, batchFolder, allocatedFileName),
+            previewUrl: allocatedPreviewUrl,
+          };
+        });
+        ({ fileName, outputPath, previewUrl } = authorizedSave);
         saveMode = "authorized-directory";
       } catch (error) {
         fileName = fallbackFileName;
@@ -909,6 +940,7 @@ export const webAdapter: RuntimeAdapter = {
 export function __resetWebAdapterForTests() {
   directoryHandle = null;
   readyOutputDirectory = null;
+  authorizedDirectorySaveQueue = Promise.resolve();
   memoryStorageFallback.clear();
   memorySessionStorageFallback.clear();
 }
