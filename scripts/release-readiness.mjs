@@ -94,6 +94,7 @@ export function checkReleaseWorkflow(workflowText) {
     [/\$releaseNotes\s*=\s*["']docs\/release-notes\/v\$version\.md["']/, "Release workflow must derive the release-notes path from package metadata."],
     [/Test-Path\s+-LiteralPath\s+\$releaseNotes/, "Release workflow must fail when derived release notes are missing."],
     [/release_notes=\$releaseNotes/, "Release workflow must expose the derived release-notes path."],
+    [/git rev-parse ["']HEAD\^["']/, "Release workflow must derive the archive base from the prior commit."],
     [/base_sha=\$baseSha/, "Release workflow must expose an explicit prior commit for archive immutability."],
     [/npm run secret:scan/, "Release workflow must run the unified secret scan."],
     [/npm run secret:scan:release/, "Release workflow must scan ignored release artifacts."],
@@ -221,10 +222,15 @@ export function checkPagesWorkflow(workflowText) {
     [/permissions:\s*[\s\S]*pages:\s*write/, "Pages workflow must grant pages: write."],
     [/permissions:\s*[\s\S]*id-token:\s*write/, "Pages workflow must grant id-token: write."],
     [/actions\/checkout@v4/, "Pages workflow must check out the repository."],
+    [/fetch-depth:\s*0/, "Pages checkout must fetch full history for archive immutability."],
+    [/BEFORE_SHA/, "Pages push deployments must use the explicit prior event SHA as the archive base."],
+    [/git rev-parse HEAD\^/, "Pages manual deployments must derive the archive base from HEAD^."],
+    [/STATIC_ARCHIVE_BASE_REF=\$baseSha/, "Pages workflow must export an explicit archive base."],
     [/actions\/setup-node@v4/, "Pages workflow must install Node.js."],
     [/npm ci/, "Pages workflow must install dependencies with npm ci."],
     [/npm run secret:scan/, "Pages workflow must run the unified secret scan."],
     [/npm run pages:check/, "Pages workflow must run the non-strict Pages readiness check."],
+    [/node scripts\/release-archive-parity\.mjs --historical-only/, "Pages workflow must run the historical-only archive immutability gate."],
     [/npm run test:run/, "Pages workflow must run frontend tests."],
     [/npm run build:static/, "Pages workflow must build the static HTML site."],
     [/npm run site:check/, "Pages workflow must check static site output."],
@@ -252,7 +258,7 @@ export function checkPagesWorkflow(workflowText) {
     errors.push("Pages workflow must scan built static artifacts before upload.");
   }
 
-  if (/npm run release:check|release-archive-parity\.mjs --strict/.test(workflowText)) {
+  if (/npm run release:check|release-archive-parity\.mjs --strict(?![\w-])/.test(workflowText)) {
     errors.push("Pages workflow must not run strict release readiness.");
   }
 

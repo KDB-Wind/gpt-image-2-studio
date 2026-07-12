@@ -22,6 +22,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve historical archive base
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if ($env:EVENT_NAME -eq "push") {
+            $baseSha = $env:BEFORE_SHA
+            if (-not $baseSha -or $baseSha -match '^0+$') {
+              throw "Pages push did not provide a prior commit for archive immutability."
+            }
+          } else {
+            $baseSha = git rev-parse HEAD^
+          }
+          if (-not $baseSha) {
+            throw "Pages historical archive base could not be resolved."
+          }
+          "STATIC_ARCHIVE_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -43,6 +64,9 @@ jobs:
 
       - name: Check Pages readiness
         run: npm run pages:check
+
+      - name: Check historical archive immutability
+        run: node scripts/release-archive-parity.mjs --historical-only
 
       - name: Run static page E2E
         run: npm run e2e:static:mock:run

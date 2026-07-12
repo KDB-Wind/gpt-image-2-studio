@@ -5,6 +5,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
   isDirectExecution,
+  validateVersionManifest,
   validateTrustedVersionManifest,
 } from "./archive-static-version.mjs";
 import {
@@ -57,7 +58,8 @@ function assertSafeReleaseFile(rootDir, filePath, label) {
 
 function readTrackedBlob(rootDir, ref, relativePath) {
   const gitPath = relativePath.replace(/\\/g, "/");
-  const result = spawnSync("git", ["show", `${ref}:${gitPath}`], {
+  const objectId = readTrackedBlobId(rootDir, ref, relativePath);
+  const result = spawnSync("git", ["cat-file", "blob", objectId], {
     cwd: rootDir,
     encoding: null,
     maxBuffer: 32 * 1024 * 1024,
@@ -66,6 +68,18 @@ function readTrackedBlob(rootDir, ref, relativePath) {
     throw new Error(`Tracked Git blob is missing or unreadable at ${ref}:${gitPath}.`);
   }
   return result.stdout;
+}
+
+function readTrackedBlobId(rootDir, ref, relativePath) {
+  const gitPath = relativePath.replace(/\\/g, "/");
+  const result = spawnSync("git", ["rev-parse", "--verify", `${ref}:${gitPath}`], {
+    cwd: rootDir,
+    encoding: "utf8",
+  });
+  if (result.error || result.status !== 0 || !result.stdout.trim()) {
+    throw new Error(`Tracked Git blob is missing or unreadable at ${ref}:${gitPath}.`);
+  }
+  return result.stdout.trim();
 }
 
 function resolveGitCommit(rootDir, ref) {
@@ -83,35 +97,19 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-export function materializeTrackedArchiveBytes(bytes, expectedDigest, label) {
-  if (sha256(bytes) === expectedDigest) {
-    return bytes;
-  }
-
-  for (let index = 0; index < bytes.length; index += 1) {
-    if (bytes[index] !== 0x0a || (index > 0 && bytes[index - 1] === 0x0d)) {
-      continue;
-    }
-    const legacyBytes = Buffer.concat([bytes.subarray(0, index), Buffer.from("\r"), bytes.subarray(index)]);
-    if (sha256(legacyBytes) === expectedDigest) {
-      return legacyBytes;
-    }
-  }
-
-  throw new Error(`${label} does not match its committed trusted digest, including the legacy single-CR materialization.`);
-}
-
 function assertSameBytes(actualPath, expectedBytes, message) {
   if (readFileSync(actualPath).compare(expectedBytes) !== 0) {
     throw new Error(message);
   }
 }
 
-function parseTrackedManifest(bytes, label) {
+function parseTrackedManifest(bytes, label, { requireDigests = true } = {}) {
   try {
-    return validateTrustedVersionManifest(JSON.parse(bytes.toString("utf8")));
+    const manifest = JSON.parse(bytes.toString("utf8"));
+    return requireDigests ? validateTrustedVersionManifest(manifest) : validateVersionManifest(manifest);
   } catch (error) {
-    throw new Error(`${label} is invalid or lacks trusted digest metadata.`, { cause: error });
+    const suffix = requireDigests ? " or lacks trusted digest metadata" : "";
+    throw new Error(`${label} is invalid${suffix}.`, { cause: error });
   }
 }
 
@@ -119,13 +117,15 @@ export function runReleaseArchiveParity({
   rootDir = resolve("."),
   distDir = join(rootDir, "dist-static"),
   strict = false,
+  historicalOnly = false,
   expectedTag,
   expectedVersion,
   baseRef,
   readGitBlob = readTrackedBlob,
+  readGitBlobId = readTrackedBlobId,
   resolveBaseRef = resolveGitCommit,
 } = {}) {
-  if (!strict) {
+  if (!strict && !historicalOnly) {
     assertCurrentReleaseMatchesArchive({ rootDir, distDir });
     return;
   }
@@ -134,17 +134,19 @@ export function runReleaseArchiveParity({
   const manifestRelativePath = join("static-versions", "manifest.json");
   const manifestPath = assertSafeReleaseFile(rootDir, join(rootDir, manifestRelativePath), "Static version manifest");
   const manifest = validateTrustedVersionManifest(JSON.parse(readFileSync(manifestPath, "utf8")));
-  if (packageVersion !== manifest.latestStable) {
-    throw new Error("Package version must equal manifest latestStable for strict release parity.");
-  }
+  if (strict) {
+    if (packageVersion !== manifest.latestStable) {
+      throw new Error("Package version must equal manifest latestStable for strict release parity.");
+    }
 
-  const releaseTag = expectedTag || process.env.RELEASE_TAG || `v${packageVersion}`;
-  if (releaseTag !== `v${packageVersion}`) {
-    throw new Error("Release tag must match the package version in strict release parity.");
-  }
-  const releaseVersion = expectedVersion || process.env.RELEASE_VERSION || packageVersion;
-  if (releaseVersion !== packageVersion) {
-    throw new Error("Release version must match the package version in strict release parity.");
+    const releaseTag = expectedTag || process.env.RELEASE_TAG || `v${packageVersion}`;
+    if (releaseTag !== `v${packageVersion}`) {
+      throw new Error("Release tag must match the package version in strict release parity.");
+    }
+    const releaseVersion = expectedVersion || process.env.RELEASE_VERSION || packageVersion;
+    if (releaseVersion !== packageVersion) {
+      throw new Error("Release version must match the package version in strict release parity.");
+    }
   }
 
   const headManifestBytes = readGitBlob(rootDir, "HEAD", manifestRelativePath);
@@ -165,23 +167,27 @@ export function runReleaseArchiveParity({
     if (archiveBytes.compare(headArchiveBytes) !== 0) {
       throw new Error(`Working-tree archive v${version} must be byte-identical to the tracked HEAD archive.`);
     }
-    assertSafeReleaseFile(
-      rootDir,
-      join(distDir, "versions", `v${version}`, "index.html"),
-      `Built archive v${version}`,
-    );
+    if (strict) {
+      assertSafeReleaseFile(
+        rootDir,
+        join(distDir, "versions", `v${version}`, "index.html"),
+        `Built archive v${version}`,
+      );
+    }
   }
 
-  const currentArchiveRelativePath = join("static-versions", "versions", `v${packageVersion}`, "index.html");
-  const currentArchivePath = join(rootDir, currentArchiveRelativePath);
-  const currentArchiveBytes = readFileSync(currentArchivePath);
-  for (const fileName of ["index.html", "gpt-image-2-studio-lite.html"]) {
-    const releasePath = assertSafeReleaseFile(rootDir, join(distDir, fileName), `Current release ${fileName}`);
-    assertSameBytes(
-      releasePath,
-      currentArchiveBytes,
-      `Current release ${fileName} must be byte-identical to ${currentArchiveRelativePath.replace(/\\/g, "/")}.`,
-    );
+  if (strict) {
+    const currentArchiveRelativePath = join("static-versions", "versions", `v${packageVersion}`, "index.html");
+    const currentArchivePath = join(rootDir, currentArchiveRelativePath);
+    const currentArchiveBytes = readFileSync(currentArchivePath);
+    for (const fileName of ["index.html", "gpt-image-2-studio-lite.html"]) {
+      const releasePath = assertSafeReleaseFile(rootDir, join(distDir, fileName), `Current release ${fileName}`);
+      assertSameBytes(
+        releasePath,
+        currentArchiveBytes,
+        `Current release ${fileName} must be byte-identical to ${currentArchiveRelativePath.replace(/\\/g, "/")}.`,
+      );
+    }
   }
 
   const requestedBaseRef = baseRef || process.env.STATIC_ARCHIVE_BASE_REF || "HEAD^";
@@ -189,37 +195,52 @@ export function runReleaseArchiveParity({
   const baseManifest = parseTrackedManifest(
     readGitBlob(rootDir, resolvedBaseRef, manifestRelativePath),
     "Historical archive base manifest",
+    { requireDigests: false },
   );
-  const historicalVersions = manifest.versions.filter((version) => version !== packageVersion);
-  const baseHistoricalVersions = baseManifest.versions.filter((version) => version !== packageVersion);
+  const historicalVersions = manifest.versions.filter((version) => version !== manifest.latestStable);
+  const baseHistoricalVersions = baseManifest.versions.filter((version) => version !== manifest.latestStable);
   for (const version of baseHistoricalVersions) {
     if (!historicalVersions.includes(version)) {
       throw new Error(`Historical archive v${version} was removed from the current manifest.`);
     }
   }
   for (const version of historicalVersions) {
-    if (!baseManifest.versions.includes(version) || baseManifest.sha256[version] !== manifest.sha256[version]) {
+    if (!baseManifest.versions.includes(version)) {
       throw new Error(`Historical archive digest metadata changed for v${version}.`);
     }
     const archiveRelativePath = join("static-versions", "versions", `v${version}`, "index.html");
     const headBytes = readGitBlob(rootDir, "HEAD", archiveRelativePath);
-    const baseBytes = materializeTrackedArchiveBytes(
-      readGitBlob(rootDir, resolvedBaseRef, archiveRelativePath),
-      baseManifest.sha256[version],
-      `Historical base archive v${version}`,
-    );
+    const baseBytes = readGitBlob(rootDir, resolvedBaseRef, archiveRelativePath);
+    const baseDigest = sha256(baseBytes);
+    const baseManifestDigest = baseManifest.sha256?.[version];
+    if (baseManifestDigest && baseManifestDigest.toLowerCase() !== baseDigest) {
+      throw new Error(`Historical base archive v${version} does not match its manifest digest metadata.`);
+    }
+    if (manifest.sha256[version].toLowerCase() !== baseDigest) {
+      throw new Error(`Historical archive digest metadata changed for v${version}.`);
+    }
+    const headBlobId = readGitBlobId(rootDir, "HEAD", archiveRelativePath);
+    const baseBlobId = readGitBlobId(rootDir, resolvedBaseRef, archiveRelativePath);
+    if (headBlobId !== baseBlobId) {
+      throw new Error(`Historical archive blob changed across commits for v${version}.`);
+    }
     if (headBytes.compare(baseBytes) !== 0) {
       throw new Error(`Historical archive bytes changed across commits for v${version}.`);
     }
   }
 
-  assertSafeReleaseFile(rootDir, join(distDir, "versions", "manifest.json"), "Built static version manifest");
-  assertVersionManifestAndArchives({ rootDir, distDir });
+  if (strict) {
+    assertSafeReleaseFile(rootDir, join(distDir, "versions", "manifest.json"), "Built static version manifest");
+    assertVersionManifestAndArchives({ rootDir, distDir });
+  }
 }
 
 if (isDirectExecution(import.meta.url, process.argv[1])) {
   try {
-    runReleaseArchiveParity({ strict: process.argv.includes("--strict") });
+    runReleaseArchiveParity({
+      strict: process.argv.includes("--strict"),
+      historicalOnly: process.argv.includes("--historical-only"),
+    });
     console.log("Release archive parity check passed.");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown release archive parity failure.";

@@ -15,7 +15,7 @@ import {
   validateVersionManifest,
 } from "./archive-static-version.mjs";
 import { copyStaticArchives, inlineStaticHtml } from "./inline-static-html.mjs";
-import { materializeTrackedArchiveBytes, runReleaseArchiveParity } from "./release-archive-parity.mjs";
+import { runReleaseArchiveParity } from "./release-archive-parity.mjs";
 import { assertStaticVersionArchivesMatch, runStaticSiteCheck } from "./static-site-check.mjs";
 
 function createTempRoot() {
@@ -75,6 +75,85 @@ function commitFixtureArchive(rootDir, version) {
   }
 }
 
+function runFixtureGit(rootDir, args) {
+  const result = spawnSync("git", args, { cwd: rootDir, encoding: "utf8" });
+  if (result.status !== 0) {
+    throw new Error(`Fixture git command failed: git ${args.join(" ")}`);
+  }
+  return result.stdout.trim();
+}
+
+function writeSourceArchiveBytes(rootDir, version, bytes) {
+  const archivePath = join(rootDir, "static-versions", "versions", `v${version}`, "index.html");
+  mkdirSync(join(archivePath, ".."), { recursive: true });
+  writeFileSync(archivePath, bytes);
+  return archivePath;
+}
+
+function createHistoricalParityFixture({
+  historicalBytes = Buffer.from(versionedArchiveHtml({ latestStable: "1.0.0", versions: ["1.0.0"] }), "utf8"),
+} = {}) {
+  const rootDir = createTempRoot();
+  const distDir = join(rootDir, "dist-static");
+  const currentBytes = Buffer.from(
+    versionedArchiveHtml({ latestStable: "1.1.0", versions: ["1.1.0", "1.0.0"] }),
+    "utf8",
+  );
+
+  writeJson(join(rootDir, "package.json"), { version: "1.0.0" });
+  writeSourceArchiveBytes(rootDir, "1.0.0", historicalBytes);
+  writeJson(join(rootDir, "static-versions", "manifest.json"), {
+    latestStable: "1.0.0",
+    versions: ["1.0.0"],
+  });
+  runFixtureGit(rootDir, ["init"]);
+  runFixtureGit(rootDir, ["config", "core.autocrlf", "false"]);
+  runFixtureGit(rootDir, ["config", "user.email", "release-test@example.invalid"]);
+  runFixtureGit(rootDir, ["config", "user.name", "Release Test"]);
+  runFixtureGit(rootDir, ["add", "."]);
+  runFixtureGit(rootDir, ["commit", "-m", "historical base"]);
+  const baseRef = runFixtureGit(rootDir, ["rev-parse", "HEAD"]);
+
+  writeJson(join(rootDir, "package.json"), { version: "1.1.0" });
+  writeSourceArchiveBytes(rootDir, "1.1.0", currentBytes);
+  const releaseManifest = {
+    latestStable: "1.1.0",
+    versions: ["1.1.0", "1.0.0"],
+    sha256: {
+      "1.1.0": createHash("sha256").update(currentBytes).digest("hex"),
+      "1.0.0": createHash("sha256").update(historicalBytes).digest("hex"),
+    },
+  };
+  writeJson(join(rootDir, "static-versions", "manifest.json"), releaseManifest);
+  runFixtureGit(rootDir, ["add", "."]);
+  runFixtureGit(rootDir, ["commit", "-m", "current release"]);
+
+  writeJson(join(distDir, "versions", "manifest.json"), releaseManifest);
+  const currentBuiltArchive = join(distDir, "versions", "v1.1.0", "index.html");
+  const historicalBuiltArchive = join(distDir, "versions", "v1.0.0", "index.html");
+  mkdirSync(join(currentBuiltArchive, ".."), { recursive: true });
+  mkdirSync(join(historicalBuiltArchive, ".."), { recursive: true });
+  writeFileSync(currentBuiltArchive, currentBytes);
+  writeFileSync(historicalBuiltArchive, historicalBytes);
+  mkdirSync(distDir, { recursive: true });
+  writeFileSync(join(distDir, "index.html"), currentBytes);
+  writeFileSync(join(distDir, "gpt-image-2-studio-lite.html"), currentBytes);
+
+  return { rootDir, distDir, baseRef, currentBytes, historicalBytes, releaseManifest };
+}
+
+function replaceHistoricalArchiveAndCommit(fixture, bytes, message) {
+  writeSourceArchiveBytes(fixture.rootDir, "1.0.0", bytes);
+  const builtArchivePath = join(fixture.distDir, "versions", "v1.0.0", "index.html");
+  mkdirSync(join(builtArchivePath, ".."), { recursive: true });
+  writeFileSync(builtArchivePath, bytes);
+  fixture.releaseManifest.sha256["1.0.0"] = createHash("sha256").update(bytes).digest("hex");
+  writeJson(join(fixture.rootDir, "static-versions", "manifest.json"), fixture.releaseManifest);
+  writeJson(join(fixture.distDir, "versions", "manifest.json"), fixture.releaseManifest);
+  runFixtureGit(fixture.rootDir, ["add", "static-versions"]);
+  runFixtureGit(fixture.rootDir, ["commit", "-m", message]);
+}
+
 function writeSourceArchive(rootDir, version, contents) {
   const archivePath = join(rootDir, "static-versions", "versions", `v${version}`, "index.html");
   mkdirSync(join(archivePath, ".."), { recursive: true });
@@ -126,21 +205,10 @@ describe("static version archives", () => {
     expect(existsSync(".gitattributes")).toBe(true);
     const attributes = readFileSync(".gitattributes", "utf8");
 
-    expect(attributes).toMatch(/^\/static-versions\/versions\/\*\*\/index\.html -text whitespace=cr-at-eol$/m);
+    expect(attributes).toMatch(/^\/static-versions\/versions\/\*\*\/index\.html binary$/m);
     expect(attributes).toMatch(/^\/dist-static\/index\.html -text$/m);
     expect(attributes).toMatch(/^\/dist-static\/gpt-image-2-studio-lite\.html -text$/m);
     expect(attributes).toMatch(/^\/src\/assets\/app-logo\.svg text eol=lf$/m);
-  });
-
-  it("materializes a legacy tracked LF archive byte to its committed single-CR digest", () => {
-    const lfBytes = Buffer.from("<html>legacy</html>\n", "utf8");
-    const crlfBytes = Buffer.from("<html>legacy</html>\r\n", "utf8");
-    const digest = createHash("sha256").update(crlfBytes).digest("hex");
-
-    expect(materializeTrackedArchiveBytes(lfBytes, digest, "Legacy archive")).toEqual(crlfBytes);
-    expect(() => materializeTrackedArchiveBytes(Buffer.from("changed\n"), digest, "Legacy archive")).toThrow(
-      /does not match.*trusted digest/i,
-    );
   });
 
   it("produces identical inlined SVG bytes from LF and CRLF checkouts", () => {
@@ -1213,65 +1281,67 @@ describe("static version archives", () => {
     })).toThrow(/tracked Git blob|tracked HEAD/i);
   });
 
+  it("strict release parity accepts a legacy base manifest by deriving its digest from raw Git blob bytes", () => {
+    const fixture = createHistoricalParityFixture();
+
+    expect(() => runReleaseArchiveParity({
+      rootDir: fixture.rootDir,
+      distDir: fixture.distDir,
+      strict: true,
+      expectedTag: "v1.1.0",
+      baseRef: fixture.baseRef,
+    })).not.toThrow();
+
+    const baseBlob = runFixtureGit(fixture.rootDir, [
+      "rev-parse",
+      `${fixture.baseRef}:static-versions/versions/v1.0.0/index.html`,
+    ]);
+    const headBlob = runFixtureGit(fixture.rootDir, [
+      "rev-parse",
+      "HEAD:static-versions/versions/v1.0.0/index.html",
+    ]);
+    expect(headBlob).toBe(baseBlob);
+
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  });
+
   it("strict release parity rejects historical archive and digest changes across commits", () => {
-    const rootDir = createTempRoot();
-    const distDir = join(rootDir, "dist-static");
-    const oldHtml = versionedArchiveHtml({ latestStable: "1.0.0", versions: ["1.0.0"] });
-    const currentHtml = versionedArchiveHtml({ latestStable: "1.1.0", versions: ["1.1.0", "1.0.0"] });
-    const runGit = (args) => {
-      const result = spawnSync("git", args, { cwd: rootDir, encoding: "utf8" });
-      if (result.status !== 0) {
-        throw new Error(`Fixture git command failed: git ${args.join(" ")}`);
-      }
-    };
+    const fixture = createHistoricalParityFixture();
+    const changedBytes = Buffer.concat([
+      fixture.historicalBytes,
+      Buffer.from("<!-- changed historical bytes -->\n", "utf8"),
+    ]);
+    replaceHistoricalArchiveAndCommit(fixture, changedBytes, "mutate historical archive and digest");
 
-    writeJson(join(rootDir, "package.json"), { version: "1.0.0" });
-    writeSourceArchive(rootDir, "1.0.0", oldHtml);
-    writeJson(join(rootDir, "static-versions", "manifest.json"), {
-      latestStable: "1.0.0",
-      versions: ["1.0.0"],
-      sha256: { "1.0.0": createHash("sha256").update(oldHtml).digest("hex") },
-    });
-    runGit(["init"]);
-    runGit(["config", "core.autocrlf", "false"]);
-    runGit(["config", "user.email", "release-test@example.invalid"]);
-    runGit(["config", "user.name", "Release Test"]);
-    runGit(["add", "."]);
-    runGit(["commit", "-m", "historical base"]);
+    expect(() => runReleaseArchiveParity({
+      rootDir: fixture.rootDir,
+      distDir: fixture.distDir,
+      strict: true,
+      expectedTag: "v1.1.0",
+      baseRef: fixture.baseRef,
+    })).toThrow(/historical archive (?:digest metadata|blob|bytes) changed/i);
 
-    writeJson(join(rootDir, "package.json"), { version: "1.1.0" });
-    writeSourceArchive(rootDir, "1.1.0", currentHtml);
-    const releaseManifest = {
-      latestStable: "1.1.0",
-      versions: ["1.1.0", "1.0.0"],
-      sha256: {
-        "1.1.0": createHash("sha256").update(currentHtml).digest("hex"),
-        "1.0.0": createHash("sha256").update(oldHtml).digest("hex"),
-      },
-    };
-    writeJson(join(rootDir, "static-versions", "manifest.json"), releaseManifest);
-    runGit(["add", "."]);
-    runGit(["commit", "-m", "current release"]);
-    writeJson(join(distDir, "versions", "manifest.json"), releaseManifest);
-    writeFixtureArchive(distDir, "1.1.0", currentHtml);
-    writeFixtureArchive(distDir, "1.0.0", oldHtml);
-    writeFileSync(join(distDir, "index.html"), currentHtml, "utf8");
-    writeFileSync(join(distDir, "gpt-image-2-studio-lite.html"), currentHtml, "utf8");
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  });
 
-    expect(() => runReleaseArchiveParity({ rootDir, distDir, strict: true, expectedTag: "v1.1.0" })).not.toThrow();
-
-    const changedOldHtml = `${oldHtml}<!-- changed historical bytes -->\n`;
-    writeSourceArchive(rootDir, "1.0.0", changedOldHtml);
-    releaseManifest.sha256["1.0.0"] = createHash("sha256").update(changedOldHtml).digest("hex");
-    writeJson(join(rootDir, "static-versions", "manifest.json"), releaseManifest);
-    writeFixtureArchive(distDir, "1.0.0", changedOldHtml);
-    writeJson(join(distDir, "versions", "manifest.json"), releaseManifest);
-    runGit(["add", "static-versions"]);
-    runGit(["commit", "-m", "mutate historical archive and digest"]);
-
-    expect(() => runReleaseArchiveParity({ rootDir, distDir, strict: true, expectedTag: "v1.1.0" })).toThrow(
-      /historical archive (?:digest metadata|bytes) changed/i,
+  it("strict release parity never normalizes historical archive bytes", () => {
+    const crlfBytes = Buffer.from(
+      versionedArchiveHtml({ latestStable: "1.0.0", versions: ["1.0.0"] }).replace(/\n/g, "\r\n"),
+      "utf8",
     );
+    const fixture = createHistoricalParityFixture({ historicalBytes: crlfBytes });
+    const lfBytes = Buffer.from(crlfBytes.toString("utf8").replace(/\r\n/g, "\n"), "utf8");
+    replaceHistoricalArchiveAndCommit(fixture, lfBytes, "normalize historical archive bytes");
+
+    expect(() => runReleaseArchiveParity({
+      rootDir: fixture.rootDir,
+      distDir: fixture.distDir,
+      strict: true,
+      expectedTag: "v1.1.0",
+      baseRef: fixture.baseRef,
+    })).toThrow(/historical archive (?:digest metadata|blob|bytes) changed/i);
+
+    rmSync(fixture.rootDir, { recursive: true, force: true });
   });
 
   it("strict release parity fails closed when an explicit historical base ref is missing", () => {
@@ -1284,6 +1354,21 @@ describe("static version archives", () => {
       expectedTag: "v1.0.0",
       baseRef: "refs/heads/does-not-exist",
     })).toThrow(/base ref could not be resolved/i);
+  });
+
+  it("historical-only parity enforces the base gate without requiring strict current-release bytes", () => {
+    const fixture = createHistoricalParityFixture();
+    writeFileSync(join(fixture.distDir, "index.html"), "development pages output", "utf8");
+    writeFileSync(join(fixture.distDir, "gpt-image-2-studio-lite.html"), "development pages output", "utf8");
+
+    expect(() => runReleaseArchiveParity({
+      rootDir: fixture.rootDir,
+      distDir: fixture.distDir,
+      historicalOnly: true,
+      baseRef: fixture.baseRef,
+    })).not.toThrow();
+
+    rmSync(fixture.rootDir, { recursive: true, force: true });
   });
 
   it.skipIf(!directoryLinksSupported)(

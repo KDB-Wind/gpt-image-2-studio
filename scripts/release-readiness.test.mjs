@@ -341,11 +341,27 @@ jobs:
   build:
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve historical archive base
+        env:
+          EVENT_NAME: push
+          BEFORE_SHA: abc123
+        run: |
+          if ($env:EVENT_NAME -eq "push") {
+            $baseSha = $env:BEFORE_SHA
+            if (-not $baseSha -or $baseSha -match '^0+$') { throw "Missing push base." }
+          } else {
+            $baseSha = git rev-parse HEAD^
+          }
+          if (-not $baseSha) { throw "Missing archive base." }
+          "STATIC_ARCHIVE_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
       - uses: actions/setup-node@v4
       - run: npm ci
       - run: npm run test:run
       - run: npm run build:static
       - run: npm run pages:check
+      - run: node scripts/release-archive-parity.mjs --historical-only
       - run: npm run site:check
       - run: npm run secret:scan
       - uses: actions/upload-pages-artifact@v3
@@ -363,6 +379,12 @@ jobs:
         "Pages workflow must not run strict release readiness.",
       ]),
     );
+    expect(checkPagesWorkflow(workflow.replace("fetch-depth: 0", "fetch-depth: 1"))).toContain(
+      "Pages checkout must fetch full history for archive immutability.",
+    );
+    expect(checkPagesWorkflow(workflow.replace("node scripts/release-archive-parity.mjs --historical-only", "npm run site:check"))).toContain(
+      "Pages workflow must run the historical-only archive immutability gate.",
+    );
   });
 
   it("rejects a Pages workflow that scans only before the static build", () => {
@@ -377,12 +399,23 @@ permissions:
   id-token: write
 steps:
   - uses: actions/checkout@v4
+    with:
+      fetch-depth: 0
+  - env:
+      EVENT_NAME: push
+      BEFORE_SHA: abc123
+    run: |
+      $baseSha = $env:BEFORE_SHA
+      if (-not $baseSha -or $baseSha -match '^0+$') { throw "Missing push base." }
+      $fallbackBase = git rev-parse HEAD^
+      "STATIC_ARCHIVE_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
   - uses: actions/setup-node@v4
   - run: npm ci
   - run: npm run secret:scan
   - run: npm run pages:check
   - run: npm run test:run
   - run: npm run build:static
+  - run: node scripts/release-archive-parity.mjs --historical-only
   - run: npm run site:check
   - uses: actions/upload-pages-artifact@v3
     with:
