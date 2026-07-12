@@ -345,34 +345,67 @@ OpenAI 官方 OpenAPI 对图片生成请求的说明是：GPT Image 模型总是
 - 推荐中转站与默认协议行为分开表达。
 - 增加 Referrer-Policy，并确保没有第三方运行时脚本。
 
-## 6. 对已完成事项的重新判定
+## 6. Task 10 验证结论（2026-07-12）
 
-| 项目 | 本轮判定 | 说明 |
+本节记录本轮重新执行得到的证据，不把自动化浏览器结果等同于原生目录权限验收。
+
+| 证据层级 | 状态 | 本轮证据 |
 | --- | --- | --- |
-| 文生图 API 和页面主路径 | 已证明可用 | 单元测试、mock E2E 和真实页面预览/历史均有证据 |
-| 自定义两条提示词批量 | 已证明可用 | 真实页面生成、预览和批次历史均完成 |
-| AI 自动规划 3 到 4 个任务 | 当前用例可用 | 真实用例通过，但异常计数尚未防御 |
-| multipart 使用重复 `image` 字段 | 实现合理 | API 构造与现有供应商兼容，但真实页面成功尚未被现有 E2E 证明 |
-| 图生图完整页面链路 | 未证明 | 当前真实 E2E 为假阳性 |
-| 授权目录模拟链路 | 已证明 | 只证明 mock API 下的程序逻辑 |
-| 真实目录落盘及历史恢复 | 未完成 | 仍需 Chrome/Edge 原生权限验收 |
-| 固定版本回退 | 实现语义错误 | 当前构建会覆盖同版本归档 |
-| GitHub Pages 发布门禁 | 不充分 | 缺少页面 E2E，secret scan 也不完整 |
-| “完整 E2E 已闭环” | 不成立 | 至少图生图和真实目录仍未闭环 |
+| Fixed and unit-tested | 已验证 | `npm run test:run`：31 个测试文件、419 个测试全部通过，Vitest 报告 13.69 秒；`npx tsc --noEmit` 0 诊断，5.339 秒；`cargo check` 通过，Cargo 报告 1.02 秒。 |
+| Mock E2E verified | 已验证 | `npm run e2e:static:mock`：10 通过、1 个按 project 设计跳过、0 失败，Playwright 报告 22.8 秒；`npm run e2e:static:file`：2 通过、0 失败，Playwright 报告 2.7 秒。覆盖桌面、移动端、file 模式、失败重试、批量参考图、保存回退和模拟目录恢复。 |
+| Real-provider verified | 已验证 | 受控真实配置 smoke：4 通过、0 失败，Playwright 报告 56.8 秒。文生图等待预览和历史；图生图等待成功响应和预览，且应用只在保存并重新加载历史后发布成功预览；双任务批量等待完成状态、两张预览和两条历史；AI 规划等待成功响应及最终四任务 UI。未记录真实配置、响应内容或服务身份。 |
+| Native Chrome/Edge | pending/manual evidence missing | 本轮没有执行原生 Chrome/Edge 目录选择、真实磁盘落盘和刷新恢复验收，不能标记为 verified。 |
 
-## 7. 建议执行顺序
+## 7. 构建、发布与安全证据
 
-1. 修复测试可信度和 Pages 发布门禁。
-2. 修复版本归档不可变性。
-3. 修复保存目录的状态表达、批量回退和真实验收。
-4. 调整图片请求兼容模式，恢复官方契约。
-5. 修复批量重试和 AI 计数一致性。
-6. 统一错误脱敏、API key 存储和密钥扫描。
-7. 补足 file、mobile、失败重试和批量图生图 E2E。
-8. 回收 Blob URL，并整理 release 元数据和历史计划。
+- `npm run build` 通过，47 个模块，4.384 秒。
+- `npm run build:static` 通过，47 个模块，4.285 秒。
+- `npm run site:check` 通过，0.834 秒。
+- `npm run release:check`：1 个测试文件、16 个测试全部通过，整体 1.846 秒。
+- `npm run secret:scan` 通过，0 个报告发现，1.545 秒。
+- `npm run secret:scan:release` 通过，0 个报告发现，1.028 秒。
+- `git diff --check` 通过，0 个空白错误；仅有生成 HTML 的行尾转换提示。
+- Playwright 报告和测试结果目录已清理；没有 trace、video、screenshot、报告、环境文件或私有测试文件进入暂存区。
 
-## 8. 发布建议
+### 7.1 归档一致性
 
-当前已部署版本如果实际用户仍能正常完成文生图和批量任务，不需要因为本报告立即下线。
+- 源 manifest 与 `dist-static` manifest 一致：latest 为 `0.1.5`，共 2 个版本。
+- `v0.1.5` 源归档与分发归档 SHA-256 均为 `50d653fecf24afd86f7fb7c9f082555a987bb1610acabc5aab93e48f74326056`。
+- `v0.1.4` 源归档与分发归档 SHA-256 均为 `2921acdd0350d487e0659b0a143c7ac3597da36af80da7fd0a4980190cf19a64`。
+- latest 源归档、release HTML 和站点 index HTML 字节一致。
+- `v0.1.5` 内嵌 manifest 将自身标记为 latest，并包含自身版本。
+- 本轮只读取和计算哈希，没有重写固定归档。
 
-但当前本地工作树不建议直接作为下一版发布。至少完成 P0-001 至 P0-004，并得到真实 Chrome/Edge 保存目录证据后，再进入发布验收。
+## 8. 已批准的非阻断 P2 跟进项
+
+以下风险没有在 Task 10 中被标记为修复，也不阻断本轮自动化验证结论：
+
+### Task 8
+
+- async workspace-save ordering：异步 workspace 保存的完成顺序仍需进一步收敛。
+- quota/write capability optimism：容量与写入能力判断仍可能过于乐观。
+- slow hydration overwrite：慢速 hydration 仍存在覆盖较新内存状态的风险。
+- refresh E2E persistence synchronization：刷新类 E2E 的持久化同步仍可更明确。
+
+### Task 9
+
+- archive lease heartbeat：归档租约仍缺少长操作 heartbeat。
+- raw-text workflow validation brittleness：工作流的原始文本校验仍较脆弱。
+- public v0.1.4 metadata-leak policy decision：公开 `v0.1.4` 的历史元数据暴露是否保留，仍需明确策略决定。
+
+## 9. 原生验收剩余清单
+
+Chrome 和 Edge 应分别记录以下字段，且只使用不含用户名和完整私人路径的脱敏位置描述：
+
+- 浏览器名称和准确版本。
+- 授权目录类型。
+- 目录测试文件的真实位置。
+- 单图输出的真实位置。
+- 批量图片及 manifest 的真实位置。
+- 页面刷新后历史预览恢复结果。
+
+不得记录用户名、完整私人路径、密钥、服务地址、模型或服务身份、签名 URL、响应正文或敏感提示词。
+
+## 10. 发布建议
+
+Task 10 的自动化验证已经完成；当前唯一未满足的发布验收门槛是 Chrome/Edge 原生目录落盘和刷新后历史恢复的人工证据。取得并审阅上述字段前，不得声称“完整 E2E 已闭环”或“Native Chrome/Edge verified”。

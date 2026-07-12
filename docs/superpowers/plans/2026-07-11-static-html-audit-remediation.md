@@ -595,6 +595,13 @@ git commit -m "fix: release generated image blob urls"
 
 ### Task 8: Expand Static Page Coverage
 
+**执行状态：** 自动化覆盖已完成并在 Task 10 重新验证。以下已批准 P2 风险作为非阻断跟进项保留，不标记为已修复：
+
+- async workspace-save ordering。
+- quota/write capability optimism。
+- slow hydration overwrite。
+- refresh E2E persistence synchronization。
+
 - [ ] **Step 1: Add direct file mode test**
 
 通过绝对 `file:///.../dist-static/gpt-image-2-studio-lite.html` 打开 Release 文件，验证：
@@ -654,6 +661,12 @@ git commit -m "test: cover mobile file mode retries and batch references"
 ```
 
 ### Task 9: Align Release Metadata And Documentation
+
+**执行状态：** 发布检查和元数据校验已在 Task 10 重新验证。以下已批准 P2 风险作为非阻断跟进项保留，不标记为已修复：
+
+- archive lease heartbeat。
+- raw-text workflow validation brittleness。
+- public v0.1.4 metadata-leak policy decision。
 
 - [ ] **Step 1: Fix package metadata**
 
@@ -726,7 +739,7 @@ git commit -m "chore: align static release metadata and documentation"
 
 ### Task 10: Final Verification And Honest Sign-off
 
-- [ ] **Step 1: Run all unit and component tests**
+- [x] **Step 1: Run all unit and component tests**
 
 ```powershell
 npm run test:run
@@ -734,7 +747,9 @@ npm run test:run
 
 Expected: 0 failed。
 
-- [ ] **Step 2: Run static build and archive checks**
+Result: 31 个测试文件、419 个测试全部通过；Vitest 报告 13.69 秒，命令耗时 15.535 秒。
+
+- [x] **Step 2: Run static build and archive checks**
 
 ```powershell
 npm run build:static
@@ -743,7 +758,19 @@ npm run site:check
 
 Expected: latest、release HTML 和所有固定归档满足新规则。
 
-- [ ] **Step 3: Run mock E2E**
+Result:
+
+- `npm run build` 通过，47 个模块，4.384 秒。
+- `npm run build:static` 通过，47 个模块，4.285 秒。
+- `npm run site:check` 通过，0.834 秒。
+- `npm run release:check`：1 个测试文件、16 个测试全部通过，1.846 秒。
+- manifest 一致，latest 为 `0.1.5`，共 2 个版本。
+- `v0.1.5` 源/分发 SHA-256：`50d653fecf24afd86f7fb7c9f082555a987bb1610acabc5aab93e48f74326056`。
+- `v0.1.4` 源/分发 SHA-256：`2921acdd0350d487e0659b0a143c7ac3597da36af80da7fd0a4980190cf19a64`。
+- latest 源归档、release HTML 和 index HTML 字节一致；`v0.1.5` 内嵌 manifest 将自身标记为 latest 并包含自身。
+- 归档验证只读，未重写固定归档。
+
+- [x] **Step 3: Run mock E2E**
 
 ```powershell
 npm run e2e:static:mock
@@ -752,7 +779,12 @@ npm run e2e:static:file
 
 Expected: desktop、mobile、file、失败重试、目录回退和批量图生图均通过。
 
-- [ ] **Step 4: Run real provider smoke**
+Result:
+
+- `npm run e2e:static:mock`：10 通过、1 个按 project 设计跳过、0 失败；Playwright 报告 22.8 秒，命令耗时 30.164 秒。
+- `npm run e2e:static:file`：2 通过、0 失败；Playwright 报告 2.7 秒，命令耗时 12.052 秒。
+
+- [x] **Step 4: Run real provider smoke**
 
 ```powershell
 $env:E2E_REAL_PROVIDER='1'
@@ -761,7 +793,11 @@ npm run e2e:static:real
 
 Expected: 文生图、图生图、双任务批量和 AI 规划都等待真实终态并通过。真实配置和响应不写入报告。
 
+Result: 4 通过、0 失败；Playwright 报告 56.8 秒，命令耗时 63.740 秒。文生图等待预览和历史；图生图等待成功响应和预览，应用只在保存并重新加载历史后发布成功预览；双任务批量等待完成状态、两张预览和两条历史；AI 规划等待成功响应和最终四任务 UI。没有记录真实配置、响应内容或服务身份。
+
 - [ ] **Step 5: Complete native directory acceptance**
+
+Status: **pending/manual evidence missing**。本轮没有执行原生 Chrome/Edge 目录验收，不得标记为 verified。
 
 必须记录：
 
@@ -772,9 +808,11 @@ Expected: 文生图、图生图、双任务批量和 AI 规划都等待真实终
 - 批量真实位置。
 - 刷新后历史恢复结果。
 
+Chrome 和 Edge 应分别提供上述字段。位置必须脱敏，不得包含用户名或完整私人路径。
+
 不得记录用户名、完整私人路径、API key、Base URL、模型名或供应商响应。
 
-- [ ] **Step 6: Run final secret scan**
+- [x] **Step 6: Run final secret scan**
 
 ```powershell
 npm run secret:scan
@@ -782,7 +820,9 @@ npm run secret:scan
 
 Expected: 0 findings。
 
-- [ ] **Step 7: Review dirty files**
+Result: `npm run secret:scan` 0 个报告发现，1.545 秒；`npm run secret:scan:release` 0 个报告发现，1.028 秒。
+
+- [x] **Step 7: Review dirty files**
 
 ```powershell
 git status --short
@@ -792,18 +832,20 @@ git diff --stat
 
 Expected: 没有 Playwright trace、video、screenshot、`.env.e2e.local` 或无关平台私有文件进入提交。
 
-- [ ] **Step 8: Update audit statuses**
+Result: `git diff --check` 0 个空白错误；Playwright 报告和测试结果目录已清理；没有 trace、video、screenshot、报告、环境文件或私有测试文件进入暂存区。生成的 `dist-static` 和无关 May 计划未暂存。
+
+- [x] **Step 8: Update audit statuses**
 
 只在证据真实存在后，把审计报告中的项目改为：
 
 - Fixed and unit-tested
 - Mock E2E verified
 - Real-provider verified
-- Native Chrome/Edge verified
+- Native Chrome/Edge: pending/manual evidence missing
 
 不得用单一“已完成”覆盖不同证据层级。
 
-- [ ] **Step 9: Commit verification docs**
+- [x] **Step 9: Commit verification docs**
 
 ```powershell
 git add docs/static-html-gpt56-independent-audit-2026-07-11.zh-CN.md docs/superpowers/plans/2026-07-11-static-html-audit-remediation.md
@@ -812,15 +854,19 @@ git commit -m "docs: record static html audit verification"
 
 ## Completion Criteria
 
-- [ ] 真实图生图 E2E 等待成功响应、预览和历史，不再用错误文本缺失作为通过条件。
-- [ ] Pages 部署运行当前构建的 mock 页面 E2E。
-- [ ] 官方模式不发送 GPT Image 不支持的 response_format。
-- [ ] 固定版本归档默认不可覆盖，旧版本不再等于 latest。
-- [ ] 批量任务显示授权目录保存或浏览器回退的真实结果。
+- [x] 真实图生图 E2E 等待成功响应和预览；成功预览只在保存并重新加载历史后发布，不再用错误文本缺失作为通过条件。
+- [x] Pages 部署运行当前构建的 mock 页面 E2E。
+- [x] 官方模式不发送 GPT Image 不支持的 response_format。
+- [x] 固定版本归档默认不可覆盖，旧版本不再等于 latest。
+- [x] 批量任务显示授权目录保存或浏览器回退的真实结果。
 - [ ] Chrome/Edge 真实目录落盘和历史恢复有人工证据。
-- [ ] 重试无竞态，AI 任务数量和 items 永远一致或明确拒绝。
-- [ ] 用户错误不包含供应商秘密，API key 默认不长期持久化。
-- [ ] secret scan 覆盖非 sk 形式和最终构建产物。
-- [ ] 单图与批量 Blob URL 生命周期完整。
-- [ ] desktop、mobile、file 模式及失败重试均有页面测试。
-- [ ] MIT、package version、tag、归档和 release notes 保持一致。
+- [x] 重试无竞态，AI 任务数量和 items 永远一致或明确拒绝。
+- [x] 用户错误不包含服务秘密，API key 默认不长期持久化。
+- [x] secret scan 覆盖非特定前缀形式和最终构建产物。
+- [x] 单图与批量 Blob URL 生命周期完整。
+- [x] desktop、mobile、file 模式及失败重试均有页面测试。
+- [x] MIT、package version、tag、归档和 release notes 保持一致。
+
+**Task 10 status:** automated verification complete; native acceptance pending。自动化层级为 Fixed and unit-tested、Mock E2E verified、Real-provider verified；Native Chrome/Edge 仍为 pending/manual evidence missing。
+
+**Remaining blocker:** 缺少 Chrome 和 Edge 各自的浏览器准确版本、授权目录类型、目录测试文件脱敏真实位置、单图脱敏真实位置、批量图片及 manifest 脱敏真实位置、刷新后历史预览恢复结果。
