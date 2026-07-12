@@ -43,6 +43,64 @@ fn merges_partial_config_with_defaults() {
 }
 
 #[test]
+fn migrates_old_config_to_the_complete_frontend_contract() {
+    let merged = crate::storage::merge_config_value(serde_json::json!({
+        "defaultCount": 4,
+        "imageResponseMode": "provider-specific",
+        "batchDefaultTaskCount": 99,
+        "batchDefaultConcurrency": 99,
+        "batchAutoPlanTaskCount": "yes"
+    }));
+
+    assert_eq!(merged.default_count, 1);
+    assert_eq!(merged.image_response_mode, "official");
+    assert!(!merged.remember_api_key);
+    assert_eq!(merged.batch_default_task_count, 20);
+    assert_eq!(merged.batch_default_concurrency, 10);
+    assert!(merged.batch_auto_plan_task_count);
+}
+
+#[test]
+fn config_file_round_trip_retains_image_response_and_batch_settings() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-config-round-trip-test-{}",
+        std::process::id()
+    ));
+    let config_path = temp_root.join("config.json");
+    let config = crate::storage::merge_config_value(serde_json::json!({
+        "rememberApiKey": true,
+        "imageResponseMode": "force-base64",
+        "batchDefaultTaskCount": 12,
+        "batchDefaultConcurrency": 7,
+        "batchDefaultIntervalSeconds": 45,
+        "batchDefaultMaxRetries": 2,
+        "batchAutoPlanTaskCount": false,
+        "batchCustomSplitSystemPrompt": "Keep one visual system.",
+        "batchLastSplitTemplateId": "series"
+    }));
+
+    std::fs::create_dir_all(&temp_root).unwrap();
+    crate::storage::write_config_file(&config_path, &config, "keyring").unwrap();
+    let loaded = crate::storage::load_config_from_path(&config_path).unwrap();
+
+    assert!(loaded.remember_api_key);
+    assert_eq!(loaded.image_response_mode, "force-base64");
+    assert_eq!(loaded.default_count, 1);
+    assert_eq!(loaded.batch_default_task_count, 12);
+    assert_eq!(loaded.batch_default_concurrency, 7);
+    assert_eq!(loaded.batch_default_interval_seconds, 45);
+    assert_eq!(loaded.batch_default_max_retries, 2);
+    assert!(!loaded.batch_auto_plan_task_count);
+    assert_eq!(
+        loaded.batch_custom_split_system_prompt,
+        "Keep one visual system."
+    );
+    assert_eq!(loaded.batch_last_split_template_id, "series");
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
 fn default_config_uses_chinese_ui_and_shows_welcome_once() {
     let defaults = crate::storage::default_config();
 
@@ -59,6 +117,10 @@ fn default_config_includes_batch_defaults() {
     assert_eq!(defaults.batch_default_max_retries, 1);
     assert_eq!(defaults.batch_custom_split_system_prompt, "");
     assert_eq!(defaults.batch_last_split_template_id, "basic");
+    assert_eq!(defaults.batch_default_task_count, 5);
+    assert!(defaults.batch_auto_plan_task_count);
+    assert_eq!(defaults.image_response_mode, "official");
+    assert!(!defaults.remember_api_key);
 }
 
 #[test]
@@ -86,7 +148,7 @@ fn merges_and_clamps_batch_config() {
         "batchLastSplitTemplateId": "series"
     }));
 
-    assert_eq!(merged.batch_default_concurrency, 3);
+    assert_eq!(merged.batch_default_concurrency, 9);
     assert_eq!(merged.batch_default_interval_seconds, 300);
     assert_eq!(merged.batch_default_max_retries, 3);
     assert_eq!(merged.batch_custom_split_system_prompt, "Split consistently.");

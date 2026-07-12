@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct AppConfig {
     pub base_url: String,
     pub api_key: String,
+    pub remember_api_key: bool,
     pub text_model: String,
     pub image_model: String,
     pub timeout_seconds: u64,
@@ -14,11 +15,14 @@ pub struct AppConfig {
     pub default_quality: String,
     pub default_format: String,
     pub default_compression: u8,
+    pub image_response_mode: String,
     pub ui_language: String,
     pub has_dismissed_welcome: bool,
+    pub batch_default_task_count: u8,
     pub batch_default_concurrency: u8,
     pub batch_default_interval_seconds: u64,
     pub batch_default_max_retries: u8,
+    pub batch_auto_plan_task_count: bool,
     pub batch_custom_split_system_prompt: String,
     pub batch_last_split_template_id: String,
 }

@@ -41,6 +41,7 @@ pub fn default_config() -> AppConfig {
     AppConfig {
         base_url: "https://ruoli.dev/v1".to_string(),
         api_key: String::new(),
+        remember_api_key: false,
         text_model: "gpt-5.4-mini".to_string(),
         image_model: "gpt-image-2".to_string(),
         timeout_seconds: 180,
@@ -50,11 +51,14 @@ pub fn default_config() -> AppConfig {
         default_quality: "auto".to_string(),
         default_format: "png".to_string(),
         default_compression: 90,
+        image_response_mode: "official".to_string(),
         ui_language: "zh-CN".to_string(),
         has_dismissed_welcome: false,
+        batch_default_task_count: 5,
         batch_default_concurrency: 1,
         batch_default_interval_seconds: 20,
         batch_default_max_retries: 1,
+        batch_auto_plan_task_count: true,
         batch_custom_split_system_prompt: String::new(),
         batch_last_split_template_id: "basic".to_string(),
     }
@@ -107,6 +111,19 @@ fn get_string_field(value: &serde_json::Value, key: &str) -> Option<String> {
     value.get(key).and_then(|item| item.as_str()).map(ToOwned::to_owned)
 }
 
+fn get_rounded_clamped_u64(
+    value: &serde_json::Value,
+    key: &str,
+    min: u64,
+    max: u64,
+) -> Option<u64> {
+    value
+        .get(key)
+        .and_then(|item| item.as_f64())
+        .filter(|item| item.is_finite())
+        .map(|item| item.round().clamp(min as f64, max as f64) as u64)
+}
+
 pub fn merge_config_value(value: serde_json::Value) -> AppConfig {
     let mut config = default_config();
 
@@ -115,6 +132,9 @@ pub fn merge_config_value(value: serde_json::Value) -> AppConfig {
     }
     if let Some(api_key) = get_string_field(&value, "apiKey") {
         config.api_key = api_key;
+    }
+    if let Some(remember_api_key) = value.get("rememberApiKey").and_then(|item| item.as_bool()) {
+        config.remember_api_key = remember_api_key;
     }
     if let Some(text_model) = get_string_field(&value, "textModel") {
         config.text_model = text_model;
@@ -131,13 +151,7 @@ pub fn merge_config_value(value: serde_json::Value) -> AppConfig {
     if let Some(default_size) = get_string_field(&value, "defaultSize") {
         config.default_size = default_size;
     }
-    if let Some(default_count) = value
-        .get("defaultCount")
-        .and_then(|item| item.as_u64())
-        .and_then(|count| u8::try_from(count).ok())
-    {
-        config.default_count = default_count;
-    }
+    config.default_count = 1;
     if let Some(default_quality) = get_string_field(&value, "defaultQuality") {
         config.default_quality = default_quality;
     }
@@ -151,6 +165,12 @@ pub fn merge_config_value(value: serde_json::Value) -> AppConfig {
     {
         config.default_compression = default_compression;
     }
+    if let Some(image_response_mode) = get_string_field(&value, "imageResponseMode") {
+        config.image_response_mode = match image_response_mode.as_str() {
+            "official" | "force-base64" => image_response_mode,
+            _ => "official".to_string(),
+        };
+    }
     if let Some(ui_language) = get_string_field(&value, "uiLanguage") {
         config.ui_language = ui_language;
     }
@@ -160,26 +180,31 @@ pub fn merge_config_value(value: serde_json::Value) -> AppConfig {
     {
         config.has_dismissed_welcome = has_dismissed_welcome;
     }
-    if let Some(batch_default_concurrency) = value
-        .get("batchDefaultConcurrency")
-        .and_then(|item| item.as_u64())
-        .map(|item| item.clamp(1, 3) as u8)
+    if let Some(batch_default_task_count) =
+        get_rounded_clamped_u64(&value, "batchDefaultTaskCount", 1, 20)
     {
-        config.batch_default_concurrency = batch_default_concurrency;
+        config.batch_default_task_count = batch_default_task_count as u8;
     }
-    if let Some(batch_default_interval_seconds) = value
-        .get("batchDefaultIntervalSeconds")
-        .and_then(|item| item.as_u64())
-        .map(|item| item.min(300))
+    if let Some(batch_default_concurrency) =
+        get_rounded_clamped_u64(&value, "batchDefaultConcurrency", 1, 10)
+    {
+        config.batch_default_concurrency = batch_default_concurrency as u8;
+    }
+    if let Some(batch_default_interval_seconds) =
+        get_rounded_clamped_u64(&value, "batchDefaultIntervalSeconds", 0, 300)
     {
         config.batch_default_interval_seconds = batch_default_interval_seconds;
     }
-    if let Some(batch_default_max_retries) = value
-        .get("batchDefaultMaxRetries")
-        .and_then(|item| item.as_u64())
-        .map(|item| item.min(3) as u8)
+    if let Some(batch_default_max_retries) =
+        get_rounded_clamped_u64(&value, "batchDefaultMaxRetries", 0, 3)
     {
-        config.batch_default_max_retries = batch_default_max_retries;
+        config.batch_default_max_retries = batch_default_max_retries as u8;
+    }
+    if let Some(batch_auto_plan_task_count) = value
+        .get("batchAutoPlanTaskCount")
+        .and_then(|item| item.as_bool())
+    {
+        config.batch_auto_plan_task_count = batch_auto_plan_task_count;
     }
     if let Some(batch_custom_split_system_prompt) = get_string_field(&value, "batchCustomSplitSystemPrompt") {
         config.batch_custom_split_system_prompt = batch_custom_split_system_prompt;
@@ -231,7 +256,11 @@ fn load_api_key(path: &Path) -> String {
     load_api_key_with_result(path, keyring_result)
 }
 
-fn write_config_file(path: &Path, config: &AppConfig, api_key_storage_mode: &str) -> Result<(), String> {
+pub(crate) fn write_config_file(
+    path: &Path,
+    config: &AppConfig,
+    api_key_storage_mode: &str,
+) -> Result<(), String> {
     let mut value = serde_json::to_value(config).map_err(|error| error.to_string())?;
     value[API_KEY_STORAGE_FIELD] = serde_json::Value::String(api_key_storage_mode.to_string());
     write_json(path, &value)
