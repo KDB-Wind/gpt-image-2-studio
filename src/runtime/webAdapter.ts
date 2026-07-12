@@ -784,8 +784,8 @@ export const webAdapter: RuntimeAdapter = {
         const blob = decodeBase64Image(OUTPUT_DIRECTORY_TEST_PNG, "png");
         fileName = await chooseAvailableFileName(rootHandle, OUTPUT_DIRECTORY_TEST_FILE_NAME, []);
         const fileHandle = await rootHandle.getFileHandle(fileName, { create: true });
-        const writable = await fileHandle.createWritable();
         cleanupFileName = fileName;
+        const writable = await fileHandle.createWritable();
         await writable.write(blob);
         await writable.close();
         const savedFile = await rootHandle.getFileHandle(fileName).then((handle) => handle.getFile());

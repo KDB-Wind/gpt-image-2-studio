@@ -20,6 +20,9 @@ export default defineConfig({
     __STATIC_VERSION_MANIFEST__: JSON.stringify(publicStaticVersionManifest),
   },
   plugins: [react()],
+  build: {
+    manifest: true,
+  },
   server: {
     port: 5173,
     strictPort: false,

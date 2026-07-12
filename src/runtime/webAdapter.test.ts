@@ -947,6 +947,33 @@ describe("webAdapter history deletion", () => {
     expect(removeEntry).not.toHaveBeenCalled();
   });
 
+  it("removes the newly allocated folder-test file when createWritable fails", async () => {
+    const fixedFileName = "gpt-image-2-studio-folder-test.png";
+    const allocatedFileName = "gpt-image-2-studio-folder-test-2.png";
+    const downloadsHandle = createDirectoryHandle({
+      [fixedFileName]: new File(["existing marker"], fixedFileName, { type: "image/png" }),
+    }, {
+      name: "gpt-image-2-studio",
+      writable: false,
+      writeError: "Cannot open allocated folder test file.",
+    });
+    const removeEntry = vi.spyOn(downloadsHandle, "removeEntry");
+    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
+
+    await webAdapter.chooseOutputDirectory();
+    const result = await webAdapter.testOutputDirectory();
+
+    expect(result).toMatchObject({
+      ok: false,
+      fileName: allocatedFileName,
+      message: "Cannot open allocated folder test file.",
+    });
+    await expect(readHandleFileText(downloadsHandle, fixedFileName)).resolves.toBe("existing marker");
+    await expect(downloadsHandle.getFileHandle(allocatedFileName)).rejects.toMatchObject({ name: "NotFoundError" });
+    expect(removeEntry).toHaveBeenCalledWith(allocatedFileName);
+    expect(removeEntry).not.toHaveBeenCalledWith(fixedFileName);
+  });
+
   it("reports when an authorized directory save falls back to browser download", async () => {
     const downloadsHandle = createDirectoryHandle({}, { name: "gpt-image-2-studio", writable: false });
     vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
@@ -1361,6 +1388,9 @@ function createDirectoryHandle(
       const file = entries[name];
       if (!file && !files.has(name) && !getOptions?.create) {
         throw new DOMException(`File not found: ${name}`, "NotFoundError");
+      }
+      if (getOptions?.create && !files.has(name)) {
+        files.set(name, new File([], name));
       }
 
       return {

@@ -30,6 +30,14 @@ describe("runtime bundle isolation checker", () => {
     expect(result.stderr).toMatch(/normal build.*Tauri adapter chunk/i);
   });
 
+  it("rejects an orphan Tauri adapter chunk that is unreachable from the HTML entry graph", () => {
+    const fixture = createBundleFixture({ linkNormalBridge: false });
+    const result = runChecker(fixture);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/normal build.*reachable.*Tauri adapter/i);
+  });
+
   it("rejects emitted static HTML or chunks containing native bridge markers", () => {
     const fixture = createBundleFixture({ leakStaticBridge: true });
     const result = runChecker(fixture);
@@ -39,18 +47,19 @@ describe("runtime bundle isolation checker", () => {
   });
 });
 
-function createBundleFixture({ includeNormalBridge = true, leakStaticBridge = false } = {}) {
+function createBundleFixture({ includeNormalBridge = true, linkNormalBridge = true, leakStaticBridge = false } = {}) {
   const rootDir = mkdtempSync(join(tmpdir(), "chat-to-image-runtime-bundles-"));
   fixtureRoots.push(rootDir);
   const normalDir = join(rootDir, "dist");
   const staticDir = join(rootDir, "dist-static");
   mkdirSync(join(normalDir, "assets"), { recursive: true });
+  mkdirSync(join(normalDir, ".vite"), { recursive: true });
   mkdirSync(join(staticDir, "assets"), { recursive: true });
 
   writeFileSync(join(normalDir, "index.html"), '<script type="module" src="./assets/index.js"></script>', "utf8");
   writeFileSync(
     join(normalDir, "assets", "index.js"),
-    includeNormalBridge ? 'import("./tauriAdapter-test.js")' : 'console.log("web only")',
+    includeNormalBridge && linkNormalBridge ? 'import("./tauriAdapter-test.js")' : 'console.log("web only")',
     "utf8",
   );
   if (includeNormalBridge) {
@@ -60,6 +69,25 @@ function createBundleFixture({ includeNormalBridge = true, leakStaticBridge = fa
       "utf8",
     );
   }
+  writeFileSync(
+    join(normalDir, ".vite", "manifest.json"),
+    JSON.stringify({
+      "index.html": {
+        file: "assets/index.js",
+        src: "index.html",
+        isEntry: true,
+        dynamicImports: includeNormalBridge && linkNormalBridge ? ["src/runtime/tauriAdapter.ts"] : [],
+      },
+      ...(includeNormalBridge ? {
+        "src/runtime/tauriAdapter.ts": {
+          file: "assets/tauriAdapter-test.js",
+          src: "src/runtime/tauriAdapter.ts",
+          isDynamicEntry: true,
+        },
+      } : {}),
+    }, null, 2),
+    "utf8",
+  );
 
   const staticMarker = leakStaticBridge ? "window.__TAURI_INTERNALS__.invoke('save_generated_image')" : "web runtime only";
   writeFileSync(join(staticDir, "index.html"), `<script>${staticMarker}</script>`, "utf8");
