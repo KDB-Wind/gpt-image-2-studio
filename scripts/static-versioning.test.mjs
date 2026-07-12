@@ -115,6 +115,9 @@ function createHistoricalParityFixture({
   const baseRef = runFixtureGit(rootDir, ["rev-parse", "HEAD"]);
 
   writeJson(join(rootDir, "package.json"), { version: "1.1.0" });
+  writeJson(join(rootDir, "static-versions", "release-config.json"), {
+    trustedArchiveBase: baseRef,
+  });
   writeSourceArchiveBytes(rootDir, "1.1.0", currentBytes);
   const releaseManifest = {
     latestStable: "1.1.0",
@@ -142,12 +145,67 @@ function createHistoricalParityFixture({
   return { rootDir, distDir, baseRef, currentBytes, historicalBytes, releaseManifest };
 }
 
+function createAnchoredLatestMutationFixture() {
+  const rootDir = createTempRoot();
+  const distDir = join(rootDir, "dist-static");
+  const version = "1.0.0";
+  const baseBytes = Buffer.from(versionedArchiveHtml({ latestStable: version, versions: [version] }), "utf8");
+  const changedBytes = Buffer.concat([baseBytes, Buffer.from("<!-- mutated anchored latest -->\n", "utf8")]);
+
+  writeJson(join(rootDir, "package.json"), { version });
+  writeSourceArchiveBytes(rootDir, version, baseBytes);
+  writeJson(join(rootDir, "static-versions", "manifest.json"), {
+    latestStable: version,
+    versions: [version],
+    sha256: { [version]: createHash("sha256").update(baseBytes).digest("hex") },
+  });
+  runFixtureGit(rootDir, ["init"]);
+  runFixtureGit(rootDir, ["config", "core.autocrlf", "false"]);
+  runFixtureGit(rootDir, ["config", "user.email", "release-test@example.invalid"]);
+  runFixtureGit(rootDir, ["config", "user.name", "Release Test"]);
+  runFixtureGit(rootDir, ["add", "."]);
+  runFixtureGit(rootDir, ["commit", "-m", "trusted latest stable"]);
+  const anchorRef = runFixtureGit(rootDir, ["rev-parse", "HEAD"]);
+
+  const currentManifest = {
+    latestStable: version,
+    versions: [version],
+    sha256: { [version]: createHash("sha256").update(changedBytes).digest("hex") },
+  };
+  writeJson(join(rootDir, "static-versions", "release-config.json"), {
+    trustedArchiveBase: anchorRef,
+  });
+  writeSourceArchiveBytes(rootDir, version, changedBytes);
+  writeJson(join(rootDir, "static-versions", "manifest.json"), currentManifest);
+  writeJson(join(distDir, "versions", "manifest.json"), currentManifest);
+  writeFixtureArchive(distDir, version, changedBytes);
+  mkdirSync(distDir, { recursive: true });
+  writeFileSync(join(distDir, "index.html"), changedBytes);
+  writeFileSync(join(distDir, "gpt-image-2-studio-lite.html"), changedBytes);
+  runFixtureGit(rootDir, ["add", "."]);
+  runFixtureGit(rootDir, ["commit", "-m", "mutate trusted latest stable"]);
+
+  return { rootDir, distDir, anchorRef };
+}
+
 function replaceHistoricalArchiveAndCommit(fixture, bytes, message) {
   writeSourceArchiveBytes(fixture.rootDir, "1.0.0", bytes);
   const builtArchivePath = join(fixture.distDir, "versions", "v1.0.0", "index.html");
   mkdirSync(join(builtArchivePath, ".."), { recursive: true });
   writeFileSync(builtArchivePath, bytes);
   fixture.releaseManifest.sha256["1.0.0"] = createHash("sha256").update(bytes).digest("hex");
+  writeJson(join(fixture.rootDir, "static-versions", "manifest.json"), fixture.releaseManifest);
+  writeJson(join(fixture.distDir, "versions", "manifest.json"), fixture.releaseManifest);
+  runFixtureGit(fixture.rootDir, ["add", "static-versions"]);
+  runFixtureGit(fixture.rootDir, ["commit", "-m", message]);
+}
+
+function replaceCurrentArchiveAndCommit(fixture, bytes, message) {
+  writeSourceArchiveBytes(fixture.rootDir, "1.1.0", bytes);
+  writeFileSync(join(fixture.distDir, "versions", "v1.1.0", "index.html"), bytes);
+  writeFileSync(join(fixture.distDir, "index.html"), bytes);
+  writeFileSync(join(fixture.distDir, "gpt-image-2-studio-lite.html"), bytes);
+  fixture.releaseManifest.sha256["1.1.0"] = createHash("sha256").update(bytes).digest("hex");
   writeJson(join(fixture.rootDir, "static-versions", "manifest.json"), fixture.releaseManifest);
   writeJson(join(fixture.distDir, "versions", "manifest.json"), fixture.releaseManifest);
   runFixtureGit(fixture.rootDir, ["add", "static-versions"]);
@@ -1319,6 +1377,93 @@ describe("static version archives", () => {
       strict: true,
       expectedTag: "v1.1.0",
       baseRef: fixture.baseRef,
+    })).toThrow(/historical archive (?:digest metadata|blob|bytes) changed/i);
+
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  });
+
+  it("strict release parity compares the trusted anchor latestStable archive", () => {
+    const fixture = createAnchoredLatestMutationFixture();
+
+    expect(() => runReleaseArchiveParity({
+      rootDir: fixture.rootDir,
+      distDir: fixture.distDir,
+      strict: true,
+      expectedTag: "v1.0.0",
+      baseRef: fixture.anchorRef,
+    })).toThrow(/historical archive (?:digest metadata|blob|bytes) changed/i);
+
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  });
+
+  it("strict release parity catches a trusted archive mutation introduced two commits before HEAD", () => {
+    const fixture = createHistoricalParityFixture();
+    const changedBytes = Buffer.concat([
+      fixture.historicalBytes,
+      Buffer.from("<!-- mutation hidden behind later commit -->\n", "utf8"),
+    ]);
+    replaceHistoricalArchiveAndCommit(fixture, changedBytes, "mutate trusted archive");
+    runFixtureGit(fixture.rootDir, ["commit", "--allow-empty", "-m", "later unrelated commit"]);
+
+    expect(() => runReleaseArchiveParity({
+      rootDir: fixture.rootDir,
+      distDir: fixture.distDir,
+      strict: true,
+      expectedTag: "v1.1.0",
+    })).toThrow(/historical archive (?:digest metadata|blob|bytes) changed/i);
+
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  });
+
+  it("strict release parity rejects a newer explicit base that bypasses the trusted anchor", () => {
+    const fixture = createHistoricalParityFixture();
+    const changedBytes = Buffer.concat([
+      fixture.historicalBytes,
+      Buffer.from("<!-- newer bypass mutation -->\n", "utf8"),
+    ]);
+    replaceHistoricalArchiveAndCommit(fixture, changedBytes, "mutate trusted archive");
+    runFixtureGit(fixture.rootDir, ["commit", "--allow-empty", "-m", "later unrelated commit"]);
+    const newerBypassRef = runFixtureGit(fixture.rootDir, ["rev-parse", "HEAD^"]);
+
+    expect(() => runReleaseArchiveParity({
+      rootDir: fixture.rootDir,
+      distDir: fixture.distDir,
+      strict: true,
+      expectedTag: "v1.1.0",
+      baseRef: newerBypassRef,
+    })).toThrow(/explicit.*base.*trusted anchor|newer.*base.*anchor/i);
+
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  });
+
+  it("strict release parity allows a version absent from the trusted anchor", () => {
+    const fixture = createHistoricalParityFixture();
+
+    expect(() => runReleaseArchiveParity({
+      rootDir: fixture.rootDir,
+      distDir: fixture.distDir,
+      strict: true,
+      expectedTag: "v1.1.0",
+    })).not.toThrow();
+
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  });
+
+  it("event-base parity protects versions introduced after the trusted anchor", () => {
+    const fixture = createHistoricalParityFixture();
+    const eventBaseRef = runFixtureGit(fixture.rootDir, ["rev-parse", "HEAD"]);
+    const changedBytes = Buffer.concat([
+      fixture.currentBytes,
+      Buffer.from("<!-- mutate release after event base -->\n", "utf8"),
+    ]);
+    replaceCurrentArchiveAndCommit(fixture, changedBytes, "mutate post-anchor release");
+
+    expect(() => runReleaseArchiveParity({
+      rootDir: fixture.rootDir,
+      distDir: fixture.distDir,
+      strict: true,
+      expectedTag: "v1.1.0",
+      eventBaseRef,
     })).toThrow(/historical archive (?:digest metadata|blob|bytes) changed/i);
 
     rmSync(fixture.rootDir, { recursive: true, force: true });

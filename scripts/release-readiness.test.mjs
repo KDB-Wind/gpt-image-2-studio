@@ -317,6 +317,18 @@ jobs:
     );
   });
 
+  it("requires Release to use the configured previous stable anchor instead of HEAD^", () => {
+    const workflow = readFileSync(".github/workflows/release.yml", "utf8");
+    const headFallbackWorkflow = workflow.replace(
+      "$baseSha = $releaseConfig.trustedArchiveBase",
+      '$baseSha = git rev-parse "HEAD^"',
+    );
+
+    expect(checkReleaseWorkflow(headFallbackWorkflow)).toContain(
+      "Release workflow must use the configured previous stable archive anchor.",
+    );
+  });
+
   it("requires CI to resolve an explicit historical archive base for PRs and pushes", () => {
     const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
 
@@ -329,6 +341,9 @@ jobs:
     );
     expect(checkCiWorkflow(workflow.replace("npm run artifact:check", "npm run build"))).toContain(
       "CI must inspect built normal and static artifacts for runtime isolation.",
+    );
+    expect(checkCiWorkflow(workflow.replace("STATIC_ARCHIVE_EVENT_BASE_REF=$baseSha", "STATIC_ARCHIVE_BASE_REF=$baseSha"))).toContain(
+      "CI must export the event or merge base separately from the configured trusted anchor.",
     );
   });
 
@@ -358,11 +373,13 @@ jobs:
           if ($env:EVENT_NAME -eq "push") {
             $baseSha = $env:BEFORE_SHA
             if (-not $baseSha -or $baseSha -match '^0+$') { throw "Missing push base." }
+            "STATIC_ARCHIVE_EVENT_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
           } else {
-            $baseSha = git rev-parse HEAD^
+            $releaseConfig = Get-Content -Raw "static-versions/release-config.json" | ConvertFrom-Json
+            $baseSha = $releaseConfig.trustedArchiveBase
+            if (-not $baseSha) { throw "Missing trusted archive anchor." }
+            "STATIC_ARCHIVE_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
           }
-          if (-not $baseSha) { throw "Missing archive base." }
-          "STATIC_ARCHIVE_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
       - uses: actions/setup-node@v4
       - run: npm ci
       - run: npm run test:run
@@ -396,6 +413,9 @@ jobs:
     );
     expect(checkPagesWorkflow(workflow.replace("npm run artifact:check", "npm run build:static"))).toContain(
       "Pages workflow must inspect built normal and static artifacts for runtime isolation.",
+    );
+    expect(checkPagesWorkflow(workflow.replace("$baseSha = $releaseConfig.trustedArchiveBase", "$baseSha = git rev-parse HEAD^"))).toContain(
+      "Pages manual deployments must use the configured trusted archive anchor.",
     );
   });
 

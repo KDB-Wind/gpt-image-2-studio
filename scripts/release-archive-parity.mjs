@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
@@ -93,6 +93,17 @@ function resolveGitCommit(rootDir, ref) {
   return result.stdout.trim();
 }
 
+function isGitAncestor(rootDir, ancestorRef, descendantRef) {
+  const result = spawnSync("git", ["merge-base", "--is-ancestor", ancestorRef, descendantRef], {
+    cwd: rootDir,
+    encoding: "utf8",
+  });
+  if (result.error || (result.status !== 0 && result.status !== 1)) {
+    throw new Error(`Could not validate archive base ancestry between ${ancestorRef} and ${descendantRef}.`);
+  }
+  return result.status === 0;
+}
+
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -113,6 +124,73 @@ function parseTrackedManifest(bytes, label, { requireDigests = true } = {}) {
   }
 }
 
+function readTrustedArchiveConfig(rootDir, readGitBlob) {
+  const relativePath = join("static-versions", "release-config.json");
+  const configPath = join(rootDir, relativePath);
+  if (!existsSync(configPath)) {
+    return null;
+  }
+
+  const safeConfigPath = assertSafeReleaseFile(rootDir, configPath, "Static release configuration");
+  const workingBytes = readFileSync(safeConfigPath);
+  const headBytes = readGitBlob(rootDir, "HEAD", relativePath);
+  if (workingBytes.compare(headBytes) !== 0) {
+    throw new Error("Working-tree static release configuration must be byte-identical to tracked HEAD.");
+  }
+
+  let config;
+  try {
+    config = JSON.parse(workingBytes.toString("utf8"));
+  } catch (error) {
+    throw new Error("Static release configuration is invalid JSON.", { cause: error });
+  }
+  if (typeof config?.trustedArchiveBase !== "string" || !/^[a-f0-9]{40}$/i.test(config.trustedArchiveBase)) {
+    throw new Error("Static release configuration must contain a full trustedArchiveBase commit SHA.");
+  }
+  return config;
+}
+
+function compareBaseManifestToHead({
+  rootDir,
+  manifest,
+  manifestRelativePath,
+  resolvedBaseRef,
+  readGitBlob,
+  readGitBlobId,
+}) {
+  const baseManifest = parseTrackedManifest(
+    readGitBlob(rootDir, resolvedBaseRef, manifestRelativePath),
+    "Historical archive base manifest",
+    { requireDigests: false },
+  );
+
+  for (const version of baseManifest.versions) {
+    if (!manifest.versions.includes(version)) {
+      throw new Error(`Historical archive v${version} was removed from the current manifest.`);
+    }
+
+    const archiveRelativePath = join("static-versions", "versions", `v${version}`, "index.html");
+    const headBytes = readGitBlob(rootDir, "HEAD", archiveRelativePath);
+    const baseBytes = readGitBlob(rootDir, resolvedBaseRef, archiveRelativePath);
+    const baseDigest = sha256(baseBytes);
+    const baseManifestDigest = baseManifest.sha256?.[version];
+    if (baseManifestDigest && baseManifestDigest.toLowerCase() !== baseDigest) {
+      throw new Error(`Historical base archive v${version} does not match its manifest digest metadata.`);
+    }
+    if (manifest.sha256[version].toLowerCase() !== baseDigest) {
+      throw new Error(`Historical archive digest metadata changed for v${version}.`);
+    }
+    const headBlobId = readGitBlobId(rootDir, "HEAD", archiveRelativePath);
+    const baseBlobId = readGitBlobId(rootDir, resolvedBaseRef, archiveRelativePath);
+    if (headBlobId !== baseBlobId) {
+      throw new Error(`Historical archive blob changed across commits for v${version}.`);
+    }
+    if (headBytes.compare(baseBytes) !== 0) {
+      throw new Error(`Historical archive bytes changed across commits for v${version}.`);
+    }
+  }
+}
+
 export function runReleaseArchiveParity({
   rootDir = resolve("."),
   distDir = join(rootDir, "dist-static"),
@@ -121,9 +199,11 @@ export function runReleaseArchiveParity({
   expectedTag,
   expectedVersion,
   baseRef,
+  eventBaseRef,
   readGitBlob = readTrackedBlob,
   readGitBlobId = readTrackedBlobId,
   resolveBaseRef = resolveGitCommit,
+  isAncestorRef = isGitAncestor,
 } = {}) {
   if (!strict && !historicalOnly) {
     assertCurrentReleaseMatchesArchive({ rootDir, distDir });
@@ -190,43 +270,49 @@ export function runReleaseArchiveParity({
     }
   }
 
-  const requestedBaseRef = baseRef || process.env.STATIC_ARCHIVE_BASE_REF || "HEAD^";
-  const resolvedBaseRef = resolveBaseRef(rootDir, requestedBaseRef);
-  const baseManifest = parseTrackedManifest(
-    readGitBlob(rootDir, resolvedBaseRef, manifestRelativePath),
-    "Historical archive base manifest",
-    { requireDigests: false },
-  );
-  const historicalVersions = manifest.versions.filter((version) => version !== manifest.latestStable);
-  const baseHistoricalVersions = baseManifest.versions.filter((version) => version !== manifest.latestStable);
-  for (const version of baseHistoricalVersions) {
-    if (!historicalVersions.includes(version)) {
-      throw new Error(`Historical archive v${version} was removed from the current manifest.`);
-    }
+  const releaseConfig = readTrustedArchiveConfig(rootDir, readGitBlob);
+  const configuredAnchorRef = releaseConfig?.trustedArchiveBase;
+  const requestedBaseRef = baseRef || process.env.STATIC_ARCHIVE_BASE_REF;
+  if (!configuredAnchorRef && !requestedBaseRef) {
+    throw new Error("Strict archive parity requires a configured trusted archive anchor or an explicit legacy base ref.");
   }
-  for (const version of historicalVersions) {
-    if (!baseManifest.versions.includes(version)) {
-      throw new Error(`Historical archive digest metadata changed for v${version}.`);
+
+  const resolvedAnchorRef = configuredAnchorRef ? resolveBaseRef(rootDir, configuredAnchorRef) : null;
+  const comparisonRefs = [];
+  if (resolvedAnchorRef) {
+    comparisonRefs.push(resolvedAnchorRef);
+  }
+  if (requestedBaseRef) {
+    const resolvedRequestedBaseRef = resolveBaseRef(rootDir, requestedBaseRef);
+    if (
+      resolvedAnchorRef
+      && resolvedRequestedBaseRef !== resolvedAnchorRef
+      && !isAncestorRef(rootDir, resolvedRequestedBaseRef, resolvedAnchorRef)
+    ) {
+      throw new Error("Explicit archive base must equal or be an ancestor of the configured trusted anchor; a newer base cannot bypass it.");
     }
-    const archiveRelativePath = join("static-versions", "versions", `v${version}`, "index.html");
-    const headBytes = readGitBlob(rootDir, "HEAD", archiveRelativePath);
-    const baseBytes = readGitBlob(rootDir, resolvedBaseRef, archiveRelativePath);
-    const baseDigest = sha256(baseBytes);
-    const baseManifestDigest = baseManifest.sha256?.[version];
-    if (baseManifestDigest && baseManifestDigest.toLowerCase() !== baseDigest) {
-      throw new Error(`Historical base archive v${version} does not match its manifest digest metadata.`);
+    comparisonRefs.push(resolvedRequestedBaseRef);
+  }
+
+  const requestedEventBaseRef = eventBaseRef || process.env.STATIC_ARCHIVE_EVENT_BASE_REF;
+  if (requestedEventBaseRef) {
+    const resolvedEventBaseRef = resolveBaseRef(rootDir, requestedEventBaseRef);
+    const resolvedHeadRef = resolveBaseRef(rootDir, "HEAD");
+    if (resolvedEventBaseRef !== resolvedHeadRef && !isAncestorRef(rootDir, resolvedEventBaseRef, resolvedHeadRef)) {
+      throw new Error("Event archive base must resolve to HEAD or one of its ancestors.");
     }
-    if (manifest.sha256[version].toLowerCase() !== baseDigest) {
-      throw new Error(`Historical archive digest metadata changed for v${version}.`);
-    }
-    const headBlobId = readGitBlobId(rootDir, "HEAD", archiveRelativePath);
-    const baseBlobId = readGitBlobId(rootDir, resolvedBaseRef, archiveRelativePath);
-    if (headBlobId !== baseBlobId) {
-      throw new Error(`Historical archive blob changed across commits for v${version}.`);
-    }
-    if (headBytes.compare(baseBytes) !== 0) {
-      throw new Error(`Historical archive bytes changed across commits for v${version}.`);
-    }
+    comparisonRefs.push(resolvedEventBaseRef);
+  }
+
+  for (const resolvedBaseRef of new Set(comparisonRefs)) {
+    compareBaseManifestToHead({
+      rootDir,
+      manifest,
+      manifestRelativePath,
+      resolvedBaseRef,
+      readGitBlob,
+      readGitBlobId,
+    });
   }
 
   if (strict) {

@@ -94,7 +94,8 @@ export function checkReleaseWorkflow(workflowText) {
     [/\$releaseNotes\s*=\s*["']docs\/release-notes\/v\$version\.md["']/, "Release workflow must derive the release-notes path from package metadata."],
     [/Test-Path\s+-LiteralPath\s+\$releaseNotes/, "Release workflow must fail when derived release notes are missing."],
     [/release_notes=\$releaseNotes/, "Release workflow must expose the derived release-notes path."],
-    [/git rev-parse ["']HEAD\^["']/, "Release workflow must derive the archive base from the prior commit."],
+    [/Get-Content\s+-Raw\s+["']static-versions\/release-config\.json["']\s*\|\s*ConvertFrom-Json/, "Release workflow must load the configured previous stable archive anchor."],
+    [/\$baseSha\s*=\s*\$releaseConfig\.trustedArchiveBase/, "Release workflow must use the configured previous stable archive anchor."],
     [/base_sha=\$baseSha/, "Release workflow must expose an explicit prior commit for archive immutability."],
     [/npm run secret:scan/, "Release workflow must run the unified secret scan."],
     [/npm run secret:scan:release/, "Release workflow must scan ignored release artifacts."],
@@ -126,6 +127,10 @@ export function checkReleaseWorkflow(workflowText) {
 
   if (/body_path:\s*docs\/release-notes\/v[^\s]+\.md/.test(workflowText)) {
     errors.push("Release workflow must derive the release-notes path from package metadata.");
+  }
+
+  if (/git rev-parse ["']HEAD\^["']/.test(workflowText)) {
+    errors.push("Release workflow must use the configured previous stable archive anchor.");
   }
 
   if (shellScriptBodies(workflowText).some((body) => /\$\{\{\s*(?:inputs\.|github\.event\.|github\.ref_name)/.test(body))) {
@@ -234,9 +239,11 @@ export function checkPagesWorkflow(workflowText) {
     [/permissions:\s*[\s\S]*id-token:\s*write/, "Pages workflow must grant id-token: write."],
     [/actions\/checkout@v4/, "Pages workflow must check out the repository."],
     [/fetch-depth:\s*0/, "Pages checkout must fetch full history for archive immutability."],
-    [/BEFORE_SHA/, "Pages push deployments must use the explicit prior event SHA as the archive base."],
-    [/git rev-parse HEAD\^/, "Pages manual deployments must derive the archive base from HEAD^."],
-    [/STATIC_ARCHIVE_BASE_REF=\$baseSha/, "Pages workflow must export an explicit archive base."],
+    [/BEFORE_SHA/, "Pages push deployments must use the explicit prior event SHA as an additional archive base."],
+    [/static-versions\/release-config\.json/, "Pages manual deployments must load the configured trusted archive anchor."],
+    [/\$releaseConfig\.trustedArchiveBase/, "Pages manual deployments must use the configured trusted archive anchor."],
+    [/STATIC_ARCHIVE_EVENT_BASE_REF=\$baseSha/, "Pages push deployments must export the event base separately from the trusted anchor."],
+    [/STATIC_ARCHIVE_BASE_REF=\$baseSha/, "Pages manual deployments must export the configured trusted archive anchor."],
     [/actions\/setup-node@v4/, "Pages workflow must install Node.js."],
     [/npm ci/, "Pages workflow must install dependencies with npm ci."],
     [/npm run secret:scan/, "Pages workflow must run the unified secret scan."],
@@ -277,6 +284,10 @@ export function checkPagesWorkflow(workflowText) {
     errors.push("Pages workflow must not run strict release readiness.");
   }
 
+  if (/git rev-parse HEAD\^/.test(workflowText)) {
+    errors.push("Pages manual deployments must use the configured trusted archive anchor.");
+  }
+
   if (staticBuildIndex >= 0 && pagesCheckIndex >= 0 && pagesCheckIndex < staticBuildIndex) {
     errors.push("Pages workflow must build static release bytes before running Pages readiness.");
   }
@@ -297,7 +308,7 @@ export function checkCiWorkflow(workflowText) {
     [/fetch-depth:\s*0/, "CI checkout must fetch full history for archive immutability."],
     [/git merge-base HEAD origin\/main/, "PR CI must derive the archive base from merge-base/origin/main."],
     [/github\.event\.before/, "Push CI must use the explicit prior event SHA as the archive base."],
-    [/STATIC_ARCHIVE_BASE_REF=\$baseSha/, "CI must export the resolved archive base for strict release checks."],
+    [/STATIC_ARCHIVE_EVENT_BASE_REF=\$baseSha/, "CI must export the event or merge base separately from the configured trusted anchor."],
     [/npm run release:check/, "CI must run strict release readiness."],
     [/npm run build(?!:static)/, "CI must build the normal frontend artifact."],
     [/npm run build:static/, "CI must build the static frontend artifact."],

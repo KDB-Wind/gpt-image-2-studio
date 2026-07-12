@@ -38,7 +38,7 @@ jobs:
           if (-not $baseSha) {
             throw "Historical archive base could not be resolved."
           }
-          "STATIC_ARCHIVE_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "STATIC_ARCHIVE_EVENT_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

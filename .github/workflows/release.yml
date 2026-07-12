@@ -96,9 +96,14 @@ jobs:
 
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "release_notes=$releaseNotes" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          $baseSha = git rev-parse "HEAD^"
-          if (-not $baseSha) {
-            throw "Release archive base commit could not be resolved."
+          $releaseConfig = Get-Content -Raw "static-versions/release-config.json" | ConvertFrom-Json
+          $baseSha = $releaseConfig.trustedArchiveBase
+          if (-not $baseSha -or $baseSha -notmatch '^[a-f0-9]{40}$') {
+            throw "Configured previous stable archive anchor is missing or invalid."
+          }
+          $resolvedBaseSha = git rev-parse --verify "$baseSha^{commit}"
+          if (-not $resolvedBaseSha -or $resolvedBaseSha -ne $baseSha) {
+            throw "Configured previous stable archive anchor could not be resolved."
           }
           "base_sha=$baseSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 

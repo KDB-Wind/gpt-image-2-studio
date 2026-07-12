@@ -36,13 +36,18 @@ jobs:
             if (-not $baseSha -or $baseSha -match '^0+$') {
               throw "Pages push did not provide a prior commit for archive immutability."
             }
+            "STATIC_ARCHIVE_EVENT_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
           } else {
-            $baseSha = git rev-parse HEAD^
+            $releaseConfig = Get-Content -Raw "static-versions/release-config.json" | ConvertFrom-Json
+            $baseSha = $releaseConfig.trustedArchiveBase
+            if (-not $baseSha -or $baseSha -notmatch '^[a-f0-9]{40}$') {
+              throw "Pages trusted archive anchor is missing or invalid."
+            }
+            "STATIC_ARCHIVE_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
           }
           if (-not $baseSha) {
             throw "Pages historical archive base could not be resolved."
           }
-          "STATIC_ARCHIVE_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
