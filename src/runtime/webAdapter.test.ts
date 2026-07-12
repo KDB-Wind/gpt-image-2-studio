@@ -505,6 +505,81 @@ describe("webAdapter history deletion", () => {
     await expect(webAdapter.loadHistory()).resolves.toEqual([]);
   });
 
+  it("reads a newer memory-only history overlay instead of stale persistent history", async () => {
+    const oldRecord = createHistoryRecord({
+      id: "persisted-old",
+      createdAt: "2026-07-11T10:30:00.000Z",
+      prompt: "Persisted old record",
+      outputPath: "old.png",
+    });
+    localStorage.setItem("chat-to-image.history.v1", JSON.stringify([oldRecord]));
+    const originalSetItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+      if (key === "chat-to-image.history.v1") {
+        throw new DOMException("Storage quota exceeded.", "QuotaExceededError");
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    const result = await webAdapter.saveImage({
+      image: { base64: ONE_PIXEL_PNG },
+      prompt: "New memory-only record",
+      optimizedPrompt: "",
+      customName: "new-memory-record",
+      config: { ...DEFAULT_CONFIG, defaultFormat: "png" },
+      generatedAt: new Date("2026-07-12T10:30:00.000Z"),
+      durationMs: 1000,
+    });
+
+    expect(result.historyDurability).toBe("memory-only");
+    expect(result.historyWarning).toContain("only in this open app instance");
+    await expect(webAdapter.loadHistory()).resolves.toEqual([
+      expect.objectContaining({ id: result.record.id, prompt: "New memory-only record" }),
+      oldRecord,
+    ]);
+    expect(JSON.parse(localStorage.getItem("chat-to-image.history.v1") ?? "[]")).toEqual([oldRecord]);
+
+    __resetWebAdapterForTests();
+    await expect(webAdapter.loadHistory()).resolves.toEqual([oldRecord]);
+  });
+
+  it("clears a memory history overlay after a later persistent update succeeds", async () => {
+    const oldRecord = createHistoryRecord({
+      id: "persisted-old",
+      createdAt: "2026-07-11T10:30:00.000Z",
+      prompt: "Persisted old record",
+      outputPath: "old.png",
+    });
+    localStorage.setItem("chat-to-image.history.v1", JSON.stringify([oldRecord]));
+    const originalSetItem = Storage.prototype.setItem;
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
+    setItemSpy.mockImplementation(function (this: Storage, key, value) {
+      if (key === "chat-to-image.history.v1") {
+        throw new DOMException("Storage quota exceeded.", "QuotaExceededError");
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    const saved = await webAdapter.saveImage({
+      image: { base64: ONE_PIXEL_PNG },
+      prompt: "Temporary memory record",
+      optimizedPrompt: "",
+      customName: "temporary-memory-record",
+      config: { ...DEFAULT_CONFIG, defaultFormat: "png" },
+      generatedAt: new Date("2026-07-12T10:30:00.000Z"),
+      durationMs: 1000,
+    });
+    setItemSpy.mockImplementation(originalSetItem);
+
+    await expect(webAdapter.deleteHistoryRecords([oldRecord.id])).resolves.toEqual([
+      expect.objectContaining({ id: saved.record.id }),
+    ]);
+    __resetWebAdapterForTests();
+    await expect(webAdapter.loadHistory()).resolves.toEqual([
+      expect.objectContaining({ id: saved.record.id }),
+    ]);
+  });
+
   it("saves base64 provider images without fetching a provider URL", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -854,6 +929,24 @@ describe("webAdapter history deletion", () => {
     expect(result.saveFallbackReason).not.toContain("private-token");
   });
 
+  it("does not remove the fixed folder-test file when collision probing fails before allocation", async () => {
+    const downloadsHandle = createDirectoryHandle({}, {
+      name: "gpt-image-2-studio",
+      probeError: "Cannot inspect folder test collision.",
+    });
+    const removeEntry = vi.spyOn(downloadsHandle, "removeEntry");
+    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
+
+    await webAdapter.chooseOutputDirectory();
+    const result = await webAdapter.testOutputDirectory();
+
+    expect(result).toMatchObject({
+      ok: false,
+      message: "Cannot inspect folder test collision.",
+    });
+    expect(removeEntry).not.toHaveBeenCalled();
+  });
+
   it("reports when an authorized directory save falls back to browser download", async () => {
     const downloadsHandle = createDirectoryHandle({}, { name: "gpt-image-2-studio", writable: false });
     vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
@@ -1191,6 +1284,21 @@ function createBatchTask(overrides: Partial<BatchTask>): BatchTask {
     durationMs: 0,
     startedAt: "",
     completedAt: "",
+    ...overrides,
+  };
+}
+
+function createHistoryRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "history-record",
+    status: "success",
+    createdAt: "2026-07-12T00:00:00.000Z",
+    prompt: "History record",
+    optimizedPrompt: "",
+    model: "gpt-image-2",
+    size: "auto",
+    outputPath: "history.png",
+    durationMs: 1000,
     ...overrides,
   };
 }

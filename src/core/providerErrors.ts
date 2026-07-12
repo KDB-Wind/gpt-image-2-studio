@@ -35,6 +35,10 @@ const COST_RISK_MARKERS = [
   "did not contain any image data",
   "no image data",
   "empty image response",
+  "request was accepted",
+  "accepted upstream",
+  "already be billed",
+  "already billed",
 ] as const;
 const DEFAULT_SAFE_ERROR_SUMMARY = "Provider error details were redacted.";
 const DEFAULT_SAFE_ERROR_SUMMARY_LENGTH = 280;
@@ -71,7 +75,20 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorC
     };
   }
 
+  const costRisk = isCostRiskProviderError(input);
+
   if (input.status === 429) {
+    if (costRisk) {
+      return {
+        category: "cost_risk",
+        reason: "Provider failure may have consumed image-generation cost.",
+        shouldOpenProviderCircuit: true,
+        shouldCooldownApiKey: true,
+        shouldDisableApiKey: false,
+        userChargeable: false,
+      };
+    }
+
     return {
       category: "rate_limit",
       reason: "Provider rate-limited the API key.",
@@ -103,8 +120,6 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorC
       userChargeable: false,
     };
   }
-
-  const costRisk = isCostRiskProviderError(input);
 
   if (input.status === 400 && !costRisk) {
     return {

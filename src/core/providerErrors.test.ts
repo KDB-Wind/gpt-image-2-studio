@@ -85,12 +85,39 @@ describe("classifyProviderError", () => {
     });
   });
 
-  it("classifies 429 as key cooldown and not provider circuit", () => {
-    expect(classifyProviderError({ status: 429, code: "bad_response_status_code" })).toMatchObject({
+  it("classifies a plain 429 rejection as key cooldown and not provider circuit", () => {
+    expect(classifyProviderError({ status: 429, message: "Too many requests." })).toMatchObject({
       category: "rate_limit",
       shouldCooldownApiKey: true,
       shouldOpenProviderCircuit: false,
       userChargeable: false,
+    });
+  });
+
+  it("gives cost-risk evidence precedence over HTTP 429", () => {
+    expect(
+      classifyProviderError({
+        status: 429,
+        responseBody:
+          '{"error":{"message":"upstream error: do request failed","type":"new_api_error","code":"bad_response_status_code"}}',
+      }),
+    ).toMatchObject({
+      category: "cost_risk",
+      shouldCooldownApiKey: true,
+      shouldOpenProviderCircuit: true,
+      userChargeable: false,
+    });
+  });
+
+  it("treats accepted-or-billed evidence on HTTP 429 as cost risk", () => {
+    expect(
+      classifyProviderError({
+        status: 429,
+        message: "The request was accepted upstream and may already be billed.",
+      }),
+    ).toMatchObject({
+      category: "cost_risk",
+      shouldOpenProviderCircuit: true,
     });
   });
 

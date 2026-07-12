@@ -324,6 +324,38 @@ describe("batchRunner", () => {
     expect(result.tasks[0].failureCategory).toBe("rate_limit");
   });
 
+  it("submits an ambiguous 429 exactly once even when automatic retries are configured", async () => {
+    const tasks = createTasksFromMultilinePrompts("one");
+    const generateImages = vi.fn().mockRejectedValue(
+      Object.assign(new Error("Request failed after upstream processing."), {
+        status: 429,
+        responseBody:
+          '{"error":{"message":"upstream error: do request failed","type":"new_api_error","code":"bad_response_status_code"}}',
+      }),
+    );
+
+    const result = await runBatchTasks({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG,
+      tasks,
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 3 },
+      referenceImages: [],
+      generateImages,
+      saveBatchImage: vi.fn(),
+    });
+
+    expect(generateImages).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("paused");
+    expect(result.pauseReason?.failureCategory).toBe("cost_risk");
+    expect(result.tasks[0]).toMatchObject({
+      status: "failed",
+      attemptCount: 1,
+      failureCategory: "cost_risk",
+    });
+  });
+
   it("stores a sanitized task error summary instead of the raw provider body", async () => {
     const tasks = createTasksFromMultilinePrompts("one");
     const result = await runBatchTasks({

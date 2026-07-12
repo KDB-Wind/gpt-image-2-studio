@@ -31,8 +31,8 @@ const MEMORY_ONLY_HISTORY_WARNING =
 let directoryHandle: FileSystemDirectoryHandle | null = null;
 let readyOutputDirectory: PersistedReadyOutputDirectory | null = null;
 let saveTransactionQueue: Promise<void> = Promise.resolve();
-const memoryStorageFallback = new Map<string, string>();
-const memorySessionStorageFallback = new Map<string, string>();
+const memoryStorageFallback = new Map<string, string | null>();
+const memorySessionStorageFallback = new Map<string, string | null>();
 
 function getBrowserStorage(kind: "local" | "session" = "local"): Storage | null {
   try {
@@ -75,17 +75,15 @@ function readStoredValue<T>(key: string, fallback: T, kind: "local" | "session" 
   const memoryStorage = getMemoryStorage(kind);
   let raw: string | null = null;
 
-  if (storage) {
+  if (memoryStorage.has(key)) {
+    raw = memoryStorage.get(key) ?? null;
+  } else if (storage) {
     try {
       raw = storage.getItem(key);
     } catch {
       raw = memoryStorage.get(key) ?? null;
     }
   } else {
-    raw = memoryStorage.get(key) ?? null;
-  }
-
-  if (!raw) {
     raw = memoryStorage.get(key) ?? null;
   }
 
@@ -130,12 +128,14 @@ function removeStoredValue(key: string, kind: "local" | "session" = "local") {
   if (storage) {
     try {
       storage.removeItem(key);
+      memoryStorage.delete(key);
+      return;
     } catch {
       // Restricted file:// runtimes fall through to the in-memory store.
     }
   }
 
-  memoryStorage.delete(key);
+  memoryStorage.set(key, null);
 }
 
 function getIndexedDb(): IDBFactory | null {
@@ -779,15 +779,21 @@ export const webAdapter: RuntimeAdapter = {
 
     return withSaveTransactionLock(async () => {
       let fileName = OUTPUT_DIRECTORY_TEST_FILE_NAME;
+      let cleanupFileName: string | null = null;
       try {
         const blob = decodeBase64Image(OUTPUT_DIRECTORY_TEST_PNG, "png");
         fileName = await chooseAvailableFileName(rootHandle, OUTPUT_DIRECTORY_TEST_FILE_NAME, []);
-        await writeWithFileSystemAccess(rootHandle, "", fileName, blob);
+        const fileHandle = await rootHandle.getFileHandle(fileName, { create: true });
+        const writable = await fileHandle.createWritable();
+        cleanupFileName = fileName;
+        await writable.write(blob);
+        await writable.close();
         const savedFile = await rootHandle.getFileHandle(fileName).then((handle) => handle.getFile());
         if (savedFile.size <= 0) {
           throw new Error("Output folder test wrote an empty file.");
         }
         await rootHandle.removeEntry(fileName);
+        cleanupFileName = null;
         const lastTestedAt = new Date().toISOString();
         await persistReadyOutputDirectory({ handle: rootHandle, name: rootHandle.name, lastTestedAt });
 
@@ -797,16 +803,18 @@ export const webAdapter: RuntimeAdapter = {
           bytes: savedFile.size,
         };
       } catch (error) {
-        try {
-          await rootHandle.removeEntry(fileName);
-        } catch (cleanupError) {
-          if (!isNotFoundError(cleanupError)) {
-            await clearPersistedReadyOutputDirectory();
-            return {
-              ok: false,
-              fileName,
-              message: safeErrorMessage(cleanupError),
-            };
+        if (cleanupFileName) {
+          try {
+            await rootHandle.removeEntry(cleanupFileName);
+          } catch (cleanupError) {
+            if (!isNotFoundError(cleanupError)) {
+              await clearPersistedReadyOutputDirectory();
+              return {
+                ok: false,
+                fileName,
+                message: safeErrorMessage(cleanupError),
+              };
+            }
           }
         }
         await clearPersistedReadyOutputDirectory();
