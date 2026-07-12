@@ -124,6 +124,8 @@ Interval seconds: 20 to 60
 Max retries: 1
 ```
 
+Automatic retries are limited to HTTP 429 rejections. Timeout, HTTP 408, network, 5xx, and unknown outcomes are not resubmitted automatically because a manual retry may duplicate provider cost.
+
 If your provider is stable, you may increase concurrency gradually. The current maximum is 3. If the provider returns a cost-risk failure, the batch may pause to avoid repeated waste.
 
 Successful batch tasks are added to History, and a `manifest.json` file is saved.
@@ -132,7 +134,9 @@ Successful batch tasks are added to History, and a `manifest.json` file is saved
 
 History records successful generation tasks. You can review prompts, model, size, duration, and output path, and reuse prompts.
 
-Source web mode and Static HTML mode store history mainly in browser local storage. Old image preview recovery requires folder authorization in Settings plus a passing output-folder test; typing a path or seeing a folder name does not grant browser file access. Desktop mode is better for long-term local output management.
+Source web mode and Static HTML mode store history mainly in browser local storage. Their save path is a same-instance serialized operation, not a cross-storage atomic transaction. If persistent history storage fails after the image succeeds, the UI reports a memory-only warning and keeps the record only for the current open instance. Old image preview recovery requires folder authorization in Settings plus a passing output-folder test; typing a path or seeing a folder name does not grant browser file access.
+
+Desktop mode rejects malformed history during save/delete, replaces valid history JSON atomically, and best-effort removes a newly written image if the history commit fails. A rollback failure is reported explicitly rather than claiming a durable save.
 
 ## About Prompt Templates
 

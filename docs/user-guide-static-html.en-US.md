@@ -125,6 +125,8 @@ Interval seconds: 10 to 60
 Max retries: 1
 ```
 
+Automatic retries apply only to HTTP 429 responses that definitively rejected the request. Timeouts, HTTP 408, network errors, 5xx responses, and unknown outcomes require a manual retry because another submission may duplicate provider cost.
+
 Concurrency means the number of simultaneous API requests sent to the model provider. It is not just local memory usage. Higher concurrency can increase provider pressure, rate-limit risk, and cost risk.
 
 Batch draft state is saved locally when switching menus. Click Clear all to reset the current batch.
@@ -133,7 +135,9 @@ Successful batch outputs are added to History and saved with batch metadata.
 
 ## History
 
-History records successful generation tasks in the current browser.
+History records successful generation tasks in the current browser. File allocation, file writing, and history updates are serialized within the same open app instance, but browser file storage and browser history storage are not one cross-storage atomic transaction.
+
+If browser storage rejects a history update after the image file or download succeeds, the result remains successful with a visible memory-only warning. The record remains usable in the current open app instance, but refresh or reopening will not restore it.
 
 You can view generation time, model, size, duration, output path, and prompt. You can also reuse prompts, search, filter, or bulk delete history items.
 
