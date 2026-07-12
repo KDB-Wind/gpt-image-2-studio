@@ -110,6 +110,8 @@ jobs:
         run: npm run build:static
 
       - name: Check release readiness
+        env:
+          RELEASE_VERSION: ${{ steps.release_metadata.outputs.version }}
         run: npm run release:check
 
       - name: Check built static site
@@ -135,6 +137,11 @@ jobs:
 
       - name: Scan final release artifacts for secrets
         run: npm run secret:scan:release
+
+      - name: Final strict release parity
+        env:
+          RELEASE_VERSION: ${{ steps.release_metadata.outputs.version }}
+        run: node scripts/release-archive-parity.mjs --strict
 
       - name: Generate release checksums
         shell: pwsh

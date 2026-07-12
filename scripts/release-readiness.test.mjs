@@ -31,15 +31,16 @@ describe("release readiness checks", () => {
       join(rootDir, "static-versions", "versions", "v1.2.3", "index.html"),
       archiveHtml,
     );
+    writeFixtureFile(join(rootDir, "dist-static", "versions", "v1.2.3", "index.html"), archiveHtml);
     writeFixtureFile(join(rootDir, "dist-static", "index.html"), "<html>mismatched release</html>\n");
     writeFixtureFile(join(rootDir, "dist-static", "gpt-image-2-studio-lite.html"), archiveHtml);
 
-    const result = spawnSync(process.execPath, [parityScript], {
+    const result = spawnSync(process.execPath, [parityScript, "--strict"], {
       cwd: rootDir,
       encoding: "utf8",
     });
 
-    expect(packageJson.scripts["release:check"]).toContain("node scripts/release-archive-parity.mjs");
+    expect(packageJson.scripts["release:check"]).toContain("node scripts/release-archive-parity.mjs --strict");
     expect(packageJson.scripts["release:check"]).not.toContain("npm run site:check");
     expect(result.status).toBe(1);
     expect(result.stderr).toMatch(/current release index\.html.*byte-identical/i);
@@ -323,6 +324,57 @@ jobs:
       "Release workflow must run mock static E2E tests.",
       "Release workflow must run file-mode static E2E tests.",
     ]));
+  });
+
+  it("requires a final strict parity gate after desktop packaging and immediately before checksums", () => {
+    const workflow = readFileSync(".github/workflows/release.yml", "utf8");
+    const finalStrictStep = `      - name: Final strict release parity\n        env:\n          RELEASE_VERSION: \${{ steps.release_metadata.outputs.version }}\n        run: node scripts/release-archive-parity.mjs --strict\n\n`;
+    const validWorkflow = workflow;
+
+    expect(checkReleaseWorkflow(validWorkflow)).toEqual([]);
+    expect(checkReleaseWorkflow(workflow.replace(finalStrictStep, ""))).toContain(
+      "Release workflow must run final strict parity after desktop packaging and before checksums.",
+    );
+
+    const missingFinalVersionInput = workflow.replace(
+      "      - name: Final strict release parity\n        env:\n          RELEASE_VERSION: ${{ steps.release_metadata.outputs.version }}\n",
+      "      - name: Final strict release parity\n",
+    );
+    expect(checkReleaseWorkflow(missingFinalVersionInput)).toContain(
+      "Release workflow must pass the resolved release version into both strict parity gates.",
+    );
+
+    const earlyStrictWorkflow = workflow.replace(finalStrictStep, "").replace(
+      "      - name: Build Windows installers\n",
+      `${finalStrictStep}      - name: Build Windows installers\n`,
+    );
+    expect(checkReleaseWorkflow(earlyStrictWorkflow)).toContain(
+      "Release workflow must run final strict parity after desktop packaging and before checksums.",
+    );
+
+    const modifyingCommandWorkflow = validWorkflow.replace(
+      finalStrictStep,
+      `${finalStrictStep}      - name: Rebuild after parity\n        run: npm run build:static\n\n`,
+    );
+    expect(checkReleaseWorkflow(modifyingCommandWorkflow)).toContain(
+      "Release workflow must not run modifying commands between final strict parity, checksums, and upload.",
+    );
+
+    const postChecksumModificationWorkflow = validWorkflow.replace(
+      "      - name: Upload Windows installer artifact\n",
+      "      - name: Rewrite release bytes after checksums\n        run: npm run build:static\n\n      - name: Upload Windows installer artifact\n",
+    );
+    expect(checkReleaseWorkflow(postChecksumModificationWorkflow)).toContain(
+      "Release workflow must not run modifying commands between final strict parity, checksums, and upload.",
+    );
+
+    const postUploadModificationWorkflow = validWorkflow.replace(
+      "      - name: Create draft GitHub Release\n",
+      "      - name: Rewrite after artifact upload\n        run: npm run build:static\n\n      - name: Create draft GitHub Release\n",
+    );
+    expect(checkReleaseWorkflow(postUploadModificationWorkflow)).toContain(
+      "Release workflow must not run modifying commands between final strict parity, checksums, and upload.",
+    );
   });
 
   it("accepts a GitHub Pages workflow that publishes dist-static", () => {

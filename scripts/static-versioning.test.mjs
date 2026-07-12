@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import * as nodeFs from "node:fs";
-import { constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,6 +15,7 @@ import {
   validateVersionManifest,
 } from "./archive-static-version.mjs";
 import { copyStaticArchives, inlineStaticHtml } from "./inline-static-html.mjs";
+import { runReleaseArchiveParity } from "./release-archive-parity.mjs";
 import { assertStaticVersionArchivesMatch, runStaticSiteCheck } from "./static-site-check.mjs";
 
 function createTempRoot() {
@@ -27,6 +29,23 @@ function writeJson(path, value) {
 
 function sha256(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function commitFixtureArchive(rootDir, version) {
+  const archivePath = `static-versions/versions/v${version}/index.html`;
+  for (const args of [
+    ["init"],
+    ["config", "core.autocrlf", "false"],
+    ["config", "user.email", "release-test@example.invalid"],
+    ["config", "user.name", "Release Test"],
+    ["add", "--", archivePath],
+    ["commit", "-m", "fixture archive"],
+  ]) {
+    const result = spawnSync("git", args, { cwd: rootDir, encoding: "utf8" });
+    if (result.status !== 0) {
+      throw new Error(`Fixture git command failed: git ${args[0]}`);
+    }
+  }
 }
 
 function writeSourceArchive(rootDir, version, contents) {
@@ -65,6 +84,15 @@ function createSiteFixture({
 }
 
 describe("static version archives", () => {
+  it("stores immutable release HTML without Git text normalization", () => {
+    expect(existsSync(".gitattributes")).toBe(true);
+    const attributes = readFileSync(".gitattributes", "utf8");
+
+    expect(attributes).toMatch(/^\/static-versions\/versions\/\*\*\/index\.html -text$/m);
+    expect(attributes).toMatch(/^\/dist-static\/index\.html -text$/m);
+    expect(attributes).toMatch(/^\/dist-static\/gpt-image-2-studio-lite\.html -text$/m);
+  });
+
   it("runs the static build through the current Node and npm CLI paths", () => {
     const calls = [];
     const runStaticBuildCommand = archiveStaticVersionModule.runStaticBuildCommand;
@@ -1006,6 +1034,99 @@ describe("static version archives", () => {
     });
 
     expect(() => runStaticSiteCheck(fixture)).not.toThrow();
+  });
+
+  it("keeps non-strict development checks permissive while strict release parity rejects a newer package", () => {
+    const fixture = createSiteFixture({
+      packageVersion: "1.0.1",
+      appContents: '<!doctype html><link rel="icon" href="data:image/svg+xml,test"><script>viewBox:"0 0 1024 1024";development</script>',
+    });
+
+    expect(() => runStaticSiteCheck(fixture)).not.toThrow();
+    expect(() => runReleaseArchiveParity({
+      ...fixture,
+      strict: true,
+      expectedTag: "v1.0.1",
+      readHeadArchive: () => Buffer.from("unused"),
+    })).toThrow(/package version.*latestStable/i);
+  });
+
+  it("strict release parity rejects a workflow tag that differs from the package version", () => {
+    const fixture = createSiteFixture();
+
+    expect(() => runReleaseArchiveParity({
+      ...fixture,
+      strict: true,
+      expectedTag: "v1.0.1",
+      readHeadArchive: () => readFileSync(
+        join(fixture.rootDir, "static-versions", "versions", "v1.0.0", "index.html"),
+      ),
+    })).toThrow(/release tag.*package version/i);
+  });
+
+  it("strict release parity rejects a workflow version that differs from the package version", () => {
+    const fixture = createSiteFixture();
+
+    expect(() => runReleaseArchiveParity({
+      ...fixture,
+      strict: true,
+      expectedTag: "v1.0.0",
+      expectedVersion: "1.0.1",
+      readHeadArchive: () => readFileSync(
+        join(fixture.rootDir, "static-versions", "versions", "v1.0.0", "index.html"),
+      ),
+    })).toThrow(/release version.*package version/i);
+  });
+
+  it("strict release parity binds mutable working-tree release bytes to the tracked HEAD archive", () => {
+    const fixture = createSiteFixture();
+    const archivePath = join(fixture.rootDir, "static-versions", "versions", "v1.0.0", "index.html");
+    commitFixtureArchive(fixture.rootDir, "1.0.0");
+    const mutableArchive = versionedArchiveHtml({ latestStable: "1.0.0", versions: ["1.0.0"] }) + "<!-- mutable -->\n";
+
+    writeFileSync(archivePath, mutableArchive, "utf8");
+    writeFileSync(join(fixture.distDir, "versions", "v1.0.0", "index.html"), mutableArchive, "utf8");
+    writeFileSync(join(fixture.distDir, "index.html"), mutableArchive, "utf8");
+    writeFileSync(join(fixture.distDir, "gpt-image-2-studio-lite.html"), mutableArchive, "utf8");
+
+    expect(() => runStaticSiteCheck(fixture)).not.toThrow();
+    expect(() => runReleaseArchiveParity({
+      ...fixture,
+      strict: true,
+      expectedTag: "v1.0.0",
+    })).toThrow(/working-tree archive.*tracked HEAD archive/i);
+  });
+
+  it("strict release parity fails closed when git cannot provide a tracked HEAD archive", () => {
+    const fixture = createSiteFixture();
+
+    expect(() => runReleaseArchiveParity({
+      ...fixture,
+      strict: true,
+      expectedTag: "v1.0.0",
+    })).toThrow(/tracked HEAD archive/i);
+  });
+
+  it("strict release parity rejects archive link traversal where links are supported", () => {
+    const fixture = createSiteFixture();
+    const outsideRoot = createTempRoot();
+    const archiveDirectory = join(fixture.rootDir, "static-versions", "versions", "v1.0.0");
+    const archiveBytes = readFileSync(join(archiveDirectory, "index.html"));
+    commitFixtureArchive(fixture.rootDir, "1.0.0");
+    writeFileSync(join(outsideRoot, "index.html"), archiveBytes);
+    rmSync(archiveDirectory, { recursive: true, force: true });
+
+    try {
+      symlinkSync(outsideRoot, archiveDirectory, process.platform === "win32" ? "junction" : "dir");
+    } catch {
+      return;
+    }
+
+    expect(() => runReleaseArchiveParity({
+      ...fixture,
+      strict: true,
+      expectedTag: "v1.0.0",
+    })).toThrow(/link|reparse|safe release path/i);
   });
 
   it("rejects a source archive whose embedded manifest does not include its own version", () => {

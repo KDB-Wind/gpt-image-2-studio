@@ -97,6 +97,7 @@ export function checkReleaseWorkflow(workflowText) {
     [/npm run secret:scan/, "Release workflow must run the unified secret scan."],
     [/npm run secret:scan:release/, "Release workflow must scan ignored release artifacts."],
     [/npm run release:check/, "Release workflow must run the release readiness check."],
+    [/node scripts\/release-archive-parity\.mjs --strict/, "Release workflow must run a final strict archive parity gate."],
     [/npm run test:run/, "Release workflow must run tests before packaging."],
     [/npm run build/, "Release workflow must build the frontend before packaging."],
     [/npm run build:static/, "Release workflow must build the single-file HTML release asset."],
@@ -140,10 +141,16 @@ export function checkReleaseWorkflow(workflowText) {
   const fileE2eIndex = commandIndex(workflowText, "npm run e2e:static:file:run");
   const desktopBuildIndex = commandIndex(workflowText, "npm run desktop:build");
   const uploadIndex = commandIndex(workflowText, "actions/upload-artifact@v4");
+  const releasePublishIndex = commandIndex(workflowText, "softprops/action-gh-release@v2");
   const releaseScanIndices = commandIndices(workflowText, "npm run secret:scan:release");
+  const releaseVersionInputIndices = commandIndices(workflowText, "RELEASE_VERSION: ${{ steps.release_metadata.outputs.version }}");
   const checksumIndex = commandIndex(workflowText, "Get-FileHash");
+  const finalStrictParityIndex = commandIndex(workflowText, "node scripts/release-archive-parity.mjs --strict", true);
   const firstReleaseScan = releaseScanIndices[0] ?? -1;
   const finalReleaseScan = releaseScanIndices.at(-1) ?? -1;
+  if (releaseVersionInputIndices.length < 2) {
+    errors.push("Release workflow must pass the resolved release version into both strict parity gates.");
+  }
   if (staticBuildIndex >= 0 && desktopBuildIndex >= 0) {
     if (firstReleaseScan < staticBuildIndex || firstReleaseScan > desktopBuildIndex) {
       errors.push("Release workflow must scan frontend release artifacts before desktop packaging.");
@@ -165,6 +172,29 @@ export function checkReleaseWorkflow(workflowText) {
 
   if (staticBuildIndex >= 0 && releaseCheckIndex >= 0 && releaseCheckIndex < staticBuildIndex) {
     errors.push("Release workflow must build static release bytes before running release readiness.");
+  }
+
+  if (
+    desktopBuildIndex < 0
+    || finalStrictParityIndex < 0
+    || checksumIndex < 0
+    || uploadIndex < 0
+    || releasePublishIndex < 0
+    || !(desktopBuildIndex < finalStrictParityIndex
+      && finalStrictParityIndex < checksumIndex
+      && checksumIndex < uploadIndex
+      && uploadIndex < releasePublishIndex)
+  ) {
+    errors.push("Release workflow must run final strict parity after desktop packaging and before checksums.");
+  } else {
+    const guardedReleaseRegion = workflowText.slice(
+      finalStrictParityIndex + "node scripts/release-archive-parity.mjs --strict".length,
+      releasePublishIndex,
+    );
+    const interveningRunCommands = guardedReleaseRegion.match(/^\s*run:\s*/gm) ?? [];
+    if (interveningRunCommands.length !== 1) {
+      errors.push("Release workflow must not run modifying commands between final strict parity, checksums, and upload.");
+    }
   }
 
   const checkoutIndex = commandIndex(workflowText, "actions/checkout@v4");
@@ -267,6 +297,10 @@ export function checkPackageReleaseMetadata(packageJson, packageLock, tauriConfi
 
   if (packageJson?.scripts?.["secret:scan:release"] !== "node scripts/secret-scan.mjs --release-artifacts") {
     errors.push("package.json must expose the release artifact secret scan script.");
+  }
+
+  if (!packageJson?.scripts?.["release:check"]?.includes("node scripts/release-archive-parity.mjs --strict")) {
+    errors.push("package.json release:check must run strict archive parity.");
   }
 
   if (packageLock?.version !== packageJson?.version || packageLock?.packages?.[""]?.version !== packageJson?.version) {

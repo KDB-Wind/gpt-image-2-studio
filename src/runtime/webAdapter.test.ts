@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildBatchDirectoryName } from "../core/batchManifest";
-import { MAX_BATCH_TASK_COUNT, type BatchTask } from "../core/batchTypes";
+import { MAX_BATCH_TASK_COUNT, type BatchManifest, type BatchTask } from "../core/batchTypes";
 import { DEFAULT_CONFIG } from "../core/config";
 import { __resetWebAdapterForTests, isSameOutputDirectoryHandle, webAdapter } from "./webAdapter";
 
@@ -665,6 +665,108 @@ describe("webAdapter history deletion", () => {
       "gpt-image-2-studio/2026-05-26/parallel-poster-2.png",
       "gpt-image-2-studio/2026-05-26/parallel-poster.png",
     ]);
+    await expect(webAdapter.loadHistory()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ outputPath: "gpt-image-2-studio/2026-05-26/parallel-poster.png" }),
+      expect.objectContaining({ outputPath: "gpt-image-2-studio/2026-05-26/parallel-poster-2.png" }),
+    ]));
+    await expect(webAdapter.loadHistory()).resolves.toHaveLength(2);
+  });
+
+  it("keeps concurrent batch filenames and both final history paths", async () => {
+    const downloadsHandle = createDirectoryHandle({}, {
+      name: "gpt-image-2-studio",
+      writeDelayMs: 20,
+    });
+    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
+    vi.spyOn(URL, "createObjectURL")
+      .mockReturnValueOnce("blob:batch-parallel-first")
+      .mockReturnValueOnce("blob:batch-parallel-second");
+
+    await webAdapter.chooseOutputDirectory();
+    const batchCreatedAt = "2026-05-24T00:00:00.000Z";
+    const batchTitle = "Parallel batch";
+    const saveInput = {
+      batchId: "batch-parallel",
+      batchTitle,
+      batchCreatedAt,
+      task: createBatchTask({ id: "task-parallel", title: "Task 1" }),
+      image: { base64: ONE_PIXEL_PNG },
+      config: { ...DEFAULT_CONFIG, defaultFormat: "png" as const },
+      generatedAt: new Date("2026-05-24T00:03:00.000Z"),
+      durationMs: 1500,
+    };
+
+    const results = await Promise.all([
+      webAdapter.saveBatchImage(saveInput),
+      webAdapter.saveBatchImage(saveInput),
+    ]);
+    const batchFolder = buildBatchDirectoryName(batchCreatedAt, batchTitle);
+    const expectedPaths = [
+      `gpt-image-2-studio/${batchFolder}/001-task-1-2.png`,
+      `gpt-image-2-studio/${batchFolder}/001-task-1.png`,
+    ];
+
+    expect(results.map((result) => result.outputPath).sort()).toEqual(expectedPaths);
+    expect(results.map((result) => result.record.outputPath).sort()).toEqual(expectedPaths);
+    await expect(webAdapter.loadHistory()).resolves.toEqual(expect.arrayContaining(
+      expectedPaths.map((outputPath) => expect.objectContaining({ outputPath })),
+    ));
+    await expect(webAdapter.loadHistory()).resolves.toHaveLength(2);
+
+    const manifest = createTestBatchManifest();
+    manifest.id = saveInput.batchId;
+    manifest.title = batchTitle;
+    manifest.createdAt = batchCreatedAt;
+    manifest.tasks = results.map((result, index) => ({
+      ...createBatchTask({ id: `task-${index + 1}`, index, status: "succeeded" }),
+      outputPath: result.outputPath,
+      saveMode: result.saveMode,
+    }));
+    await webAdapter.saveBatchManifest(manifest);
+    const batchHandle = await downloadsHandle.getDirectoryHandle(batchFolder);
+    const savedManifest = JSON.parse(await readHandleFileText(batchHandle, "manifest.json"));
+    expect(savedManifest.tasks.map((task: { outputPath: string }) => task.outputPath).sort()).toEqual(expectedPaths);
+  });
+
+  it("releases the save transaction queue after a failed save", async () => {
+    const downloadsHandle = createDirectoryHandle({}, { name: "gpt-image-2-studio" });
+    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
+    vi.spyOn(URL, "createObjectURL")
+      .mockImplementationOnce(() => {
+        throw new Error("Preview allocation failed.");
+      })
+      .mockImplementationOnce(() => {
+        throw new Error("Fallback allocation failed.");
+      })
+      .mockReturnValueOnce("blob:queue-recovered");
+
+    await webAdapter.chooseOutputDirectory();
+    const saveInput = {
+      image: { base64: ONE_PIXEL_PNG },
+      prompt: "Queue recovery poster",
+      optimizedPrompt: "",
+      customName: "queue-recovery",
+      config: { ...DEFAULT_CONFIG, defaultFormat: "png" as const },
+      generatedAt: new Date(2026, 4, 26, 2, 4, 5),
+      durationMs: 1000,
+    };
+
+    const firstSave = webAdapter.saveImage(saveInput);
+    await Promise.resolve();
+    const secondSave = webAdapter.saveImage(saveInput);
+    const [firstResult, secondResult] = await Promise.allSettled([firstSave, secondSave]);
+
+    expect(firstResult.status).toBe("rejected");
+    expect(secondResult).toMatchObject({
+      status: "fulfilled",
+      value: {
+        previewUrl: "blob:queue-recovered",
+        record: { outputPath: "gpt-image-2-studio/2026-05-26/queue-recovery-2.png" },
+      },
+    });
+    await expect(webAdapter.loadHistory()).resolves.toEqual([
+      expect.objectContaining({ outputPath: "gpt-image-2-studio/2026-05-26/queue-recovery-2.png" }),
+    ]);
   });
 
   it("keeps existing batch image bytes when browser history is unavailable", async () => {
@@ -812,6 +914,27 @@ describe("webAdapter history deletion", () => {
     expect(revokeObjectUrl).toHaveBeenCalledWith("blob:folder-test");
   });
 
+  it("writes an authorized batch manifest without allocating a Blob preview URL", async () => {
+    const downloadsHandle = createDirectoryHandle({}, { name: "gpt-image-2-studio" });
+    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
+    const createObjectUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:manifest-write");
+
+    await webAdapter.chooseOutputDirectory();
+    await expect(webAdapter.saveBatchManifest(createTestBatchManifest())).resolves.toContain("manifest.json");
+
+    expect(createObjectUrl).not.toHaveBeenCalled();
+  });
+
+  it("revokes the temporary Blob URL after a browser-download batch manifest save", async () => {
+    const createObjectUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:manifest-download");
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+
+    await expect(webAdapter.saveBatchManifest(createTestBatchManifest())).resolves.toBe("manifest.json");
+
+    expect(createObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:manifest-download");
+  });
+
   it("requires a successful output-directory test before reporting the directory as ready", async () => {
     const downloadsHandle = createDirectoryHandle({}, { name: "gpt-image-2-studio" });
     vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(downloadsHandle));
@@ -956,6 +1079,43 @@ function createBatchWorkspace(overrides: Record<string, unknown> = {}) {
       createWorkspaceTask({ id: "task-2", index: 1, title: "Launch beta", prompt: "Launch beta" }),
     ],
     ...overrides,
+  };
+}
+
+function createTestBatchManifest(): BatchManifest {
+  return {
+    id: "batch-manifest",
+    title: "Manifest batch",
+    source: "same-prompt",
+    createdAt: "2026-05-24T00:00:00.000Z",
+    startedAt: "2026-05-24T00:00:01.000Z",
+    completedAt: "2026-05-24T00:00:02.000Z",
+    executionConfig: {
+      concurrency: 1,
+      intervalSeconds: 0,
+      maxRetries: 0,
+    },
+    imageConfig: {
+      model: "gpt-image-2",
+      size: "auto",
+      quality: "auto",
+      format: "png",
+      outputCompression: 100,
+    },
+    summary: {
+      total: 1,
+      pending: 0,
+      running: 0,
+      succeeded: 1,
+      failed: 0,
+      skipped: 0,
+      durationMs: 1000,
+    },
+    tasks: [{
+      ...createBatchTask({ status: "succeeded" }),
+      outputPath: "gpt-image-2-studio/batch/001-task-1.png",
+      saveMode: "authorized-directory",
+    }],
   };
 }
 

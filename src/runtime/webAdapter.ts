@@ -28,7 +28,7 @@ const OUTPUT_DIRECTORY_TEST_PNG =
 
 let directoryHandle: FileSystemDirectoryHandle | null = null;
 let readyOutputDirectory: PersistedReadyOutputDirectory | null = null;
-let authorizedDirectorySaveQueue: Promise<void> = Promise.resolve();
+let saveTransactionQueue: Promise<void> = Promise.resolve();
 const memoryStorageFallback = new Map<string, string>();
 const memorySessionStorageFallback = new Map<string, string>();
 
@@ -451,13 +451,21 @@ async function saveWithFileSystemAccess(
   fileName: string,
   blob: Blob,
 ): Promise<string> {
+  await writeWithFileSystemAccess(rootHandle, dateFolder, fileName, blob);
+  return URL.createObjectURL(blob);
+}
+
+async function writeWithFileSystemAccess(
+  rootHandle: FileSystemDirectoryHandle,
+  dateFolder: string,
+  fileName: string,
+  blob: Blob,
+): Promise<void> {
   const targetDirectory = dateFolder ? await rootHandle.getDirectoryHandle(dateFolder, { create: true }) : rootHandle;
   const fileHandle = await targetDirectory.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();
   await writable.write(blob);
   await writable.close();
-
-  return URL.createObjectURL(blob);
 }
 
 async function chooseAvailableFileName(
@@ -490,16 +498,16 @@ async function chooseAvailableFileName(
   }
 }
 
-async function withAuthorizedDirectorySaveLock<T>(operation: () => Promise<T>): Promise<T> {
+async function withSaveTransactionLock<T>(operation: () => Promise<T>): Promise<T> {
   let releaseLock!: () => void;
-  const previousOperation = authorizedDirectorySaveQueue;
-  authorizedDirectorySaveQueue = new Promise<void>((resolve) => {
+  const previousOperation = saveTransactionQueue;
+  saveTransactionQueue = new Promise<void>((resolve) => {
     releaseLock = resolve;
   });
 
   await previousOperation;
   try {
-    // File System Access has no exclusive-create primitive. This closes same-instance races only.
+    // This composes file and history writes within one app instance; other tabs/processes remain outside it.
     return await operation();
   } finally {
     releaseLock();
@@ -520,6 +528,11 @@ function downloadBlob(blob: Blob, fileName: string): string {
   anchor.rel = "noopener";
   anchor.click();
   return previewUrl;
+}
+
+function downloadBlobAndRevoke(blob: Blob, fileName: string) {
+  const objectUrl = downloadBlob(blob, fileName);
+  URL.revokeObjectURL(objectUrl);
 }
 
 function buildFileSystemAccessOutputPath(rootName: string, childDirectory: string, fileName: string): string {
@@ -656,10 +669,12 @@ export const webAdapter: RuntimeAdapter = {
   },
 
   async deleteHistoryRecords(recordIds: string[]) {
-    const recordIdSet = new Set(recordIds);
-    const remaining = sortHistoryNewestFirst((await this.loadHistory()).filter((record) => !recordIdSet.has(record.id)));
-    writeStoredValue(HISTORY_KEY, remaining);
-    return remaining;
+    return withSaveTransactionLock(async () => {
+      const recordIdSet = new Set(recordIds);
+      const remaining = sortHistoryNewestFirst((await this.loadHistory()).filter((record) => !recordIdSet.has(record.id)));
+      writeStoredValue(HISTORY_KEY, remaining);
+      return remaining;
+    });
   },
 
   async chooseOutputDirectory() {
@@ -779,29 +794,30 @@ export const webAdapter: RuntimeAdapter = {
   },
 
   async saveImage(input: SaveImageInput): Promise<SaveImageResult> {
-    const history = await this.loadHistory();
-    const dateFolder = formatDateFolder(input.generatedAt);
-    const existingFileNames = history
-      .filter((record) => record.outputPath.includes(`/${dateFolder}/`) || record.outputPath.includes(`\\${dateFolder}\\`))
-      .map((record) => record.outputPath.split(/[\\/]/).pop() ?? "");
-    const fallbackFileName = buildImageFileName({
-      customName: input.customName,
-      prompt: input.prompt,
-      generatedAt: input.generatedAt,
-      format: input.config.defaultFormat,
-      existingFileNames,
-    });
     const blob = await imageToBlob(input);
     const outputDirectoryHandle = await resolveDirectoryHandle("readwrite");
-    let fileName = fallbackFileName;
-    let outputPath = fileName;
-    let previewUrl: string;
-    let saveMode: SaveImageResult["saveMode"] = "browser-download";
-    let saveFallbackReason: string | undefined;
 
-    if (outputDirectoryHandle) {
-      try {
-        const authorizedSave = await withAuthorizedDirectorySaveLock(async () => {
+    return withSaveTransactionLock(async () => {
+      const history = await this.loadHistory();
+      const dateFolder = formatDateFolder(input.generatedAt);
+      const existingFileNames = history
+        .filter((record) => record.outputPath.includes(`/${dateFolder}/`) || record.outputPath.includes(`\\${dateFolder}\\`))
+        .map((record) => record.outputPath.split(/[\\/]/).pop() ?? "");
+      const fallbackFileName = buildImageFileName({
+        customName: input.customName,
+        prompt: input.prompt,
+        generatedAt: input.generatedAt,
+        format: input.config.defaultFormat,
+        existingFileNames,
+      });
+      let fileName = fallbackFileName;
+      let outputPath = fileName;
+      let previewUrl: string;
+      let saveMode: SaveImageResult["saveMode"] = "browser-download";
+      let saveFallbackReason: string | undefined;
+
+      if (outputDirectoryHandle) {
+        try {
           const targetDirectory = await outputDirectoryHandle.getDirectoryHandle(dateFolder, { create: true });
           const initialFileName = buildImageFileName({
             customName: input.customName,
@@ -810,102 +826,93 @@ export const webAdapter: RuntimeAdapter = {
             format: input.config.defaultFormat,
             existingFileNames: [],
           });
-          const allocatedFileName = await chooseAvailableFileName(targetDirectory, initialFileName, existingFileNames);
-          const allocatedPreviewUrl = await saveWithFileSystemAccess(targetDirectory, "", allocatedFileName, blob);
-          return {
-            fileName: allocatedFileName,
-            outputPath: buildFileSystemAccessOutputPath(outputDirectoryHandle.name, dateFolder, allocatedFileName),
-            previewUrl: allocatedPreviewUrl,
-          };
-        });
-        ({ fileName, outputPath, previewUrl } = authorizedSave);
-        saveMode = "authorized-directory";
-      } catch (error) {
-        fileName = fallbackFileName;
-        outputPath = fileName;
-        saveFallbackReason = safeErrorMessage(error);
+          fileName = await chooseAvailableFileName(targetDirectory, initialFileName, existingFileNames);
+          previewUrl = await saveWithFileSystemAccess(targetDirectory, "", fileName, blob);
+          outputPath = buildFileSystemAccessOutputPath(outputDirectoryHandle.name, dateFolder, fileName);
+          saveMode = "authorized-directory";
+        } catch (error) {
+          fileName = fallbackFileName;
+          outputPath = fileName;
+          saveFallbackReason = safeErrorMessage(error);
+          previewUrl = downloadBlob(blob, fileName);
+        }
+      } else {
         previewUrl = downloadBlob(blob, fileName);
       }
-    } else {
-      previewUrl = downloadBlob(blob, fileName);
-    }
 
-    const record = buildRecord(input, outputPath);
+      const record = buildRecord(input, outputPath);
 
-    writeStoredValue(HISTORY_KEY, sortHistoryNewestFirst([record, ...history]));
+      writeStoredValue(HISTORY_KEY, sortHistoryNewestFirst([record, ...history]));
 
-    return { record, previewUrl, saveMode, saveFallbackReason };
+      return { record, previewUrl, saveMode, saveFallbackReason };
+    });
   },
 
   async saveBatchImage(input: BatchImageSaveInput): Promise<BatchImageSaveResult> {
-    const history = await this.loadHistory();
-    const batchFolder = buildBatchDirectoryName(input.batchCreatedAt, input.batchTitle);
-    const existingFileNames = history
-      .filter((record) => record.outputPath.includes(`/${batchFolder}/`) || record.outputPath.includes(`\\${batchFolder}\\`))
-      .map((record) => record.outputPath.split(/[\\/]/).pop() ?? "");
-    const fallbackFileName = buildBatchImageFileName(input.task, input.config.defaultFormat, existingFileNames);
     const blob = await batchImageToBlob(input);
     const outputDirectoryHandle = await resolveDirectoryHandle("readwrite");
-    let fileName = fallbackFileName;
-    let outputPath = fileName;
-    let previewUrl: string;
-    let saveMode: BatchImageSaveResult["saveMode"] = "browser-download";
-    let saveFallbackReason: string | undefined;
 
-    if (outputDirectoryHandle) {
-      try {
-        const authorizedSave = await withAuthorizedDirectorySaveLock(async () => {
+    return withSaveTransactionLock(async () => {
+      const history = await this.loadHistory();
+      const batchFolder = buildBatchDirectoryName(input.batchCreatedAt, input.batchTitle);
+      const existingFileNames = history
+        .filter((record) => record.outputPath.includes(`/${batchFolder}/`) || record.outputPath.includes(`\\${batchFolder}\\`))
+        .map((record) => record.outputPath.split(/[\\/]/).pop() ?? "");
+      const fallbackFileName = buildBatchImageFileName(input.task, input.config.defaultFormat, existingFileNames);
+      let fileName = fallbackFileName;
+      let outputPath = fileName;
+      let previewUrl: string;
+      let saveMode: BatchImageSaveResult["saveMode"] = "browser-download";
+      let saveFallbackReason: string | undefined;
+
+      if (outputDirectoryHandle) {
+        try {
           const batchHandle = await outputDirectoryHandle.getDirectoryHandle(batchFolder, { create: true });
           const initialFileName = buildBatchImageFileName(input.task, input.config.defaultFormat, []);
-          const allocatedFileName = await chooseAvailableFileName(batchHandle, initialFileName, existingFileNames);
-          const allocatedPreviewUrl = await saveWithFileSystemAccess(
+          fileName = await chooseAvailableFileName(batchHandle, initialFileName, existingFileNames);
+          previewUrl = await saveWithFileSystemAccess(
             batchHandle,
             "",
-            allocatedFileName,
+            fileName,
             blob,
           );
-          return {
-            fileName: allocatedFileName,
-            outputPath: buildFileSystemAccessOutputPath(outputDirectoryHandle.name, batchFolder, allocatedFileName),
-            previewUrl: allocatedPreviewUrl,
-          };
-        });
-        ({ fileName, outputPath, previewUrl } = authorizedSave);
-        saveMode = "authorized-directory";
-      } catch (error) {
-        fileName = fallbackFileName;
-        outputPath = fileName;
-        saveFallbackReason = safeErrorMessage(error);
+          outputPath = buildFileSystemAccessOutputPath(outputDirectoryHandle.name, batchFolder, fileName);
+          saveMode = "authorized-directory";
+        } catch (error) {
+          fileName = fallbackFileName;
+          outputPath = fileName;
+          saveFallbackReason = safeErrorMessage(error);
+          previewUrl = downloadBlob(blob, fileName);
+        }
+      } else {
         previewUrl = downloadBlob(blob, fileName);
       }
-    } else {
-      previewUrl = downloadBlob(blob, fileName);
-    }
 
-    const record: ImageRecord = {
-      id: crypto.randomUUID(),
-      status: "success",
-      createdAt: input.generatedAt.toISOString(),
-      prompt: input.task.prompt,
-      optimizedPrompt: "",
-      model: input.config.imageModel,
-      size: input.config.defaultSize,
-      outputPath,
-      durationMs: input.durationMs,
-      batch: {
-        id: input.batchId,
-        title: input.batchTitle,
-        createdAt: input.batchCreatedAt,
-        taskId: input.task.id,
-        taskIndex: input.task.index,
-        taskTitle: input.task.title,
-        totalTasks: undefined,
-      },
-    };
+      const record: ImageRecord = {
+        id: crypto.randomUUID(),
+        status: "success",
+        createdAt: input.generatedAt.toISOString(),
+        prompt: input.task.prompt,
+        optimizedPrompt: "",
+        model: input.config.imageModel,
+        size: input.config.defaultSize,
+        outputPath,
+        durationMs: input.durationMs,
+        batch: {
+          id: input.batchId,
+          title: input.batchTitle,
+          createdAt: input.batchCreatedAt,
+          taskId: input.task.id,
+          taskIndex: input.task.index,
+          taskTitle: input.task.title,
+          totalTasks: undefined,
+        },
+      };
 
-    writeStoredValue(HISTORY_KEY, sortHistoryNewestFirst([record, ...history]));
+      writeStoredValue(HISTORY_KEY, sortHistoryNewestFirst([record, ...history]));
 
-    return { record, previewUrl, outputPath, saveMode, saveFallbackReason };
+      return { record, previewUrl, outputPath, saveMode, saveFallbackReason };
+    });
   },
 
   async saveBatchManifest(manifest: BatchManifest): Promise<string> {
@@ -919,14 +926,14 @@ export const webAdapter: RuntimeAdapter = {
     if (outputDirectoryHandle) {
       try {
         const batchHandle = await outputDirectoryHandle.getDirectoryHandle(batchFolder, { create: true });
-        await saveWithFileSystemAccess(batchHandle, "", fileName, blob);
+        await writeWithFileSystemAccess(batchHandle, "", fileName, blob);
         return buildFileSystemAccessOutputPath(outputDirectoryHandle.name, batchFolder, fileName);
       } catch {
-        downloadBlob(blob, fileName);
+        downloadBlobAndRevoke(blob, fileName);
         return fileName;
       }
     } else {
-      downloadBlob(blob, fileName);
+      downloadBlobAndRevoke(blob, fileName);
     }
 
     return fileName;
@@ -940,7 +947,7 @@ export const webAdapter: RuntimeAdapter = {
 export function __resetWebAdapterForTests() {
   directoryHandle = null;
   readyOutputDirectory = null;
-  authorizedDirectorySaveQueue = Promise.resolve();
+  saveTransactionQueue = Promise.resolve();
   memoryStorageFallback.clear();
   memorySessionStorageFallback.clear();
 }
