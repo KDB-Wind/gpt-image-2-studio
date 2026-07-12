@@ -505,6 +505,74 @@ describe("static version archives", () => {
     expect(existsSync(temporaryManifestPath)).toBe(false);
   });
 
+  it("rejects non-prepared stale cleanup through a target archive junction", () => {
+    const rootDir = createTempRoot();
+    const outsideDir = createTempRoot();
+    const version = "1.2.3";
+    const manifestPath = join(rootDir, "static-versions", "manifest.json");
+    const archiveDir = join(rootDir, "static-versions", "versions", `v${version}`);
+    const archivePath = join(archiveDir, "index.html");
+    const temporaryArchivePath = `${archivePath}.stale.tmp`;
+    const temporaryManifestPath = `${manifestPath}.stale.tmp`;
+    const transactionPath = join(rootDir, "static-versions", `.archive-v${version}.txn`);
+    const outsideIndex = join(outsideDir, "index.html");
+    const outsideTemp = join(outsideDir, "index.html.stale.tmp");
+    const outsideSentinel = join(outsideDir, "sentinel.txt");
+
+    writeJson(join(rootDir, "package.json"), { version });
+    writeJson(manifestPath, { latestStable: version, versions: [version] });
+    mkdirSync(join(archiveDir, ".."), { recursive: true });
+    writeFileSync(outsideIndex, "external archive", "utf8");
+    writeFileSync(outsideTemp, "external temporary archive", "utf8");
+    writeFileSync(outsideSentinel, "external sentinel", "utf8");
+    symlinkSync(outsideDir, archiveDir, process.platform === "win32" ? "junction" : "dir");
+    mkdirSync(join(rootDir, "dist-static"), { recursive: true });
+    writeFileSync(join(rootDir, "dist-static", "gpt-image-2-studio-lite.html"), "external archive", "utf8");
+    writeJson(temporaryManifestPath, { latestStable: version, versions: [version] });
+    writeJson(transactionPath, {
+      transactionId: "junction-stale-transaction",
+      pid: process.pid,
+      createdAt: Date.now() - TRANSACTION_LEASE_MS - 1,
+      version,
+      temporaryArchivePath,
+      temporaryManifestPath,
+    });
+
+    expect(() => archiveStaticVersion({ rootDir })).toThrow(/link|junction|reparse/i);
+    expect(readFileSync(outsideIndex, "utf8")).toBe("external archive");
+    expect(readFileSync(outsideTemp, "utf8")).toBe("external temporary archive");
+    expect(readFileSync(outsideSentinel, "utf8")).toBe("external sentinel");
+    expect(existsSync(transactionPath)).toBe(true);
+  });
+
+  it("rejects normal archive creation through an existing target junction", () => {
+    const rootDir = createTempRoot();
+    const outsideDir = createTempRoot();
+    const version = "1.2.3";
+    const archiveDir = join(rootDir, "static-versions", "versions", `v${version}`);
+    const outsideSentinel = join(outsideDir, "sentinel.txt");
+
+    writeJson(join(rootDir, "package.json"), { version });
+    writeJson(join(rootDir, "static-versions", "manifest.json"), {
+      latestStable: "1.2.2",
+      versions: ["1.2.2"],
+    });
+    writeSourceArchive(rootDir, "1.2.2", "<html>release 1.2.2</html>\n");
+    writeFileSync(outsideSentinel, "external sentinel", "utf8");
+    symlinkSync(outsideDir, archiveDir, process.platform === "win32" ? "junction" : "dir");
+    mkdirSync(join(rootDir, "dist-static"), { recursive: true });
+    writeFileSync(
+      join(rootDir, "dist-static", "gpt-image-2-studio-lite.html"),
+      "<html>release 1.2.3</html>\n",
+      "utf8",
+    );
+
+    expect(() => archiveStaticVersion({ rootDir })).toThrow(/link|junction|reparse/i);
+    expect(readFileSync(outsideSentinel, "utf8")).toBe("external sentinel");
+    expect(readdirSync(outsideDir)).toEqual(["sentinel.txt"]);
+    expect(existsSync(join(rootDir, "static-versions", `.archive-v${version}.txn`))).toBe(false);
+  });
+
   it("does not recover or delete a transaction marker owned by a running process", () => {
     const rootDir = createTempRoot();
     const manifestPath = join(rootDir, "static-versions", "manifest.json");

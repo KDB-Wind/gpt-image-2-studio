@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import * as nodeFs from "node:fs";
+import { closeSync, ftruncateSync, mkdtempSync, mkdirSync, openSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -73,6 +74,63 @@ describe("secret scan", () => {
     expect(result.status).toBe(1);
     expect(output).toContain("dist/app.js: openai-like-key");
     expect(output).not.toContain(secret);
+  });
+
+  it("streams a sparse installer beyond the former size cutoff and detects its secret", () => {
+    const root = mkdtempSync(join(tmpdir(), "large-release-artifact-secret-scan-"));
+    temporaryDirectories.push(root);
+    const installerDir = join(root, "src-tauri", "target", "release", "bundle", "nsis");
+    const installerPath = join(installerDir, "large-setup.exe");
+    const secret = ["sk", "live", "V".repeat(32)].join("-");
+    const secretOffset = 256 * 1024 * 1024 + 4093;
+    mkdirSync(installerDir, { recursive: true });
+
+    const descriptor = openSync(installerPath, "w");
+    try {
+      ftruncateSync(descriptor, secretOffset + secret.length + 4096);
+      writeSync(descriptor, Buffer.from(secret, "ascii"), 0, secret.length, secretOffset);
+    } finally {
+      closeSync(descriptor);
+    }
+
+    const findings = secretScanModule.scanReleaseArtifactSecrets(root);
+    expect(findings).toContainEqual(
+      expect.objectContaining({
+        path: "src-tauri/target/release/bundle/nsis/large-setup.exe",
+        rule: "openai-like-key",
+      }),
+    );
+    expect(findings.map(formatSecretFinding).join("\n")).not.toContain(secret);
+  }, 30_000);
+
+  it("fails closed when an expected artifact cannot be read without exposing the error secret", () => {
+    const root = mkdtempSync(join(tmpdir(), "unreadable-release-artifact-secret-scan-"));
+    temporaryDirectories.push(root);
+    const installerDir = join(root, "src-tauri", "target", "release", "bundle", "nsis");
+    const installerPath = join(installerDir, "unreadable-setup.exe");
+    const secret = ["sk", "live", "W".repeat(32)].join("-");
+    mkdirSync(installerDir, { recursive: true });
+    writeFileSync(installerPath, "installer bytes", "utf8");
+
+    const findings = secretScanModule.scanReleaseArtifactSecrets(root, {
+      fs: {
+        ...nodeFs,
+        openSync(path, flags) {
+          if (resolve(path) === resolve(installerPath)) {
+            throw new Error(`read failed ${secret}`);
+          }
+          return nodeFs.openSync(path, flags);
+        },
+      },
+    });
+
+    expect(findings).toContainEqual(
+      expect.objectContaining({
+        path: "src-tauri/target/release/bundle/nsis/unreadable-setup.exe",
+        rule: "artifact-scan-error",
+      }),
+    );
+    expect(findings.map(formatSecretFinding).join("\n")).not.toContain(secret);
   });
 
   it("detects real-looking prefixed and assigned tokens without returning matched values", () => {

@@ -98,17 +98,21 @@ function writeManifestAtomically({
   manifest,
   temporaryManifestPath = temporaryPath(manifestPath),
   beforeRename,
+  pathGuard,
 }) {
   let temporaryManifestCreated = false;
 
   try {
+    pathGuard?.assert(temporaryManifestPath);
     fs.writeFileSync(temporaryManifestPath, JSON.stringify(manifest, null, 2) + "\n", { encoding: "utf8", flag: "wx" });
     temporaryManifestCreated = true;
     beforeRename?.();
+    pathGuard?.assertAll([temporaryManifestPath, manifestPath]);
     fs.renameSync(temporaryManifestPath, manifestPath);
     temporaryManifestCreated = false;
   } catch (error) {
     if (temporaryManifestCreated || fs.existsSync(temporaryManifestPath)) {
+      pathGuard?.assert(temporaryManifestPath);
       fs.rmSync(temporaryManifestPath, { force: true });
     }
 
@@ -147,11 +151,12 @@ function markerHasTransactionId(fs, markerPath, transactionId) {
   }
 }
 
-function removeTransactionMarkerIfOwned({ fs, markerPath, transactionId }) {
+function removeTransactionMarkerIfOwned({ fs, markerPath, transactionId, pathGuard }) {
   if (!markerHasTransactionId(fs, markerPath, transactionId)) {
     return false;
   }
 
+  pathGuard?.assert(markerPath);
   fs.rmSync(markerPath, { force: true });
   return true;
 }
@@ -171,17 +176,34 @@ function isSafeTransactionTempPath(candidatePath, basePath) {
   );
 }
 
-function cleanupTransaction({ fs, markerPath, transaction, archivePath, manifestPath }) {
+function cleanupTransaction({ fs, markerPath, transaction, archivePath, manifestPath, pathGuard }) {
   for (const [candidatePath, basePath] of [
     [transaction.temporaryArchivePath, archivePath],
     [transaction.temporaryManifestPath, manifestPath],
   ]) {
     if (isSafeTransactionTempPath(candidatePath, basePath)) {
+      pathGuard?.assert(candidatePath);
       fs.rmSync(candidatePath, { force: true });
     }
   }
 
-  removeTransactionMarkerIfOwned({ fs, markerPath, transactionId: transaction.transactionId });
+  removeTransactionMarkerIfOwned({ fs, markerPath, transactionId: transaction.transactionId, pathGuard });
+}
+
+function assertTransactionCleanupPathsSafe(pathGuard, transaction, archivePath, manifestPath, markerPath) {
+  pathGuard.assertAll([archivePath, manifestPath, markerPath]);
+  for (const [candidatePath, basePath] of [
+    [transaction.temporaryArchivePath, archivePath],
+    [transaction.temporaryManifestPath, manifestPath],
+  ]) {
+    if (candidatePath === undefined) {
+      continue;
+    }
+    if (!isSafeTransactionTempPath(candidatePath, basePath)) {
+      throw new Error("Static archive transaction temporary path is outside the expected archive roots.");
+    }
+    pathGuard.assert(candidatePath);
+  }
 }
 
 function preparedTransactionPaths(rootDir, version) {
@@ -198,12 +220,12 @@ function manifestsAreEqual(left, right) {
     && JSON.stringify(left.versions) === JSON.stringify(right.versions);
 }
 
-function assertPathHasNoLinkTraversal(fs, allowedRoot, targetPath) {
-  const resolvedRoot = resolve(allowedRoot);
+function assertPathHasNoLinkTraversal(fs, trustedRoot, targetPath) {
+  const resolvedRoot = resolve(trustedRoot);
   const resolvedTarget = resolve(targetPath);
   const targetRelative = relative(resolvedRoot, resolvedTarget);
   if (targetRelative.startsWith("..") || isAbsolute(targetRelative)) {
-    throw new Error(`Recovery path is outside its expected archive root: ${resolvedTarget}`);
+    throw new Error(`Archive path is outside its trusted root: ${resolvedTarget}`);
   }
 
   const components = targetRelative ? targetRelative.split(/[\\/]+/) : [];
@@ -224,7 +246,7 @@ function assertPathHasNoLinkTraversal(fs, allowedRoot, targetPath) {
       throw error;
     }
     if (stats.isSymbolicLink()) {
-      throw new Error(`Recovery path contains a symbolic link, junction, or reparse traversal: ${currentPath}`);
+      throw new Error(`Archive path contains a symbolic link, junction, or reparse traversal: ${currentPath}`);
     }
 
     const realPath = fs.realpathSync(currentPath);
@@ -235,28 +257,47 @@ function assertPathHasNoLinkTraversal(fs, allowedRoot, targetPath) {
 
     const realRelative = relative(realRoot, realPath);
     if (realRelative.startsWith("..") || isAbsolute(realRelative)) {
-      throw new Error(`Recovery path escapes its expected archive root through a reparse traversal: ${currentPath}`);
+      throw new Error(`Archive path escapes its trusted root through a reparse traversal: ${currentPath}`);
     }
   }
 }
 
-function assertPreparedRecoveryPathsSafe(fs, rootDir, transaction, preparedState, markerPath) {
-  const sourceRoot = join(rootDir, "static-versions");
-  const distRoot = join(rootDir, "dist-static");
+function pathIsWithin(rootPath, targetPath) {
+  const relativePath = relative(resolve(rootPath), resolve(targetPath));
+  return !relativePath.startsWith("..") && !isAbsolute(relativePath);
+}
 
-  for (const path of [
+function createArchivePathGuard(fs, rootDir) {
+  const trustedRoot = resolve(rootDir);
+  const allowedRoots = [join(trustedRoot, "static-versions"), join(trustedRoot, "dist-static")];
+
+  const assert = (targetPath) => {
+    if (!allowedRoots.some((allowedRoot) => pathIsWithin(allowedRoot, targetPath))) {
+      throw new Error(`Archive mutation path is outside the expected archive roots: ${resolve(targetPath)}`);
+    }
+    assertPathHasNoLinkTraversal(fs, trustedRoot, targetPath);
+  };
+
+  return {
+    assert,
+    assertAll(paths) {
+      for (const path of paths) {
+        assert(path);
+      }
+    },
+  };
+}
+
+function assertPreparedRecoveryPathsSafe(pathGuard, transaction, preparedState, markerPath) {
+  pathGuard.assertAll([
     preparedState.manifestPath,
     preparedState.archivePath,
     transaction.temporaryManifestPath,
     transaction.temporaryArchivePath,
     markerPath,
-  ]) {
-    assertPathHasNoLinkTraversal(fs, sourceRoot, path);
-  }
-
-  for (const path of [preparedState.distManifestPath, preparedState.distArchivePath]) {
-    assertPathHasNoLinkTraversal(fs, distRoot, path);
-  }
+    preparedState.distManifestPath,
+    preparedState.distArchivePath,
+  ]);
 }
 
 function readRecoveryManifest(fs, manifestPath) {
@@ -313,8 +354,10 @@ function assertExpectedPreparedTransaction(transaction, rootDir, version) {
   return { previousManifest, nextManifest, ...expectedPaths };
 }
 
-function removeArchiveFileAndEmptyDirectory(fs, archivePath) {
+function removeArchiveFileAndEmptyDirectory(fs, archivePath, pathGuard) {
+  pathGuard.assert(archivePath);
   fs.rmSync(archivePath, { force: true });
+  pathGuard.assert(dirname(archivePath));
   try {
     fs.rmdirSync(dirname(archivePath));
   } catch {
@@ -332,6 +375,7 @@ function recoverPreparedTransactionBeforeManifest({
   processKill,
   lockPath,
   ownerTransactionId,
+  pathGuard,
 }) {
   const preparedState = assertExpectedPreparedTransaction(transaction, rootDir, version);
   if (!preparedState) {
@@ -342,7 +386,7 @@ function recoverPreparedTransactionBeforeManifest({
     throw new Error(`Static version archive transaction is in progress for ${version}.`);
   }
 
-  assertPreparedRecoveryPathsSafe(fs, rootDir, transaction, preparedState, markerPath);
+  assertPreparedRecoveryPathsSafe(pathGuard, transaction, preparedState, markerPath);
   assertRecoveryManifestPrecondition(
     fs,
     preparedState.manifestPath,
@@ -360,19 +404,15 @@ function recoverPreparedTransactionBeforeManifest({
 
   const temporaryDistManifestPath = temporaryPath(preparedState.distManifestPath);
   const assertRecoveryPathsSafe = () => {
-    assertPreparedRecoveryPathsSafe(fs, rootDir, transaction, preparedState, markerPath);
-    assertPathHasNoLinkTraversal(
-      fs,
-      join(rootDir, "dist-static"),
-      temporaryDistManifestPath,
-    );
+    assertPreparedRecoveryPathsSafe(pathGuard, transaction, preparedState, markerPath);
+    pathGuard.assert(temporaryDistManifestPath);
   };
 
   assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId });
   assertRecoveryPathsSafe();
-  removeArchiveFileAndEmptyDirectory(fs, preparedState.archivePath);
+  removeArchiveFileAndEmptyDirectory(fs, preparedState.archivePath, pathGuard);
   assertRecoveryPathsSafe();
-  removeArchiveFileAndEmptyDirectory(fs, preparedState.distArchivePath);
+  removeArchiveFileAndEmptyDirectory(fs, preparedState.distArchivePath, pathGuard);
 
   assertRecoveryPathsSafe();
   assertRecoveryManifestPrecondition(
@@ -387,6 +427,7 @@ function recoverPreparedTransactionBeforeManifest({
     manifest: preparedState.previousManifest,
     temporaryManifestPath: transaction.temporaryManifestPath,
     beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId }),
+    pathGuard,
   });
 
   if (fs.existsSync(dirname(preparedState.distManifestPath))) {
@@ -405,6 +446,7 @@ function recoverPreparedTransactionBeforeManifest({
       manifest: preparedState.previousManifest,
       temporaryManifestPath: temporaryDistManifestPath,
       beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId }),
+      pathGuard,
     });
   }
 
@@ -415,6 +457,7 @@ function recoverPreparedTransactionBeforeManifest({
     transaction,
     archivePath: preparedState.archivePath,
     manifestPath: preparedState.manifestPath,
+    pathGuard,
   });
   return true;
 }
@@ -457,18 +500,27 @@ function isTransactionActive(transaction, { now, processKill }) {
   return false;
 }
 
-function writeTransactionMarker({ fs, markerPath, transaction, temporaryMarkerPath = temporaryPath(markerPath) }) {
+function writeTransactionMarker({
+  fs,
+  markerPath,
+  transaction,
+  temporaryMarkerPath = temporaryPath(markerPath),
+  pathGuard,
+}) {
   let fileDescriptor;
   let temporaryMarkerCreated = false;
 
   try {
+    pathGuard?.assertAll([temporaryMarkerPath, markerPath]);
     fileDescriptor = fs.openSync(temporaryMarkerPath, "wx");
     temporaryMarkerCreated = true;
     writeAll(fs, fileDescriptor, Buffer.from(JSON.stringify(transaction) + "\n", "utf8"));
     fs.fsyncSync(fileDescriptor);
     fs.closeSync(fileDescriptor);
     fileDescriptor = undefined;
+    pathGuard?.assertAll([temporaryMarkerPath, markerPath]);
     fs.linkSync(temporaryMarkerPath, markerPath);
+    pathGuard?.assert(temporaryMarkerPath);
     fs.unlinkSync(temporaryMarkerPath);
     temporaryMarkerCreated = false;
   } catch (error) {
@@ -481,18 +533,20 @@ function writeTransactionMarker({ fs, markerPath, transaction, temporaryMarkerPa
     }
 
     if (temporaryMarkerCreated || fs.existsSync(temporaryMarkerPath)) {
+      pathGuard?.assert(temporaryMarkerPath);
       fs.rmSync(temporaryMarkerPath, { force: true });
     }
 
-    removeTransactionMarkerIfOwned({ fs, markerPath, transactionId: transaction.transactionId });
+    removeTransactionMarkerIfOwned({ fs, markerPath, transactionId: transaction.transactionId, pathGuard });
     throw error;
   }
 }
 
-function acquireArchiveLock({ fs, lockPath, transaction, now, processKill }) {
+function acquireArchiveLock({ fs, lockPath, transaction, now, processKill, pathGuard }) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      writeTransactionMarker({ fs, markerPath: lockPath, transaction });
+      pathGuard.assert(lockPath);
+      writeTransactionMarker({ fs, markerPath: lockPath, transaction, pathGuard });
       return;
     } catch (error) {
       if (error?.code !== "EEXIST" || !fs.existsSync(lockPath)) {
@@ -505,7 +559,12 @@ function acquireArchiveLock({ fs, lockPath, transaction, now, processKill }) {
         throw new Error(`Static archive lock is in progress for ${transaction.version}.`);
       }
 
-      if (!removeTransactionMarkerIfOwned({ fs, markerPath: lockPath, transactionId: existingTransaction.transactionId })) {
+      if (!removeTransactionMarkerIfOwned({
+        fs,
+        markerPath: lockPath,
+        transactionId: existingTransaction.transactionId,
+        pathGuard,
+      })) {
         throw new ArchiveLockOwnershipError(lockPath, existingTransaction.transactionId);
       }
     }
@@ -528,16 +587,18 @@ function recoverStaleTransaction({
   processKill,
   lockPath,
   ownerTransactionId,
+  pathGuard,
 }) {
   if (isTransactionActive(transaction, { now, processKill })) {
     throw new Error(`Static version archive transaction is in progress for ${version}.`);
   }
 
   assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId });
+  assertTransactionCleanupPathsSafe(pathGuard, transaction, archivePath, manifestPath, markerPath);
 
   if (fs.existsSync(archivePath)) {
     if (manifest.versions.includes(version)) {
-      cleanupTransaction({ fs, markerPath, transaction, archivePath, manifestPath });
+      cleanupTransaction({ fs, markerPath, transaction, archivePath, manifestPath, pathGuard });
       assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId });
       return false;
     }
@@ -552,15 +613,16 @@ function recoverStaleTransaction({
       manifestPath,
       manifest: nextManifest,
       beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId }),
+      pathGuard,
     });
     assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId });
-    cleanupTransaction({ fs, markerPath, transaction, archivePath, manifestPath });
+    cleanupTransaction({ fs, markerPath, transaction, archivePath, manifestPath, pathGuard });
     assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId });
     return true;
   }
 
   assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId });
-  cleanupTransaction({ fs, markerPath, transaction, archivePath, manifestPath });
+  cleanupTransaction({ fs, markerPath, transaction, archivePath, manifestPath, pathGuard });
   assertArchiveLockOwned({ fs, lockPath, transactionId: ownerTransactionId });
   return false;
 }
@@ -590,6 +652,7 @@ export function archiveStaticVersion({
   const lockPath = archiveLockPath(rootDir);
   const temporaryArchivePath = temporaryPath(archivePath);
   const temporaryManifestPath = temporaryPath(manifestPath);
+  const pathGuard = createArchivePathGuard(fs, rootDir);
   const transaction = {
     transactionId: randomUUID(),
     pid: process.pid,
@@ -609,7 +672,20 @@ export function archiveStaticVersion({
   let lockAcquired = false;
 
   try {
-    acquireArchiveLock({ fs, lockPath, transaction, now, processKill });
+    pathGuard.assertAll([
+      releaseHtmlPath,
+      archivePath,
+      archiveDir,
+      versionsDir,
+      manifestPath,
+      distManifestPath,
+      distArchivePath,
+      markerPath,
+      lockPath,
+      temporaryArchivePath,
+      temporaryManifestPath,
+    ]);
+    acquireArchiveLock({ fs, lockPath, transaction, now, processKill, pathGuard });
     lockAcquired = true;
 
     if (fs.existsSync(markerPath)) {
@@ -624,6 +700,7 @@ export function archiveStaticVersion({
         processKill,
         lockPath,
         ownerTransactionId: transaction.transactionId,
+        pathGuard,
       });
     }
 
@@ -649,6 +726,7 @@ export function archiveStaticVersion({
         processKill,
         lockPath,
         ownerTransactionId: transaction.transactionId,
+        pathGuard,
       });
 
       if (recovered) {
@@ -671,6 +749,7 @@ export function archiveStaticVersion({
         manifestPath,
         manifest: nextManifest,
         beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId }),
+        pathGuard,
       });
       assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
       return;
@@ -695,7 +774,7 @@ export function archiveStaticVersion({
       });
     }
 
-    writeTransactionMarker({ fs, markerPath, transaction });
+    writeTransactionMarker({ fs, markerPath, transaction, pathGuard });
     transactionMarkerCreated = true;
 
     if (prepareReleaseHtml) {
@@ -705,6 +784,7 @@ export function archiveStaticVersion({
         manifestPath,
         manifest: nextManifest,
         beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId }),
+        pathGuard,
       });
       manifestPrepared = true;
       prepareReleaseHtml({ rootDir, version, manifest: nextManifest });
@@ -721,13 +801,17 @@ export function archiveStaticVersion({
       }
     }
 
+    pathGuard.assert(archiveDir);
     fs.mkdirSync(archiveDir, { recursive: true });
+    pathGuard.assertAll([releaseHtmlPath, temporaryArchivePath]);
     fs.copyFileSync(releaseHtmlPath, temporaryArchivePath, fs.constants.COPYFILE_EXCL);
     temporaryArchiveCreated = true;
     assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
+    pathGuard.assertAll([temporaryArchivePath, archivePath]);
     fs.linkSync(temporaryArchivePath, archivePath);
     archiveCreated = true;
     assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
+    pathGuard.assert(temporaryArchivePath);
     fs.unlinkSync(temporaryArchivePath);
     temporaryArchiveCreated = false;
     assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
@@ -738,11 +822,17 @@ export function archiveStaticVersion({
         manifest: nextManifest,
         temporaryManifestPath,
         beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId }),
+        pathGuard,
       });
     }
     manifestCommitted = true;
     assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
-    removeTransactionMarkerIfOwned({ fs, markerPath, transactionId: transaction.transactionId });
+    removeTransactionMarkerIfOwned({
+      fs,
+      markerPath,
+      transactionId: transaction.transactionId,
+      pathGuard,
+    });
     transactionMarkerCreated = false;
     assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
   } catch (error) {
@@ -758,16 +848,19 @@ export function archiveStaticVersion({
 
     if (temporaryArchiveCreated || fs.existsSync(temporaryArchivePath)) {
       assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
+      pathGuard.assert(temporaryArchivePath);
       fs.rmSync(temporaryArchivePath, { force: true });
     }
 
     if (fs.existsSync(temporaryManifestPath)) {
       assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
+      pathGuard.assert(temporaryManifestPath);
       fs.rmSync(temporaryManifestPath, { force: true });
     }
 
     if (archiveCreated && !manifestCommitted) {
       assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
+      pathGuard.assert(archivePath);
       fs.rmSync(archivePath, { force: true });
     }
 
@@ -778,16 +871,23 @@ export function archiveStaticVersion({
         manifestPath,
         manifest: originalManifest,
         beforeRename: () => assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId }),
+        pathGuard,
       });
     }
 
     if (transactionMarkerCreated) {
       assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
-      removeTransactionMarkerIfOwned({ fs, markerPath, transactionId: transaction.transactionId });
+      removeTransactionMarkerIfOwned({
+        fs,
+        markerPath,
+        transactionId: transaction.transactionId,
+        pathGuard,
+      });
     }
 
     if (transactionMarkerCreated && !archiveDirExisted) {
       assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
+      pathGuard.assert(archiveDir);
       try {
         fs.rmdirSync(archiveDir);
       } catch {
@@ -797,6 +897,7 @@ export function archiveStaticVersion({
 
     if (transactionMarkerCreated && !versionsDirExisted) {
       assertArchiveLockOwned({ fs, lockPath, transactionId: transaction.transactionId });
+      pathGuard.assert(versionsDir);
       try {
         fs.rmdirSync(versionsDir);
       } catch {
@@ -807,7 +908,12 @@ export function archiveStaticVersion({
     throw error;
   } finally {
     if (lockAcquired) {
-      removeTransactionMarkerIfOwned({ fs, markerPath: lockPath, transactionId: transaction.transactionId });
+      removeTransactionMarkerIfOwned({
+        fs,
+        markerPath: lockPath,
+        transactionId: transaction.transactionId,
+        pathGuard,
+      });
     }
   }
 }
