@@ -837,12 +837,12 @@ describe("App batch workspace", () => {
     const checklist = container.querySelector(".welcome-checklist");
 
     expect(checklist).not.toBeNull();
-    expect(checklist?.textContent).toContain("Setup checklist");
-    expect(checklist?.textContent).toContain("Fill Base URL and API key");
-    expect(checklist?.textContent).toContain("Choose and authorize an output folder");
-    expect(checklist?.textContent).toContain("Run Test output folder");
-    expect(checklist?.textContent).toContain("Set timeout between 60 and 600 seconds");
-    expect(checklist?.textContent).toContain("Start with Single image, then use Batch");
+    expect(container.textContent).toContain("3 steps before you start");
+    expect(checklist?.textContent).toContain("Fill in Base URL, API key, text model, and image model");
+    expect(checklist?.textContent).toContain("Authorize a dedicated output folder");
+    expect(checklist?.textContent).toContain("run Test output folder");
+    expect(checklist?.textContent).toContain("Generate one image successfully in Single image");
+    expect(checklist?.textContent).toContain("before starting Batch");
   });
 
   it("exposes timeout as a user controlled setting with safe bounds", async () => {

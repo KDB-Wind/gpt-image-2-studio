@@ -173,8 +173,9 @@ type TranslationBundle = {
     openLatestVersion: string;
     openArchivedVersion: string;
     viewMinimalApiExample: string;
+    goToSettings: string;
     startUsing: string;
-    skip: string;
+    setUpLater: string;
     close: string;
     enlarge: string;
     openRecommended: string;
@@ -286,9 +287,6 @@ type TranslationBundle = {
     savedImage: string;
     selectedHistoryItem: string;
     versionInfo: string;
-    welcomeIntro: string;
-    welcomeRecommended: string;
-    welcomeQuickStart: string;
     referenceImages: string;
     openSourceTitle: string;
     openSourceHint: string;
@@ -384,13 +382,12 @@ type TranslationBundle = {
   };
   welcome: {
     title: string;
+    eyebrow: string;
     intro: string;
-    recommendedTitle: string;
-    recommendedBody: string;
-    quickStartTitle: string;
-    quickStartBody: string;
-    setupChecklistTitle: string;
-    setupChecklistItems: string[];
+    setupTitle: string;
+    setupSteps: Array<{ title: string; body: string }>;
+    privacyNote: string;
+    relayPrompt: string;
   };
   messages: {
     runtimeLoaded: (mode: string) => string;
@@ -638,8 +635,9 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       openLatestVersion: "打开最新版",
       openArchivedVersion: "打开当前固定版",
       viewMinimalApiExample: "查看最小 API 调用示例",
+      goToSettings: "前往设置",
       startUsing: "开始使用",
-      skip: "跳过",
+      setUpLater: "稍后设置",
       close: "关闭",
       enlarge: "点击放大",
       openRecommended: "前往推荐中转站",
@@ -751,9 +749,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       savedImage: "已保存图片",
       selectedHistoryItem: "已选历史记录",
       versionInfo: "版本与更新",
-      welcomeIntro: "欢迎使用",
-      welcomeRecommended: "作者推荐中转站",
-      welcomeQuickStart: "快速开始",
       referenceImages: "当前参考图",
       openSourceTitle: "开源与反馈",
       openSourceHint:
@@ -856,19 +851,16 @@ const translations: Record<UiLanguage, TranslationBundle> = {
     },
     welcome: {
       title: "欢迎来到本地生图工作台",
-      intro: "这是一个本地运行的生图工具。API key 只会发送到你填写的 Base URL，配置保存在当前设备上。",
-      recommendedTitle: "作者推荐中转站",
-      recommendedBody: "这是可选推荐；你可以使用任何兼容的 Base URL。",
-      quickStartTitle: "先做这 4 步",
-      quickStartBody: "去“设置”页填写 API key、Base URL、文字模型、生图模型和保存目录。你也可以先做最小连通性测试，再决定是否保存。",
-      setupChecklistTitle: "设置检查清单",
-      setupChecklistItems: [
-        "填写 Base URL 和 API key，并确认模型名称。",
-        "选择并授权保存目录，不要只手动填写 C:\\ 路径。",
-        "运行“测试保存目录”，确认浏览器能写入并读回图片。",
-        "把超时时间设在 60-600 秒之间；2K/4K 建议从 180 秒起。",
-        "先用“单图”跑通一张，再进入“批量”。",
+      eyebrow: "首次设置只需完成一次",
+      intro: "完成以下准备后，就可以开始本地生图。",
+      setupTitle: "开始前的 3 个准备步骤",
+      setupSteps: [
+        { title: "连接模型", body: "填写 Base URL、API key、文字模型和生图模型。" },
+        { title: "授权并测试保存目录", body: "选择一个专用保存目录并授权，然后运行“测试保存目录”。" },
+        { title: "先跑通一张单图", body: "先在“单图”中成功生成一张图片，再开始“批量”。" },
       ],
+      privacyNote: "隐私说明：API key 保留在当前设备，请求只会发送到你配置的 Base URL。",
+      relayPrompt: "还没有可用的服务？可选使用作者推荐中转站。",
     },
     messages: {
       runtimeLoaded: (mode) => `${mode} 已加载。修改后记得保存配置。`,
@@ -1148,8 +1140,9 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       openLatestVersion: "Open latest version",
       openArchivedVersion: "Open this fixed version",
       viewMinimalApiExample: "View minimal API example",
+      goToSettings: "Go to settings",
       startUsing: "Start using",
-      skip: "Skip",
+      setUpLater: "Set up later",
       close: "Close",
       enlarge: "Click to enlarge",
       openRecommended: "Open recommended relay",
@@ -1262,9 +1255,6 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       savedImage: "Saved image",
       selectedHistoryItem: "Selected history item",
       versionInfo: "Version and updates",
-      welcomeIntro: "Welcome",
-      welcomeRecommended: "Author-recommended relay",
-      welcomeQuickStart: "Quick start",
       referenceImages: "Reference images",
       openSourceTitle: "Open source & feedback",
       openSourceHint:
@@ -1368,19 +1358,22 @@ const translations: Record<UiLanguage, TranslationBundle> = {
     },
     welcome: {
       title: "Welcome to Local Image Studio",
-      intro: "This tool runs locally. Your API key is sent only to the Base URL you enter, and settings stay on this device.",
-      recommendedTitle: "Author-recommended relay",
-      recommendedBody: "This relay recommendation is optional; any compatible Base URL can be used.",
-      quickStartTitle: "Start with these 4 steps",
-      quickStartBody: "Go to Settings and fill in API key, Base URL, text model, image model, and output directory. You can run minimal connectivity tests before saving, but saving is still allowed even if tests fail.",
-      setupChecklistTitle: "Setup checklist",
-      setupChecklistItems: [
-        "Fill Base URL and API key, then confirm model names.",
-        "Choose and authorize an output folder instead of only typing a C:\\ path.",
-        "Run Test output folder to confirm the browser can write and restore previews.",
-        "Set timeout between 60 and 600 seconds; start from 180 seconds for 2K/4K.",
-        "Start with Single image, then use Batch after one image works.",
+      eyebrow: "First-time setup only needs to be completed once",
+      intro: "Complete these preparations before you start generating locally.",
+      setupTitle: "3 steps before you start",
+      setupSteps: [
+        { title: "Connect your models", body: "Fill in Base URL, API key, text model, and image model." },
+        {
+          title: "Authorize and test the output folder",
+          body: "Authorize a dedicated output folder, then run Test output folder.",
+        },
+        {
+          title: "Run one single image first",
+          body: "Generate one image successfully in Single image before starting Batch.",
+        },
       ],
+      privacyNote: "Privacy: your API key stays on this device, and requests go only to your configured Base URL.",
+      relayPrompt: "Need a compatible service? The author-recommended relay is optional.",
     },
     messages: {
       runtimeLoaded: (mode) => `${mode} loaded. Save after changing settings.`,

@@ -425,6 +425,8 @@ export default function App() {
   const selectedSizeOption = sizeMode === "custom" ? "custom" : getImageSizePresetValue(config.defaultSize);
   const showCompressionControls = isCompressionFormat(config.defaultFormat);
   const showWelcome = !isLoadingApp && !config.hasDismissedWelcome;
+  const isWelcomeSetupComplete =
+    validation.errors.length === 0 && outputDirectoryState?.status === "ready";
   const activeBatchPreview = activeTab === "batch" ? batchPreviewState : historyBatchPreviewState;
   const isHistoryBatchPreviewActive = activeTab !== "batch" && Boolean(historyBatchPreviewState);
   const qualityLabels: Record<AppConfig["defaultQuality"], string> = {
@@ -1057,6 +1059,11 @@ export default function App() {
 
     updateConfig("hasDismissedWelcome", true);
     await persistUiPreferences({ hasDismissedWelcome: true });
+  }
+
+  async function handleWelcomePrimaryAction() {
+    await handleDismissWelcome();
+    setActiveTab(isWelcomeSetupComplete ? "generate" : "settings");
   }
 
   async function handleOpenRecommendedRelay() {
@@ -3024,25 +3031,24 @@ export default function App() {
         footer={
           <>
             <button type="button" className="secondary-button" onClick={() => void handleDismissWelcome()}>
-              {copy.actions.skip}
+              {copy.actions.setUpLater}
             </button>
-            <button type="button" className="primary-button" onClick={() => void handleDismissWelcome()}>
-              {copy.actions.startUsing}
+            <button type="button" className="primary-button" onClick={() => void handleWelcomePrimaryAction()}>
+              {isWelcomeSetupComplete ? copy.actions.startUsing : copy.actions.goToSettings}
             </button>
           </>
         }
       >
         <div className="welcome-grid">
           <section className="welcome-card">
-            <span className="card-tag">{copy.cards.welcomeIntro}</span>
+            <span className="card-tag">{copy.welcome.eyebrow}</span>
             <h3>{copy.welcome.title}</h3>
             <p>{copy.welcome.intro}</p>
+            <p>{copy.welcome.privacyNote}</p>
           </section>
 
           <section className="welcome-card highlight">
-            <span className="card-tag">{copy.cards.welcomeRecommended}</span>
-            <h3>{copy.welcome.recommendedTitle}</h3>
-            <p>{copy.welcome.recommendedBody}</p>
+            <p>{copy.welcome.relayPrompt}</p>
             <button
               type="button"
               className="secondary-button inline-button"
@@ -3053,14 +3059,14 @@ export default function App() {
           </section>
 
           <section className="welcome-card">
-            <span className="card-tag">{copy.cards.welcomeQuickStart}</span>
-            <h3>{copy.welcome.quickStartTitle}</h3>
-            <p>{copy.welcome.quickStartBody}</p>
+            <span className="card-tag">{copy.welcome.setupTitle}</span>
+            <h3>{copy.welcome.setupTitle}</h3>
             <div className="welcome-checklist">
-              <strong>{copy.welcome.setupChecklistTitle}</strong>
               <ol>
-                {copy.welcome.setupChecklistItems.map((item) => (
-                  <li key={item}>{item}</li>
+                {copy.welcome.setupSteps.map((step) => (
+                  <li key={step.title}>
+                    <strong>{step.title}</strong> {step.body}
+                  </li>
                 ))}
               </ol>
             </div>

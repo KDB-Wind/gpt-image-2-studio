@@ -113,13 +113,37 @@ describe("getTranslations", () => {
     expect(en.batch.messages.maxTaskCountWarning(20)).toContain("20");
   });
 
-  it("states the connection and relay trust boundaries plainly", () => {
+  it("defines the compact three-step welcome contract in both languages", () => {
     const zh = getTranslations("zh-CN");
     const en = getTranslations("en-US");
 
-    expect(zh.welcome.intro).toContain("只会发送到你填写的 Base URL");
-    expect(zh.welcome.recommendedBody).toContain("可选");
-    expect(en.welcome.intro).toContain("sent only to the Base URL you enter");
-    expect(en.welcome.recommendedBody).toContain("optional");
+    expect(Object.keys(zh.welcome)).toEqual([
+      "title",
+      "eyebrow",
+      "intro",
+      "setupTitle",
+      "setupSteps",
+      "privacyNote",
+      "relayPrompt",
+    ]);
+    expect(Object.keys(en.welcome)).toEqual(Object.keys(zh.welcome));
+    expect(zh.welcome.setupSteps).toHaveLength(3);
+    expect(en.welcome.setupSteps).toHaveLength(3);
+    expect(zh.welcome.setupSteps.every((step) => step.title.length > 0 && step.body.length > 0)).toBe(true);
+    expect(en.welcome.setupSteps.every((step) => step.title.length > 0 && step.body.length > 0)).toBe(true);
+  });
+
+  it("includes the welcome action labels and Base URL privacy note in both languages", () => {
+    const zh = getTranslations("zh-CN");
+    const en = getTranslations("en-US");
+
+    expect(zh.actions.goToSettings).toBe("前往设置");
+    expect(zh.actions.startUsing).toBe("开始使用");
+    expect(zh.actions.setUpLater).toBe("稍后设置");
+    expect(en.actions.goToSettings).toBe("Go to settings");
+    expect(en.actions.startUsing).toBe("Start using");
+    expect(en.actions.setUpLater).toBe("Set up later");
+    expect(zh.welcome.privacyNote).toContain("Base URL");
+    expect(en.welcome.privacyNote).toContain("Base URL");
   });
 });

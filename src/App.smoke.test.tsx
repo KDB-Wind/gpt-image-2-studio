@@ -28,6 +28,7 @@ function createMockRuntime(
   config: Partial<AppConfig> = {},
   options: {
     history?: ImageRecord[];
+    outputDirectoryState?: OutputDirectoryState;
     prepareHistoryPreview?: RuntimeAdapter["prepareHistoryPreview"];
     prepareHistoryFile?: RuntimeAdapter["prepareHistoryFile"];
   } = {},
@@ -53,7 +54,7 @@ function createMockRuntime(
     chooseOutputDirectory: runtimeMock.chooseOutputDirectory,
     prepareHistoryPreview: options.prepareHistoryPreview ?? (async () => null),
     prepareHistoryFile: options.prepareHistoryFile ?? (async () => null),
-    getOutputDirectoryState: async () => ({ status: "not-authorized" }),
+    getOutputDirectoryState: async () => options.outputDirectoryState ?? { status: "not-authorized" },
     testOutputDirectory: async () => ({ ok: true }),
     openOutputPath: async () => undefined,
   };
@@ -141,6 +142,79 @@ describe("App smoke", () => {
 
     expect(container.querySelector(".support-fab")).toBeNull();
     expect(container.textContent).not.toContain("Buy the author a cola");
+  });
+
+  it.each([
+    {
+      name: "configuration validation fails",
+      config: { apiKey: "" },
+      outputDirectoryState: {
+        status: "ready",
+        name: "gpt-image-2-studio",
+        lastTestedAt: "2026-07-13T08:00:00.000Z",
+      } satisfies OutputDirectoryState,
+    },
+    {
+      name: "output directory is not ready",
+      config: { apiKey: "test-key" },
+      outputDirectoryState: { status: "not-authorized" } satisfies OutputDirectoryState,
+    },
+  ])("routes the welcome primary action to settings when $name", async ({ config, outputDirectoryState }) => {
+    const copy = getTranslations("en-US");
+    runtimeMock.adapter = createMockRuntime(
+      { ...config, uiLanguage: "en-US" },
+      { outputDirectoryState },
+    );
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushAppEffects();
+
+    expect(container.querySelector(".modal-footer .primary-button")?.textContent).toBe(copy.actions.goToSettings);
+
+    await act(async () => {
+      clickButton(container, copy.actions.goToSettings);
+      await Promise.resolve();
+    });
+    await flushAppEffects();
+
+    expect(runtimeMock.saveConfig).toHaveBeenCalledWith(expect.objectContaining({ hasDismissedWelcome: true }));
+    expect(container.querySelector(".app-shell")?.classList.contains("tab-settings")).toBe(true);
+  });
+
+  it("routes the welcome primary action to single-image generation when setup is complete", async () => {
+    const copy = getTranslations("en-US");
+    runtimeMock.adapter = createMockRuntime(
+      { apiKey: "test-key", uiLanguage: "en-US" },
+      {
+        outputDirectoryState: {
+          status: "ready",
+          name: "gpt-image-2-studio",
+          lastTestedAt: "2026-07-13T08:00:00.000Z",
+        },
+      },
+    );
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushAppEffects();
+
+    await act(async () => {
+      clickButton(container, copy.tabs.settings);
+    });
+    expect(container.querySelector(".app-shell")?.classList.contains("tab-settings")).toBe(true);
+    expect(container.querySelector(".modal-footer .primary-button")?.textContent).toBe(copy.actions.startUsing);
+
+    await act(async () => {
+      clickButton(container, copy.actions.startUsing);
+      await Promise.resolve();
+    });
+    await flushAppEffects();
+
+    expect(runtimeMock.saveConfig).toHaveBeenCalledWith(expect.objectContaining({ hasDismissedWelcome: true }));
+    expect(container.querySelector(".app-shell")?.classList.contains("tab-generate")).toBe(true);
   });
 
   it("persists the selected output directory immediately after folder authorization", async () => {
