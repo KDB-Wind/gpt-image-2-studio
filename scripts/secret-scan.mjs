@@ -13,6 +13,7 @@ const EXCLUDED_PREFIXES = [
 const TRACKED_SENSITIVE_PREFIXES = ["playwright-report/", "test-results/"];
 const TRACKED_SENSITIVE_FILES = new Set([".env.e2e.local"]);
 const MAX_TEXT_FILE_BYTES = 12 * 1024 * 1024;
+const GIT_BATCH_TARGET_BYTES = 24 * 1024 * 1024;
 const RELEASE_SCAN_CHUNK_BYTES = 1024 * 1024;
 const RELEASE_SCAN_MIN_OVERLAP_BYTES = 64 * 1024;
 const SENSITIVE_ASSIGNMENT_NAME =
@@ -85,16 +86,43 @@ export function findSecretFindings(filesByPath, configuredSecrets = []) {
 
 export function scanRepositorySecrets(rootDir = process.cwd()) {
   const normalizedRoot = resolve(rootDir);
-  const filesByPath = readCandidateFiles(normalizedRoot);
   const configuredSecrets = readConfiguredE2eSecrets(normalizedRoot);
-  const findings = findSecretFindings(filesByPath, configuredSecrets);
-  const seen = new Set(findings.map((finding) => `${finding.path}\0${finding.rule}`));
+  const findings = [];
+  const seen = new Set();
 
-  for (const path of listGitTrackedFiles(normalizedRoot)) {
-    const normalizedPath = normalizePath(path);
-    if (isTrackedSensitivePath(normalizedPath)) {
-      addFinding(findings, seen, normalizedPath, "tracked-sensitive-path");
+  try {
+    assertGitRepository(normalizedRoot);
+    const indexEntries = listGitIndexEntries(normalizedRoot);
+    const worktreePaths = new Set(indexEntries.map((entry) => entry.path));
+    for (const path of listGitUntrackedFiles(normalizedRoot)) {
+      worktreePaths.add(path);
     }
+    collectDirectoryFiles(normalizedRoot, join(normalizedRoot, "dist-static"), worktreePaths);
+
+    const indexContentsByObject = readGitIndexTexts(normalizedRoot, indexEntries);
+    for (const entry of indexEntries) {
+      const normalizedPath = normalizePath(entry.path);
+      if (isTrackedSensitivePath(normalizedPath)) {
+        addFinding(findings, seen, normalizedPath, "tracked-sensitive-path");
+      }
+      if (!isCandidatePath(normalizedPath)) {
+        continue;
+      }
+
+      const contents = indexContentsByObject.get(entry.objectId) ?? null;
+      addSecretFindings(findings, seen, normalizedPath, contents, configuredSecrets);
+    }
+
+    for (const path of worktreePaths) {
+      const normalizedPath = normalizePath(path);
+      if (!isCandidatePath(normalizedPath)) {
+        continue;
+      }
+      const contents = readTextFile(join(normalizedRoot, normalizedPath));
+      addSecretFindings(findings, seen, normalizedPath, contents, configuredSecrets);
+    }
+  } catch {
+    addFinding(findings, seen, ".", "repository-scan-error");
   }
 
   return findings.sort((left, right) =>
@@ -158,52 +186,158 @@ function addFinding(findings, seen, path, rule) {
   findings.push({ path, rule });
 }
 
-function readCandidateFiles(rootDir) {
-  const paths = new Set(listGitCandidateFiles(rootDir));
-  collectDirectoryFiles(rootDir, join(rootDir, "dist-static"), paths);
-  const filesByPath = {};
-
-  for (const path of paths) {
-    const normalizedPath = normalizePath(path);
-    if (!isCandidatePath(normalizedPath)) {
-      continue;
-    }
-
-    const absolutePath = join(rootDir, normalizedPath);
-    const contents = readTextFile(absolutePath);
-    if (contents !== null) {
-      filesByPath[normalizedPath] = contents;
-    }
+function addSecretFindings(findings, seen, path, contents, configuredSecrets) {
+  if (contents === null) {
+    return;
   }
-
-  return filesByPath;
-}
-
-function listGitCandidateFiles(rootDir) {
-  try {
-    return execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
-      cwd: rootDir,
-      encoding: "utf8",
-      windowsHide: true,
-    })
-      .split(/\r?\n/)
-      .filter(Boolean);
-  } catch {
-    return [];
+  for (const finding of findSecretFindings({ [path]: contents }, configuredSecrets)) {
+    addFinding(findings, seen, finding.path, finding.rule);
   }
 }
 
-function listGitTrackedFiles(rootDir) {
-  try {
-    return execFileSync("git", ["ls-files", "--cached"], {
-      cwd: rootDir,
-      encoding: "utf8",
-      windowsHide: true,
-    })
-      .split(/\r?\n/)
-      .filter(Boolean);
-  } catch {
-    return [];
+function runGit(rootDir, args, { input, maxBuffer = 64 * 1024 * 1024 } = {}) {
+  return execFileSync("git", args, {
+    cwd: rootDir,
+    input,
+    windowsHide: true,
+    stdio: [input === undefined ? "ignore" : "pipe", "pipe", "ignore"],
+    maxBuffer,
+  });
+}
+
+function splitNulDelimited(buffer) {
+  return buffer
+    .toString("utf8")
+    .split("\0")
+    .filter(Boolean);
+}
+
+function assertGitRepository(rootDir) {
+  const topLevel = runGit(rootDir, ["rev-parse", "--show-toplevel"], { maxBuffer: 4096 })
+    .toString("utf8")
+    .trim();
+  if (resolve(topLevel).toLowerCase() !== resolve(rootDir).toLowerCase()) {
+    throw new Error("Secret scan root is not the Git worktree root.");
+  }
+}
+
+function listGitIndexEntries(rootDir) {
+  return splitNulDelimited(runGit(rootDir, ["ls-files", "--cached", "--stage", "-z"])).map(
+    (record) => {
+      const separator = record.indexOf("\t");
+      const metadata = separator >= 0 ? record.slice(0, separator).split(" ") : [];
+      if (separator < 0 || metadata.length !== 3 || !/^[0-9a-f]+$/i.test(metadata[1])) {
+        throw new Error("Invalid Git index entry.");
+      }
+      return {
+        mode: metadata[0],
+        objectId: metadata[1],
+        stage: metadata[2],
+        path: record.slice(separator + 1),
+      };
+    },
+  );
+}
+
+function listGitUntrackedFiles(rootDir) {
+  return splitNulDelimited(
+    runGit(rootDir, ["ls-files", "--others", "--exclude-standard", "-z"]),
+  );
+}
+
+function readGitIndexTexts(rootDir, entries) {
+  const objectIds = [
+    ...new Set(entries.filter((entry) => entry.mode !== "160000").map((entry) => entry.objectId)),
+  ];
+  const contentsByObject = new Map();
+  if (objectIds.length === 0) {
+    return contentsByObject;
+  }
+
+  const metadataOutput = runGit(
+    rootDir,
+    ["cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
+    {
+      input: `${objectIds.join("\n")}\n`,
+      maxBuffer: Math.max(1024 * 1024, objectIds.length * 128),
+    },
+  ).toString("ascii");
+  const metadataLines = metadataOutput.trimEnd().split(/\r?\n/);
+  if (metadataLines.length !== objectIds.length) {
+    throw new Error("Git index metadata response was incomplete.");
+  }
+
+  const readableObjects = [];
+  for (let index = 0; index < objectIds.length; index += 1) {
+    const match = metadataLines[index].match(/^([0-9a-f]+) blob ([0-9]+)$/i);
+    if (!match || match[1].toLowerCase() !== objectIds[index].toLowerCase()) {
+      throw new Error("Git index metadata response was invalid.");
+    }
+    const size = Number.parseInt(match[2], 10);
+    if (!Number.isSafeInteger(size) || size < 0) {
+      throw new Error("Invalid Git object size.");
+    }
+    if (size > MAX_TEXT_FILE_BYTES) {
+      contentsByObject.set(objectIds[index], null);
+    } else {
+      readableObjects.push({ objectId: objectIds[index], size });
+    }
+  }
+
+  for (const batch of groupGitObjects(readableObjects)) {
+    const expectedBytes = batch.reduce((total, object) => total + object.size + 128, 0);
+    const output = runGit(rootDir, ["cat-file", "--batch"], {
+      input: `${batch.map((object) => object.objectId).join("\n")}\n`,
+      maxBuffer: Math.max(1024 * 1024, expectedBytes),
+    });
+    parseGitBatchOutput(output, batch, contentsByObject);
+  }
+
+  return contentsByObject;
+}
+
+function groupGitObjects(objects) {
+  const batches = [];
+  let current = [];
+  let currentBytes = 0;
+  for (const object of objects) {
+    if (current.length > 0 && currentBytes + object.size > GIT_BATCH_TARGET_BYTES) {
+      batches.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(object);
+    currentBytes += object.size;
+  }
+  if (current.length > 0) {
+    batches.push(current);
+  }
+  return batches;
+}
+
+function parseGitBatchOutput(output, expectedObjects, contentsByObject) {
+  let offset = 0;
+  for (const object of expectedObjects) {
+    const headerEnd = output.indexOf(10, offset);
+    if (headerEnd < 0) {
+      throw new Error("Git index blob header was incomplete.");
+    }
+    const header = output.subarray(offset, headerEnd).toString("ascii");
+    const expectedHeader = `${object.objectId} blob ${object.size}`;
+    if (header.toLowerCase() !== expectedHeader.toLowerCase()) {
+      throw new Error("Git index blob header was invalid.");
+    }
+    const contentsStart = headerEnd + 1;
+    const contentsEnd = contentsStart + object.size;
+    if (contentsEnd >= output.length || output[contentsEnd] !== 10) {
+      throw new Error("Git index blob could not be read completely.");
+    }
+    const buffer = output.subarray(contentsStart, contentsEnd);
+    contentsByObject.set(object.objectId, buffer.includes(0) ? null : buffer.toString("utf8"));
+    offset = contentsEnd + 1;
+  }
+  if (offset !== output.length) {
+    throw new Error("Git index blob response contained unexpected data.");
   }
 }
 

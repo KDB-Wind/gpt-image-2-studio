@@ -350,4 +350,67 @@ describe("secret scan", () => {
       ]),
     );
   });
+
+  it("scans the staged index blob when the working tree copy is clean", () => {
+    const root = mkdtempSync(join(tmpdir(), "staged-index-secret-scan-"));
+    temporaryDirectories.push(root);
+    execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+    const secret = ["sk", "live", "I".repeat(32)].join("-");
+    const path = join(root, "config.txt");
+    writeFileSync(path, secret, "utf8");
+    execFileSync("git", ["add", "config.txt"], { cwd: root, stdio: "ignore" });
+    writeFileSync(path, "clean working tree copy", "utf8");
+
+    expect(scanRepositorySecrets(root)).toContainEqual({
+      path: "config.txt",
+      rule: "openai-like-key",
+    });
+  });
+
+  it("uses exact NUL-delimited Git paths when core.quotePath is enabled", () => {
+    const root = mkdtempSync(join(tmpdir(), "unicode-path-secret-scan-"));
+    temporaryDirectories.push(root);
+    execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "core.quotePath", "true"], { cwd: root, stdio: "ignore" });
+    const fileName = "密钥 配置.txt";
+    const secret = ["1", "ts", "J".repeat(48)].join("");
+    writeFileSync(join(root, fileName), secret, "utf8");
+    execFileSync("git", ["add", fileName], { cwd: root, stdio: "ignore" });
+
+    expect(scanRepositorySecrets(root)).toContainEqual({
+      path: fileName,
+      rule: "step-like-key",
+    });
+  });
+
+  it("fails closed when repository enumeration cannot run", () => {
+    const root = mkdtempSync(join(tmpdir(), "non-repository-secret-scan-"));
+    temporaryDirectories.push(root);
+
+    expect(scanRepositorySecrets(root)).toContainEqual({
+      path: ".",
+      rule: "repository-scan-error",
+    });
+
+    const result = spawnSync(process.execPath, [SECRET_SCAN_SCRIPT], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(1);
+    expect(`${result.stdout ?? ""}\n${result.stderr ?? ""}`).toContain(
+      ".: repository-scan-error",
+    );
+  });
+
+  it("fails closed when the Git index cannot be enumerated", () => {
+    const root = mkdtempSync(join(tmpdir(), "broken-index-secret-scan-"));
+    temporaryDirectories.push(root);
+    execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+    writeFileSync(join(root, ".git", "index"), Buffer.from("invalid git index", "utf8"));
+
+    expect(scanRepositorySecrets(root)).toContainEqual({
+      path: ".",
+      rule: "repository-scan-error",
+    });
+  });
 });
