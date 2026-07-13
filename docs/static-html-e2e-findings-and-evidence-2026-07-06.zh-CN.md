@@ -8,7 +8,7 @@
 
 ## 2. 当前证据（2026-07-12）
 
-- `npm run test:run`：33 个文件、495 个测试通过。
+- `npm run test:run`：33 个文件、498 个测试通过。
 - `npm run build`：通过，46 个模块。
 - `npm run build:static`：通过，42 个模块。
 - `npm run site:check`：通过。
@@ -54,14 +54,14 @@
 
 Status: automated branch gates passed. Native File System Access manual acceptance remains pending, and the aborted Computer Use attempt is not release evidence. No full/native E2E claim is made.
 
-- Frontend/unit: 33 files, 495 tests passed.
+- Frontend/unit: 33 files, 498 tests passed.
 - Builds: normal 46 modules; static 42 modules.
 - Emitted-artifact isolation: the normal HTML entry graph reaches the Tauri adapter and bridge markers through the Vite manifest; current static HTML/assets exclude native markers.
 - Static mock E2E: 10 passed, 1 intentionally skipped by project selection.
 - Static file-mode E2E: 2 passed.
 - Real-service static E2E: 4 passed after unit/mock gates; no service configuration, identity, signed URL, or response body is recorded.
 - Rust: 28 tests passed; cargo check passed.
-- Release readiness: 25 readiness tests passed. Clean-HEAD reproducibility, Pages readiness, both secret scans, TypeScript, archive second-attempt rejection, and strict parity passed with external `STATIC_ARCHIVE_TRUSTED_BASE=1c35245852f95a7aa0baad14d8b1817d968c685c`; missing external trust-root checks failed closed as intended.
+- Release readiness: 25 readiness tests passed. Clean-HEAD reproducibility, Pages readiness, both secret scans, TypeScript, archive second-attempt rejection, and strict parity passed with intended external `STATIC_ARCHIVE_TRUSTED_BASE=31774ff698abd999f107e40c49d3de43da5a5f35`; missing external trust-root checks failed closed as intended. This records the local verification value, not an externally confirmed GitHub variable change.
 
 Raw Git archive evidence:
 
@@ -70,4 +70,4 @@ Raw Git archive evidence:
 - `v0.1.6`: blob f1721e4a937ffc887c1159402aeec9383a47ceb8; SHA-256 0E67C34BAF4C4289D4864F6CC8E842DF84C23B14CE94E34C8C2354ECA059AEB3.
 - `v0.1.7`: blob 0af8bb435142d59c1cce601a91600ac3555df033; SHA-256 EBDBE76F4E9F731FCA70BDECDC303DA635258F3B8CEC2B96AAEF6C53EB11A9C4 for the source archive and current generated release HTML.
 
-Correction: the authoritative trust root is external `STATIC_ARCHIVE_TRUSTED_BASE`, not any file or commit selected by the ref under validation. Automated local evidence supplied public commit 1c35245852f95a7aa0baad14d8b1817d968c685c through that environment variable. Strict parity compares every version in its manifest, including v0.1.6; versions absent from the base, such as v0.1.7, are new. Missing or invalid external values fail closed, and no tracked configuration, `HEAD^`, workflow input, or byte normalization can replace the trust root.
+Correction: the authoritative trust root is external `STATIC_ARCHIVE_TRUSTED_BASE`, not any file or commit selected by the ref under validation. Automated local evidence supplied public commit `31774ff698abd999f107e40c49d3de43da5a5f35` through that environment variable. Strict parity therefore protects every version in its manifest through v0.1.7; only versions absent from that base may be added later. Missing or invalid external values fail closed, and no tracked configuration, `HEAD^`, workflow input, or byte normalization can replace the trust root. After each stable archive or Release, maintainers must advance the external variable to a trusted commit containing that archive before preparing later releases.

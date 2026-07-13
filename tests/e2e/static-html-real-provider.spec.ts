@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -73,28 +73,32 @@ test.describe("real provider static page smoke", () => {
     await openRealProviderPage(page);
 
     const tempDir = mkdtempSync(join(tmpdir(), "gpt-image-2-e2e-"));
-    const referencePath = join(tempDir, "reference.png");
-    writeFileSync(referencePath, createProviderSafePngBuffer());
+    try {
+      const referencePath = join(tempDir, "reference.png");
+      writeFileSync(referencePath, createProviderSafePngBuffer());
 
-    await page.getByRole("tab", { name: "单图" }).click();
-    await page.getByRole("tablist", { name: "生成模式" }).getByRole("tab", { name: "图生图" }).click();
-    await expect(page.getByTestId("single-reference-input")).toBeAttached();
-    await page.getByTestId("single-reference-input").setInputFiles(referencePath);
-    await page.getByTestId("single-prompt").fill("把参考图改成一个简单的绿色圆形图标");
+      await page.getByRole("tab", { name: "单图" }).click();
+      await page.getByRole("tablist", { name: "生成模式" }).getByRole("tab", { name: "图生图" }).click();
+      await expect(page.getByTestId("single-reference-input")).toBeAttached();
+      await page.getByTestId("single-reference-input").setInputFiles(referencePath);
+      await page.getByTestId("single-prompt").fill("把参考图改成一个简单的绿色圆形图标");
 
-    const responsePromise = page.waitForResponse(
-      (response) => response.request().method() === "POST" && response.url().includes("/images/edits"),
-      { timeout: 180_000 },
-    );
+      const responsePromise = page.waitForResponse(
+        (response) => response.request().method() === "POST" && response.url().includes("/images/edits"),
+        { timeout: 180_000 },
+      );
 
-    await page.getByTestId("single-generate").click();
-    const response = await responsePromise;
+      await page.getByTestId("single-generate").click();
+      const response = await responsePromise;
 
-    expect(
-      response.ok(),
-      `Image edit endpoint returned HTTP ${response.status()}.`,
-    ).toBe(true);
-    await expect(page.locator(".preview-panel img").first()).toBeVisible({ timeout: 180_000 });
+      expect(
+        response.ok(),
+        `Image edit endpoint returned HTTP ${response.status()}.`,
+      ).toBe(true);
+      await expect(page.locator(".preview-panel img").first()).toBeVisible({ timeout: 180_000 });
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   test("real custom batch with two prompts creates two results and history evidence", async ({ page }) => {

@@ -8,11 +8,10 @@ const EXCLUDED_PREFIXES = [
   ".git/",
   "coverage/",
   "node_modules/",
-  "playwright-report/",
   "src-tauri/target/",
-  "test-results/",
 ];
-const EXCLUDED_FILES = new Set([".env.e2e.local"]);
+const TRACKED_SENSITIVE_PREFIXES = ["playwright-report/", "test-results/"];
+const TRACKED_SENSITIVE_FILES = new Set([".env.e2e.local"]);
 const MAX_TEXT_FILE_BYTES = 12 * 1024 * 1024;
 const RELEASE_SCAN_CHUNK_BYTES = 1024 * 1024;
 const RELEASE_SCAN_MIN_OVERLAP_BYTES = 64 * 1024;
@@ -88,7 +87,19 @@ export function scanRepositorySecrets(rootDir = process.cwd()) {
   const normalizedRoot = resolve(rootDir);
   const filesByPath = readCandidateFiles(normalizedRoot);
   const configuredSecrets = readConfiguredE2eSecrets(normalizedRoot);
-  return findSecretFindings(filesByPath, configuredSecrets);
+  const findings = findSecretFindings(filesByPath, configuredSecrets);
+  const seen = new Set(findings.map((finding) => `${finding.path}\0${finding.rule}`));
+
+  for (const path of listGitTrackedFiles(normalizedRoot)) {
+    const normalizedPath = normalizePath(path);
+    if (isTrackedSensitivePath(normalizedPath)) {
+      addFinding(findings, seen, normalizedPath, "tracked-sensitive-path");
+    }
+  }
+
+  return findings.sort((left, right) =>
+    left.path.localeCompare(right.path) || left.rule.localeCompare(right.rule),
+  );
 }
 
 export function scanReleaseArtifactSecrets(rootDir = process.cwd(), { fs: fsOverrides = {} } = {}) {
@@ -182,6 +193,28 @@ function listGitCandidateFiles(rootDir) {
   }
 }
 
+function listGitTrackedFiles(rootDir) {
+  try {
+    return execFileSync("git", ["ls-files", "--cached"], {
+      cwd: rootDir,
+      encoding: "utf8",
+      windowsHide: true,
+    })
+      .split(/\r?\n/)
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function isTrackedSensitivePath(path) {
+  const lowerPath = path.toLowerCase();
+  return (
+    TRACKED_SENSITIVE_FILES.has(lowerPath) ||
+    TRACKED_SENSITIVE_PREFIXES.some((prefix) => lowerPath.startsWith(prefix))
+  );
+}
+
 function collectDirectoryFiles(rootDir, directory, paths) {
   if (!existsSync(directory)) {
     return;
@@ -244,9 +277,6 @@ function collectReleaseDirectoryFiles(
 
 function isCandidatePath(path) {
   const lowerPath = path.toLowerCase();
-  if (EXCLUDED_FILES.has(lowerPath)) {
-    return false;
-  }
   if (EXCLUDED_PREFIXES.some((prefix) => lowerPath.startsWith(prefix))) {
     return false;
   }

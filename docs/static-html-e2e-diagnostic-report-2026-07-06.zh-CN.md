@@ -313,7 +313,7 @@ rg -n "sk-[A-Za-z0-9_-]{24,}|1ts[A-Za-z0-9_-]{20,}" . --glob "!node_modules/**" 
 
 ### P2-004：`static-versions` 源归档一致性仍依赖人工检查
 
-> 2026-07-12 closure: resolved in v0.1.7. Strict parity is anchored to commit `1c35245852f95a7aa0baad14d8b1817d968c685c`, compares every version in that manifest including v0.1.6, and permits only versions absent from the anchor as new archives.
+> 2026-07-13 closure update: resolved in v0.1.7. The intended external trust root is commit `31774ff698abd999f107e40c49d3de43da5a5f35`, which contains every archive through v0.1.7; only versions absent from that trusted base may be added later. The external GitHub variable still requires an explicit maintainer update after each stable release.
 
 模块：静态发布 / 版本固定目录 / 发布前检查
 

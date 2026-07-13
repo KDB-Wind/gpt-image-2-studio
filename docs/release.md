@@ -4,9 +4,11 @@
 
 ## Archive Anchor
 
-The archive trust root is external to the repository. Before local strict or historical checks, set `$env:STATIC_ARCHIVE_TRUSTED_BASE = "<FULL_TRUSTED_COMMIT_SHA>"`. The current intended public value is `1c35245852f95a7aa0baad14d8b1817d968c685c`. Missing, malformed, unresolved, or non-ancestor values fail closed; repository files, `HEAD^`, and workflow inputs are not fallbacks.
+The archive trust root is external to the repository. Before local strict or historical checks, set `$env:STATIC_ARCHIVE_TRUSTED_BASE = "<FULL_TRUSTED_COMMIT_SHA>"`. The current intended public value is `31774ff698abd999f107e40c49d3de43da5a5f35`, the first trusted commit that contains the complete `v0.1.7` archive and trust-root implementation. Missing, malformed, unresolved, or non-ancestor values fail closed; repository files, `HEAD^`, and workflow inputs are not fallbacks.
 
 Before CI, Pages, or Release can run, create the GitHub Repository Variable `STATIC_ARCHIVE_TRUSTED_BASE` under **Settings > Secrets and variables > Actions > Variables**. Push event or merge bases are additional comparisons only and cannot replace this external trust root.
+
+每次稳定归档或 Release 完成后，先把该 Repository Variable 推进到一个已经包含该稳定归档的可信提交，再准备后续 Release。该提交可以是后续 `HEAD` 的祖先。本文只记录预期值，不表示 GitHub 上的变量已经完成修改。
 
 ## 发布产物
 

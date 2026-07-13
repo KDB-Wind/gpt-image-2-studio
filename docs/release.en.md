@@ -13,7 +13,7 @@ Each Release should include two user-facing assets:
 
 ## Local Pre-Release Checks
 
-Set the external immutable trust root before running strict or historical archive checks. The current intended public repository commit is `1c35245852f95a7aa0baad14d8b1817d968c685c`.
+Set the external immutable trust root before running strict or historical archive checks. The current intended public repository commit is `31774ff698abd999f107e40c49d3de43da5a5f35`, the first trusted commit containing the complete `v0.1.7` archive and trust-root implementation.
 
 ```powershell
 $env:STATIC_ARCHIVE_TRUSTED_BASE = "<FULL_TRUSTED_COMMIT_SHA>"
@@ -35,7 +35,9 @@ Every version listed by that external base manifest is immutable, including its 
 
 ## GitHub Repository Setup
 
-Before enabling CI, Pages, or Release, open **Settings > Secrets and variables > Actions > Variables** and create `STATIC_ARCHIVE_TRUSTED_BASE` with the full trusted commit SHA. The current intended value is `1c35245852f95a7aa0baad14d8b1817d968c685c`. Workflows fail early with a setup error when this variable is missing or invalid; workflow inputs are not accepted as the trust root.
+Before enabling CI, Pages, or Release, open **Settings > Secrets and variables > Actions > Variables** and create `STATIC_ARCHIVE_TRUSTED_BASE` with the full trusted commit SHA. The current intended value is `31774ff698abd999f107e40c49d3de43da5a5f35`. Workflows fail early with a setup error when this variable is missing or invalid; workflow inputs are not accepted as the trust root.
+
+After every stable archive or Release, advance the Repository Variable to a trusted commit that already contains that stable archive before preparing later releases. The trusted commit may remain an ancestor of a later `HEAD`. This guide records the intended value only; it does not claim the external GitHub variable has already been changed.
 
 ## Single-File HTML
 

@@ -206,6 +206,7 @@ describe("secret scan", () => {
     const root = mkdtempSync(join(tmpdir(), "static-secret-scan-"));
     temporaryDirectories.push(root);
     execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+    writeFileSync(join(root, ".gitignore"), ".env.e2e.local\n", "utf8");
 
     const configuredSecret = ["configured", "D".repeat(32), "7".repeat(8)].join("-");
     const trackedSecret = ["ghp", "T".repeat(30)].join("_");
@@ -263,5 +264,90 @@ describe("secret scan", () => {
     expect(scanRepositorySecrets(root)).toEqual([
       expect.objectContaining({ path: "provider.credentials", rule: "openai-like-key" }),
     ]);
+  });
+
+  it("fails closed when normally ignored sensitive test paths are force-added to git", () => {
+    const root = mkdtempSync(join(tmpdir(), "tracked-sensitive-path-scan-"));
+    temporaryDirectories.push(root);
+    execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+    writeFileSync(
+      join(root, ".gitignore"),
+      ".env.e2e.local\ntest-results/\nplaywright-report/\n",
+      "utf8",
+    );
+    writeFileSync(join(root, ".env.e2e.local"), "E2E_BASE_URL=https://example.invalid\n", "utf8");
+    mkdirSync(join(root, "test-results", "run"), { recursive: true });
+    writeFileSync(join(root, "test-results", "run", "trace.zip"), "synthetic trace", "utf8");
+    mkdirSync(join(root, "playwright-report"), { recursive: true });
+    writeFileSync(join(root, "playwright-report", "index.html"), "synthetic report", "utf8");
+    execFileSync(
+      "git",
+      [
+        "add",
+        "-f",
+        ".env.e2e.local",
+        "test-results/run/trace.zip",
+        "playwright-report/index.html",
+      ],
+      { cwd: root, stdio: "ignore" },
+    );
+
+    expect(scanRepositorySecrets(root)).toEqual(
+      expect.arrayContaining([
+        { path: ".env.e2e.local", rule: "tracked-sensitive-path" },
+        { path: "playwright-report/index.html", rule: "tracked-sensitive-path" },
+        { path: "test-results/run/trace.zip", rule: "tracked-sensitive-path" },
+      ]),
+    );
+
+    const result = spawnSync(process.execPath, [SECRET_SCAN_SCRIPT], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+    expect(result.status).toBe(1);
+    expect(output).toContain(".env.e2e.local: tracked-sensitive-path");
+    expect(output).toContain("playwright-report/index.html: tracked-sensitive-path");
+    expect(output).toContain("test-results/run/trace.zip: tracked-sensitive-path");
+  });
+
+  it("skips untracked ignored copies of local env and Playwright artifacts", () => {
+    const root = mkdtempSync(join(tmpdir(), "ignored-sensitive-path-scan-"));
+    temporaryDirectories.push(root);
+    execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+    writeFileSync(
+      join(root, ".gitignore"),
+      ".env.e2e.local\ntest-results/\nplaywright-report/\n",
+      "utf8",
+    );
+    writeFileSync(join(root, ".env.e2e.local"), "E2E_BASE_URL=https://example.invalid\n", "utf8");
+    mkdirSync(join(root, "test-results", "run"), { recursive: true });
+    writeFileSync(join(root, "test-results", "run", "trace.zip"), "synthetic trace", "utf8");
+    mkdirSync(join(root, "playwright-report"), { recursive: true });
+    writeFileSync(join(root, "playwright-report", "index.html"), "synthetic report", "utf8");
+
+    expect(scanRepositorySecrets(root)).toEqual([]);
+  });
+
+  it("scans untracked sensitive paths when they are not ignored", () => {
+    const root = mkdtempSync(join(tmpdir(), "unignored-sensitive-path-scan-"));
+    temporaryDirectories.push(root);
+    execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+    const envSecret = ["sk", "test", "A".repeat(32)].join("-");
+    const traceSecret = ["1", "ts", "B".repeat(48)].join("");
+    const reportSecret = ["github", "pat", "C".repeat(40)].join("_");
+    writeFileSync(join(root, ".env.e2e.local"), `E2E_API_KEY=${envSecret}\n`, "utf8");
+    mkdirSync(join(root, "test-results", "run"), { recursive: true });
+    writeFileSync(join(root, "test-results", "run", "trace.txt"), traceSecret, "utf8");
+    mkdirSync(join(root, "playwright-report"), { recursive: true });
+    writeFileSync(join(root, "playwright-report", "index.html"), reportSecret, "utf8");
+
+    expect(scanRepositorySecrets(root)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: ".env.e2e.local", rule: "openai-like-key" }),
+        expect.objectContaining({ path: "playwright-report/index.html", rule: "known-service-token" }),
+        expect.objectContaining({ path: "test-results/run/trace.txt", rule: "step-like-key" }),
+      ]),
+    );
   });
 });

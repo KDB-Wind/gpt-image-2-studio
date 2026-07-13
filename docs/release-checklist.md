@@ -51,7 +51,7 @@ $env:SITE_ORIGIN = "https://kdb-wind.github.io"
 npm run cors:check
 ```
 
-Before Pages or Release, create the GitHub Repository Variable `STATIC_ARCHIVE_TRUSTED_BASE` under **Settings > Secrets and variables > Actions > Variables**. The current intended public value is `1c35245852f95a7aa0baad14d8b1817d968c685c`. Local strict or historical checks use `$env:STATIC_ARCHIVE_TRUSTED_BASE = "<FULL_TRUSTED_COMMIT_SHA>"`. There is no tracked-config, `HEAD^`, or workflow-input fallback; event or merge bases are additional comparisons only.
+Before Pages or Release, create the GitHub Repository Variable `STATIC_ARCHIVE_TRUSTED_BASE` under **Settings > Secrets and variables > Actions > Variables**. The current intended public value is `31774ff698abd999f107e40c49d3de43da5a5f35`. Local strict or historical checks use `$env:STATIC_ARCHIVE_TRUSTED_BASE = "<FULL_TRUSTED_COMMIT_SHA>"`. There is no tracked-config, `HEAD^`, or workflow-input fallback; event or merge bases are additional comparisons only. After every stable archive or Release, advance the variable to a trusted commit that contains that stable archive before preparing later releases; that commit may be an ancestor of later `HEAD`. This checklist does not claim the external GitHub variable has already been changed.
 
 通过时应返回 `CORS preflight check passed.`。
 
