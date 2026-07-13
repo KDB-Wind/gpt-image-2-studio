@@ -1,5 +1,3 @@
-Exit code: 0
-
 ## Current Status And Evidence
 
 > 状态更新：2026-07-13。原始 Task 1-10 定义、步骤和验收细节保留在下方；本节只记录当前证据，不替代计划正文。
