@@ -8,7 +8,7 @@
 
 ## 当前复核结论（2026-07-12）
 
-- **Fixed and unit-tested：** `npm run test:run` 为 33 个文件、498 个测试通过；`npx tsc --noEmit` 通过；`cargo test` 为 28 通过；`cargo check` 通过。
+- **Fixed and unit-tested：** `npm run test:run` 为 33 个文件、502 个测试通过；`npx tsc --noEmit` 通过；`cargo test` 为 28 通过；`cargo check` 通过。
 - **Mock E2E verified：** `npm run e2e:static:mock` 为 10 通过、1 个预期跳过；`npm run e2e:static:file` 为 2 通过。
 - **Real-provider verified：** `npm run e2e:static:real` 为 4 通过且无重试。报告不记录服务配置、服务身份或响应内容。
 - **构建与发布：** `npm run build` 通过（46 个模块），`npm run build:static` 通过（42 个模块）；`npm run site:check` 通过；设置外部 `STATIC_ARCHIVE_TRUSTED_BASE` 后，`npm run release:check` 的 25 个 readiness 测试及 readiness、clean HEAD 可复现性、严格归档一致性均通过。
@@ -44,7 +44,7 @@ Native File System Access 是唯一未完成的手工发布验收门槛，不能
 
 Status: automated branch gates passed. Native File System Access manual acceptance remains pending, and the aborted Computer Use attempt is not release evidence. No full/native E2E claim is made.
 
-- Frontend/unit: 33 files, 498 tests passed.
+- Frontend/unit: 33 files, 502 tests passed.
 - Builds: normal 46 modules; static 42 modules.
 - Emitted-artifact isolation: the normal HTML entry graph reaches the Tauri adapter and bridge markers through the Vite manifest; current static HTML/assets exclude native markers.
 - Static mock E2E: 10 passed, 1 intentionally skipped by project selection.

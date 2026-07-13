@@ -9,13 +9,13 @@
 | Task 3 | Complete | 固定版本归档、manifest、严格/历史一致性和外部信任根门禁已建立。 |
 | Task 4 | Automation complete; native manual pending | 保存结果、回退、目录状态和 mock 页面路径已验证；真实选择器与磁盘落点仍需人工验收。 |
 | Task 5 | Complete | 重试竞态和 AI 数量一致性已有单元、mock 与真实服务证据。 |
-| Task 6 | Complete | 错误脱敏、API key 持久化与仓库/发布产物密钥扫描已建立；已跟踪的本地 E2E 配置与 Playwright artifact 会强制失败，只有未跟踪且被忽略的副本可跳过。 |
+| Task 6 | Complete | 错误脱敏、API key 持久化与仓库/发布产物密钥扫描已建立；扫描同时覆盖 Git 暂存区、工作区和未跟踪文件，Git 枚举或 blob 读取异常会失败关闭；已跟踪的本地 E2E 配置与 Playwright artifact 会强制失败。 |
 | Task 7 | Complete | 单图与批量 Blob URL 生命周期已有回归测试。 |
 | Task 8 | Complete | desktop、mobile、file、失败重试、刷新恢复和批量参考图页面路径已覆盖。 |
 | Task 9 | Complete | MIT、版本、tag、归档、Release notes 与信任文案已对齐。 |
 | Task 10 | Automated verification complete; native manual pending | 单元、构建、站点、发布、mock/file/真实服务 E2E 与安全扫描已有证据；原生目录人工验收尚未完成。 |
 
-最新自动化证据：33 个测试文件、498 个测试通过；normal/static 构建、站点检查、Pages/Release 门禁、仓库与发布产物密钥扫描、runtime bundle isolation、10 个 mock 页面 E2E、2 个 file E2E 和 4 个真实服务 E2E 均通过。真实服务配置和响应未写入文档。
+最新自动化证据：33 个测试文件、502 个测试通过；normal/static 构建、站点检查、Pages/Release 门禁、仓库与发布产物密钥扫描、runtime bundle isolation、10 个 mock 页面 E2E、2 个 file E2E 和 4 个真实服务 E2E 均通过。真实服务配置和响应未写入文档。
 
 ### External Trust Root
 

@@ -8,7 +8,7 @@
 
 ## 2. 当前证据（2026-07-12）
 
-- `npm run test:run`：33 个文件、498 个测试通过。
+- `npm run test:run`：33 个文件、502 个测试通过。
 - `npm run build`：通过，46 个模块。
 - `npm run build:static`：通过，42 个模块。
 - `npm run site:check`：通过。
@@ -54,7 +54,7 @@
 
 Status: automated branch gates passed. Native File System Access manual acceptance remains pending, and the aborted Computer Use attempt is not release evidence. No full/native E2E claim is made.
 
-- Frontend/unit: 33 files, 498 tests passed.
+- Frontend/unit: 33 files, 502 tests passed.
 - Builds: normal 46 modules; static 42 modules.
 - Emitted-artifact isolation: the normal HTML entry graph reaches the Tauri adapter and bridge markers through the Vite manifest; current static HTML/assets exclude native markers.
 - Static mock E2E: 10 passed, 1 intentionally skipped by project selection.
