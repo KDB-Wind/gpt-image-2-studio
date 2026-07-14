@@ -3027,7 +3027,7 @@ export default function App() {
         open={showWelcome}
         title={copy.welcome.title}
         onClose={() => void handleDismissWelcome()}
-        size="wide"
+        className="welcome-modal"
         footer={
           <>
             <button type="button" className="secondary-button" onClick={() => void handleDismissWelcome()}>
@@ -3039,39 +3039,41 @@ export default function App() {
           </>
         }
       >
-        <div className="welcome-grid">
-          <section className="welcome-card">
-            <span className="card-tag">{copy.welcome.eyebrow}</span>
-            <h3>{copy.welcome.title}</h3>
+        <section className="welcome-content">
+          <div className="welcome-intro">
+            <p className="eyebrow">{copy.welcome.eyebrow}</p>
             <p>{copy.welcome.intro}</p>
-            <p>{copy.welcome.privacyNote}</p>
-          </section>
+          </div>
 
-          <section className="welcome-card highlight">
-            <p>{copy.welcome.relayPrompt}</p>
+          <div className="welcome-setup">
+            <h3>{copy.welcome.setupTitle}</h3>
+            <ol className="welcome-steps">
+              {copy.welcome.setupSteps.map((step, index) => (
+                <li className="welcome-step" key={step.title}>
+                  <span className="welcome-step-number" aria-hidden="true">
+                    {index + 1}
+                  </span>
+                  <div>
+                    <strong>{step.title}</strong>
+                    <p>{step.body}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          <p className="welcome-privacy">{copy.welcome.privacyNote}</p>
+          <p className="welcome-relay">
+            {copy.welcome.relayPrompt}{" "}
             <button
               type="button"
-              className="secondary-button inline-button"
+              className="welcome-relay-link"
               onClick={() => void handleOpenRecommendedRelay()}
             >
               {copy.actions.openRecommended}
             </button>
-          </section>
-
-          <section className="welcome-card">
-            <span className="card-tag">{copy.welcome.setupTitle}</span>
-            <h3>{copy.welcome.setupTitle}</h3>
-            <div className="welcome-checklist">
-              <ol>
-                {copy.welcome.setupSteps.map((step) => (
-                  <li key={step.title}>
-                    <strong>{step.title}</strong> {step.body}
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </section>
-        </div>
+          </p>
+        </section>
       </Dialog>
 
       <Dialog

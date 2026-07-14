@@ -789,8 +789,7 @@ img {
 .message-card,
 .stat-card,
 .validation-list,
-.settings-section,
-.welcome-card {
+.settings-section {
   padding: 16px;
   border: 1px solid var(--panel-border);
   border-radius: 22px;
@@ -1319,8 +1318,7 @@ img {
 
 .section-heading h3,
 .info-card h3,
-.validation-list h3,
-.welcome-card h3 {
+.validation-list h3 {
   margin: 0;
   font-size: 0.98rem;
 }
@@ -1797,41 +1795,99 @@ img {
   line-height: 1;
 }
 
-.welcome-grid {
+.welcome-modal {
+  width: min(100%, 42rem);
+}
+
+.welcome-modal .modal-body {
+  max-height: min(70vh, 42rem);
+  overflow-y: auto;
+}
+
+.welcome-content {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  gap: 18px;
 }
 
-.welcome-card {
-  display: grid;
-  gap: 10px;
-  min-height: 100%;
+.welcome-intro,
+.welcome-step > div {
+  min-width: 0;
 }
 
-.welcome-card.highlight {
-  background: linear-gradient(160deg, rgba(255, 236, 201, 0.95), rgba(250, 244, 225, 0.92));
-}
-
-.welcome-checklist {
-  display: grid;
-  gap: 8px;
-  padding-top: 4px;
-}
-
-.welcome-checklist strong {
-  color: var(--text);
-  font-size: 0.92rem;
-}
-
-.welcome-checklist ol {
-  display: grid;
-  gap: 6px;
+.welcome-intro p,
+.welcome-step p,
+.welcome-privacy,
+.welcome-relay {
   margin: 0;
-  padding-left: 1.2rem;
-  color: var(--muted);
-  font-size: 0.88rem;
+}
+
+.welcome-intro > p:last-child,
+.welcome-step p,
+.welcome-relay {
+  color: var(--text-muted);
   line-height: 1.55;
+}
+
+.welcome-setup h3 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.welcome-steps {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.welcome-step {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 11px;
+  align-items: start;
+}
+
+.welcome-step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(216, 117, 67, 0.12);
+  color: var(--accent-strong);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+}
+
+.welcome-step strong {
+  display: block;
+  margin: 1px 0 3px;
+}
+
+.welcome-privacy {
+  padding: 11px 13px;
+  border-left: 3px solid #3f7d5c;
+  background: #f1f7f3;
+  color: #486254;
+  line-height: 1.55;
+}
+
+.welcome-relay-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
 }
 
 .card-tag {
@@ -1881,8 +1937,7 @@ img {
   .app-header,
   .field-grid,
   .stats-grid,
-  .range-field,
-  .welcome-grid {
+  .range-field {
     grid-template-columns: 1fr;
   }
 
@@ -2021,5 +2076,13 @@ img {
   .preview-details dd,
   .compact-meta dd {
     text-align: left;
+  }
+
+  .welcome-modal .modal-footer button {
+    width: 100%;
+  }
+
+  .welcome-step-number {
+    flex-shrink: 0;
   }
 }

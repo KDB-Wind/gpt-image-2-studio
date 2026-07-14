@@ -823,7 +823,7 @@ describe("App batch workspace", () => {
     expect(container.textContent).toContain(copy.actions.testOutputDirectory);
   });
 
-  it("shows a first-run setup checklist before the user starts generating", async () => {
+  it("renders the compact first-run welcome flow without stretched cards", async () => {
     window.localStorage.setItem(
       "chat-to-image.config.v1",
       JSON.stringify({ ...DEFAULT_CONFIG, uiLanguage: "en-US", hasDismissedWelcome: false }),
@@ -834,15 +834,12 @@ describe("App batch workspace", () => {
     });
     await flushEffects();
 
-    const checklist = container.querySelector(".welcome-checklist");
-
-    expect(checklist).not.toBeNull();
-    expect(container.textContent).toContain("3 steps before you start");
-    expect(checklist?.textContent).toContain("Fill in Base URL, API key, text model, and image model");
-    expect(checklist?.textContent).toContain("Authorize a dedicated output folder");
-    expect(checklist?.textContent).toContain("run Test output folder");
-    expect(checklist?.textContent).toContain("Generate one image successfully in Single image");
-    expect(checklist?.textContent).toContain("before starting Batch");
+    expect(container.querySelector(".welcome-grid")).toBeNull();
+    expect(container.querySelectorAll(".welcome-card")).toHaveLength(0);
+    expect(container.querySelectorAll(".welcome-step")).toHaveLength(3);
+    expect(container.querySelector(".welcome-content")?.textContent).toContain("3 steps before you start");
+    expect(container.querySelector(".welcome-privacy")?.textContent).toContain("Base URL");
+    expect(container.querySelector(".welcome-relay-link")).not.toBeNull();
   });
 
   it("exposes timeout as a user controlled setting with safe bounds", async () => {

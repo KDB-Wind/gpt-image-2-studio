@@ -111,7 +111,8 @@ describe("App smoke", () => {
     expect(container.querySelector(".preview-panel")).not.toBeNull();
     expect(container.querySelector(".history-panel")).not.toBeNull();
     expect(container.querySelectorAll(".tab-button")).toHaveLength(4);
-    expect(container.querySelector(".modal-card.wide")).not.toBeNull();
+    expect(container.querySelector(".modal-card.welcome-modal")).not.toBeNull();
+    expect(container.querySelector(".modal-card.wide")).toBeNull();
   });
 
   it("persists language changes and keeps the public page free of support payment UI", async () => {
