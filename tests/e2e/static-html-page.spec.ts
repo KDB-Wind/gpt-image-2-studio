@@ -41,6 +41,77 @@ test("static config keeps desktop and Pixel 7 mobile projects", async ({}, testI
   );
 });
 
+test("compact welcome routes incomplete setup to Settings", async ({ page, isMobile }) => {
+  test.skip(isMobile, "Desktop welcome behavior is covered by the Chromium project.");
+  await openCleanStaticPage(page, {
+    uiLanguage: "en-US",
+    apiKey: "",
+    hasDismissedWelcome: false,
+  });
+
+  const dialog = page.getByRole("dialog", { name: "Welcome to Local Image Studio" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator(".welcome-step")).toHaveCount(3);
+  await expect(dialog.locator(".welcome-card")).toHaveCount(0);
+
+  const markerStyles = await dialog.locator(".welcome-step-number").evaluateAll((markers) =>
+    markers.map((marker) => {
+      const style = getComputedStyle(marker);
+      const rect = marker.getBoundingClientRect();
+      return {
+        display: style.display,
+        alignItems: style.alignItems,
+        justifyContent: style.justifyContent,
+        lineHeight: Number.parseFloat(style.lineHeight),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      };
+    }),
+  );
+
+  for (const marker of markerStyles) {
+    expect(marker).toMatchObject({
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      width: 26,
+      height: 26,
+    });
+    expect(marker.lineHeight).toBeCloseTo(12.48, 1);
+  }
+
+  await page.getByRole("button", { name: "Go to settings" }).click();
+  await expect(page.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
+});
+
+test("@mobile compact welcome fits Pixel 7 without horizontal overflow", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "Pixel 7 coverage runs in the mobile project.");
+  await openCleanStaticPage(page, {
+    uiLanguage: "en-US",
+    apiKey: "",
+    hasDismissedWelcome: false,
+  });
+
+  const dialog = page.getByRole("dialog", { name: "Welcome to Local Image Studio" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator(".welcome-step")).toHaveCount(3);
+
+  const overflow = await page.evaluate(() => {
+    const welcomeDialog = document.querySelector<HTMLElement>(".welcome-modal");
+    if (!welcomeDialog) {
+      throw new Error("Welcome dialog was not rendered.");
+    }
+
+    return {
+      document: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      dialog: welcomeDialog.scrollWidth - welcomeDialog.clientWidth,
+    };
+  });
+
+  expect(overflow.document).toBeLessThanOrEqual(1);
+  expect(overflow.dialog).toBeLessThanOrEqual(1);
+});
+
 test("static page generates one image, shows preview, and writes history", async ({ page }) => {
   await mockImageGeneration(page);
   await openCleanStaticPage(page);

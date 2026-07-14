@@ -1,7 +1,7 @@
 # Welcome Dialog Redesign
 
 **Date:** 2026-07-13  
-**Status:** Approved visual direction, pending implementation plan
+**Status:** Implemented and locally verified; release version pending
 
 ## Problem
 
@@ -105,3 +105,17 @@ Add or update tests to cover:
 - The dialog remains a one-time automatic welcome experience.
 - Step numbers are visibly centered in their circles on desktop and mobile.
 
+## Local Verification
+
+Verified on 2026-07-14 against the current source branch:
+
+- Focused component and translation tests: 63 passed.
+- Static welcome Playwright checks: 4 passed, 2 skipped by project targeting.
+- Full Vitest suite: 33 test files passed, 506 tests passed.
+- Production build: passed.
+- TypeScript `--noEmit` check: passed.
+- Secret scan: passed.
+- Desktop Chrome screenshot: compact single-column dialog, three centered number markers, subordinate relay link, and no stretched cards.
+- Pixel 7 screenshot: no horizontal overflow; the complete setup flow and both footer actions remain visible.
+
+Temporary visual evidence is stored under `test-results/welcome-preview/` and is intentionally not committed. The immutable `static-versions/versions/v0.1.7/index.html` archive was not modified. Publishing this redesign remains a separate `v0.1.8` release decision after user acceptance.
