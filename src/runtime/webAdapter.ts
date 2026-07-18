@@ -687,13 +687,15 @@ export const webAdapter: RuntimeAdapter = {
     const persistentKeys = readStoredValue<Record<string, string>>(PERSISTENT_API_KEYS, {});
     const legacySessionKey = readStoredValue<string>(LEGACY_SESSION_API_KEY, "", "session");
     const legacyPersistentKey = readStoredValue<string>(LEGACY_PERSISTENT_API_KEY, "");
-    if (legacySessionKey && !sessionKeys["provider-default"]) sessionKeys["provider-default"] = legacySessionKey;
-    if (legacyPersistentKey && !persistentKeys["provider-default"]) {
-      persistentKeys["provider-default"] = legacyPersistentKey;
-    }
     const profileIds = new Set(configWithoutKeys.providerProfiles.map((profile) => profile.id));
     const cleanedSessionKeys = pruneKeyMap(sessionKeys, profileIds);
     const cleanedPersistentKeys = pruneKeyMap(persistentKeys, profileIds);
+    if (legacySessionKey && !cleanedSessionKeys[legacyTargetProfileId]) {
+      cleanedSessionKeys[legacyTargetProfileId] = legacySessionKey;
+    }
+    if (legacyPersistentKey && !cleanedPersistentKeys[legacyTargetProfileId]) {
+      cleanedPersistentKeys[legacyTargetProfileId] = legacyPersistentKey;
+    }
     let migratedProfileKey = false;
     for (const candidate of rawProviderProfiles) {
       if (!isRecord(candidate) || typeof candidate.id !== "string" || typeof candidate.apiKey !== "string"

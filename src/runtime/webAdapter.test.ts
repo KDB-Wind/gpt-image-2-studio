@@ -277,6 +277,52 @@ describe("webAdapter history deletion", () => {
       .toEqual({ "provider-only": legacyKey });
   });
 
+  it("migrates the legacy session storage key to the active custom profile", async () => {
+    const legacyKey = "legacy-session-custom-fake-key";
+    localStorage.setItem("chat-to-image.config.v1", JSON.stringify({
+      ...DEFAULT_CONFIG,
+      providerProfiles: [{
+        ...DEFAULT_CONFIG.providerProfiles[0],
+        id: "provider-custom",
+        name: "Custom provider",
+        apiKey: "",
+        rememberApiKey: false,
+      }],
+      activeProviderProfileId: "provider-custom",
+    }));
+    sessionStorage.setItem("chat-to-image.api-key.session.v1", JSON.stringify(legacyKey));
+
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      activeProviderProfileId: "provider-custom",
+      apiKey: legacyKey,
+    });
+    expect(JSON.parse(sessionStorage.getItem("chat-to-image.api-keys.session.v1") ?? "{}"))
+      .toEqual({ "provider-custom": legacyKey });
+  });
+
+  it("migrates the legacy persistent storage key to the only custom profile", async () => {
+    const legacyKey = "legacy-persistent-custom-fake-key";
+    localStorage.setItem("chat-to-image.config.v1", JSON.stringify({
+      ...DEFAULT_CONFIG,
+      providerProfiles: [{
+        ...DEFAULT_CONFIG.providerProfiles[0],
+        id: "provider-only",
+        name: "Only provider",
+        apiKey: "",
+        rememberApiKey: true,
+      }],
+      activeProviderProfileId: "missing-provider",
+    }));
+    localStorage.setItem("chat-to-image.api-key.persistent.v1", JSON.stringify(legacyKey));
+
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      activeProviderProfileId: "provider-only",
+      apiKey: legacyKey,
+    });
+    expect(JSON.parse(localStorage.getItem("chat-to-image.api-keys.persistent.v1") ?? "{}"))
+      .toEqual({ "provider-only": legacyKey });
+  });
+
   it("ignores malformed key maps and null provider metadata entries", async () => {
     localStorage.setItem("chat-to-image.config.v1", JSON.stringify({
       ...DEFAULT_CONFIG,
