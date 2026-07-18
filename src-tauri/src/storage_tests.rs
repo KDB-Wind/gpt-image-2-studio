@@ -317,6 +317,7 @@ fn save_rolls_back_new_image_when_history_is_malformed() {
         config,
         generated_at: "2026-07-12T10:30:00+00:00".to_string(),
         duration_ms: 100,
+        provider_profile_snapshot: None,
     };
 
     let error = crate::storage::save_generated_image_at(input, &temp_root, &history_path).unwrap_err();

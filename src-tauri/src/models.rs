@@ -39,7 +39,17 @@ pub struct ImageRecord {
     pub size: String,
     pub output_path: String,
     pub duration_ms: u64,
+    pub provider_profile_snapshot: Option<ProviderProfileSnapshot>,
     pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderProfileSnapshot {
+    pub provider_profile_id: String,
+    pub provider_profile_name: String,
+    pub image_model: String,
+    pub image_response_mode: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +62,7 @@ pub struct SaveGeneratedImageInput {
     pub config: AppConfig,
     pub generated_at: String,
     pub duration_ms: u64,
+    pub provider_profile_snapshot: Option<ProviderProfileSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +85,7 @@ pub struct SaveBatchImageInput {
     pub config: AppConfig,
     pub generated_at: String,
     pub duration_ms: u64,
+    pub provider_profile_snapshot: Option<ProviderProfileSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

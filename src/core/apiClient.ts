@@ -253,22 +253,6 @@ export function parseImageGenerationResponse(payload: unknown): ParsedImage[] {
 
 export function resolveProviderRequestConfig(config: AppConfig): ProviderRequestConfig {
   const profile = resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId);
-  // Keep direct callers that construct a legacy one-profile AppConfig working.
-  if (config.providerProfiles.length === 1
-    && config.activeProviderProfileId === profile.id
-    && (config.baseUrl !== profile.baseUrl
-      || config.apiKey !== profile.apiKey
-      || config.textModel !== profile.textModel
-      || config.imageModel !== profile.imageModel
-      || config.imageResponseMode !== profile.imageResponseMode)) {
-    return {
-      baseUrl: config.baseUrl,
-      apiKey: config.apiKey,
-      textModel: config.textModel,
-      imageModel: config.imageModel,
-      imageResponseMode: config.imageResponseMode,
-    };
-  }
   return {
     baseUrl: profile.baseUrl,
     apiKey: profile.apiKey,

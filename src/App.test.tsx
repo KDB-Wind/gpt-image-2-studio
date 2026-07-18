@@ -47,6 +47,7 @@ describe("App batch workspace", () => {
     runtime.loadConfig = vi.fn().mockResolvedValue({
       ...DEFAULT_CONFIG,
       apiKey: "test-key",
+      providerProfiles: [{ ...DEFAULT_CONFIG.providerProfiles[0], apiKey: "test-key" }],
       defaultCount: 4,
       uiLanguage: "en-US",
       hasDismissedWelcome: true,
@@ -341,6 +342,7 @@ describe("App batch workspace", () => {
     runtime.loadConfig = vi.fn().mockResolvedValue({
       ...DEFAULT_CONFIG,
       apiKey: "test-key",
+      providerProfiles: [{ ...DEFAULT_CONFIG.providerProfiles[0], apiKey: "test-key" }],
       uiLanguage: "en-US",
       hasDismissedWelcome: true,
       batchDefaultTaskCount: 1,
@@ -842,6 +844,28 @@ describe("App batch workspace", () => {
     expect(container.querySelector(".welcome-relay-link")).not.toBeNull();
   });
 
+  it("shows the saved provider profile name in history instead of the current model label", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([], [createHistoryRecord({
+      id: "profile-history",
+      model: "legacy-model-label",
+      providerProfileSnapshot: {
+        providerProfileId: "profile-a",
+        providerProfileName: "Profile A",
+        imageModel: "image-a",
+        imageResponseMode: "official",
+      },
+    })]);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+    clickButton(copy.tabs.history);
+    await flushPromises();
+
+    expect(container.textContent).toContain("Profile A");
+    expect(container.textContent).not.toContain("legacy-model-label");
+  });
+
   it("exposes timeout as a user controlled setting with safe bounds", async () => {
     const copy = getTranslations("en-US");
 
@@ -933,9 +957,8 @@ describe("App batch workspace", () => {
     const storedConfig = JSON.parse(window.localStorage.getItem("chat-to-image.config.v1") ?? "{}");
     expect(storedConfig.apiKey).toBeUndefined();
     expect(storedConfig.rememberApiKey).toBe(true);
-    expect(window.localStorage.getItem("chat-to-image.api-key.persistent.v1")).toContain(
-      REMEMBERED_UI_API_KEY,
-    );
+    expect(JSON.parse(window.localStorage.getItem("chat-to-image.api-keys.persistent.v1") ?? "{}"))
+      .toEqual({ "provider-default": REMEMBERED_UI_API_KEY });
   });
 
   it("shows memory-only storage truthfully and disables long-term API key storage", async () => {
@@ -1075,6 +1098,7 @@ function createPreviewRuntime(saveResults: SaveImageResult[], history: ImageReco
     loadConfig: vi.fn().mockResolvedValue({
       ...DEFAULT_CONFIG,
       apiKey: "test-key",
+      providerProfiles: [{ ...DEFAULT_CONFIG.providerProfiles[0], apiKey: "test-key" }],
       uiLanguage: "en-US",
       hasDismissedWelcome: true,
     }),

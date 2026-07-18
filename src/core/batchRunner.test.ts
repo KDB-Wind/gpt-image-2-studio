@@ -25,6 +25,40 @@ function createSaveResult(input: BatchImageSaveInput): BatchImageSaveResult {
 }
 
 describe("batchRunner", () => {
+  it("passes the active provider snapshot into batch saves and task state", async () => {
+    let savedInput: BatchImageSaveInput | undefined;
+    const result = await runBatchTasks({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: {
+        ...DEFAULT_CONFIG,
+        providerProfiles: [{
+          ...DEFAULT_CONFIG.providerProfiles[0],
+          id: "profile-a",
+          name: "Profile A",
+          imageModel: "image-a",
+        }],
+        activeProviderProfileId: "profile-a",
+      },
+      tasks: createTasksFromMultilinePrompts("one"),
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 0 },
+      referenceImages: [],
+      generateImages: async () => [{ base64: "ok" }],
+      saveBatchImage: async (input) => {
+        savedInput = input;
+        return createSaveResult(input);
+      },
+    });
+
+    expect(savedInput?.providerProfileSnapshot).toEqual({
+      providerProfileId: "profile-a",
+      providerProfileName: "Profile A",
+      imageModel: "image-a",
+      imageResponseMode: "official",
+    });
+    expect(result.tasks[0].providerProfileSnapshot).toEqual(savedInput?.providerProfileSnapshot);
+  });
   it("normalizes every batch child to one requested image", async () => {
     const requestedCounts: number[] = [];
 

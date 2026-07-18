@@ -686,6 +686,7 @@ fn create_record(input: SaveGeneratedImageInput, output_path: &Path) -> ImageRec
         size: input.config.default_size,
         output_path: output_path.to_string_lossy().to_string(),
         duration_ms: input.duration_ms,
+        provider_profile_snapshot: input.provider_profile_snapshot,
         error_message: None,
     }
 }
@@ -877,6 +878,7 @@ pub fn save_batch_image_at(
         size: input.config.default_size,
         output_path: output_path.to_string_lossy().to_string(),
         duration_ms: input.duration_ms,
+        provider_profile_snapshot: input.provider_profile_snapshot,
         error_message: None,
     };
     commit_history_record(history_file, record.clone(), &output_path)?;

@@ -1,5 +1,6 @@
 import { generateImages as defaultGenerateImages } from "./apiClient";
 import type { AppConfig } from "./config";
+import { createProviderProfileSnapshot } from "./history";
 import { classifyProviderError, summarizeSensitiveError, type ProviderTransportKind } from "./providerErrors";
 import {
   clampBatchExecutionConfig,
@@ -123,6 +124,7 @@ export async function retrySingleBatchTask(
 async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<BatchTask> {
   const generateImages = input.generateImages ?? defaultGenerateImages;
   const singleImageConfig = { ...input.config, defaultCount: 1 };
+  const providerProfileSnapshot = task.providerProfileSnapshot ?? createProviderProfileSnapshot(singleImageConfig);
   const maxAttempts = input.executionConfig.maxRetries + 1;
   let attempt = 0;
 
@@ -131,6 +133,7 @@ async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<B
     const startedAt = new Date();
     const runningTask: BatchTask = {
       ...task,
+      providerProfileSnapshot,
       status: "running",
       attemptCount: attempt,
       errorMessage: "",
@@ -161,6 +164,7 @@ async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<B
         config: singleImageConfig,
         generatedAt: new Date(),
         durationMs,
+        providerProfileSnapshot,
       });
 
       return {
@@ -174,6 +178,7 @@ async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<B
         historyWarning: saved.historyWarning ? summarizeSensitiveError(saved.historyWarning) : undefined,
         durationMs,
         completedAt: new Date().toISOString(),
+        providerProfileSnapshot,
       };
     } catch (error) {
       const failureCategory = classifyBatchFailure(error);

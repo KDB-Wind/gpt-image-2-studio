@@ -17,6 +17,8 @@ import { MAX_BATCH_TASK_COUNT, clampBatchTaskCount, type ImageSaveMode } from ".
 import {
   groupHistoryByDate,
   groupHistoryRecordsForDisplay,
+  createProviderProfileSnapshot,
+  getHistoryProviderLabel,
   type HistoryDisplayItem,
   type ImageRecord,
 } from "./core/history";
@@ -1188,6 +1190,7 @@ export default function App() {
         config,
         generatedAt,
         durationMs,
+        providerProfileSnapshot: createProviderProfileSnapshot(config),
       });
 
       savedPreviewUrl = savedResult.previewUrl;
@@ -2972,7 +2975,7 @@ export default function App() {
                             <dl className="history-meta">
                               <div>
                                 <dt>{copy.labels.model}</dt>
-                                <dd>{record.model}</dd>
+                                <dd>{getHistoryProviderLabel(record)}</dd>
                               </div>
                               <div>
                                 <dt>{copy.labels.duration}</dt>

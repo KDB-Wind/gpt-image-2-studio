@@ -113,6 +113,7 @@ function sanitizeBatchManifestTask(task: BatchTask | BatchManifestTask): BatchMa
     errorMessage: nextTask.errorMessage ? summarizeSensitiveError(nextTask.errorMessage) : "",
     saveFallbackReason: nextTask.saveFallbackReason ? summarizeSensitiveError(nextTask.saveFallbackReason) : undefined,
     historyWarning: nextTask.historyWarning ? summarizeSensitiveError(nextTask.historyWarning) : undefined,
+    providerProfileSnapshot: nextTask.providerProfileSnapshot,
   };
 }
 

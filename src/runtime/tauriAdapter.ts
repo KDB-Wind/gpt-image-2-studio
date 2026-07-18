@@ -8,6 +8,7 @@ import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest } from ".
 import { mergeConfig, type AppConfig } from "../core/config";
 import { resolveActiveProviderProfile } from "../core/providerProfiles";
 import type { ImageRecord } from "../core/history";
+import type { ProviderProfileSnapshot } from "../core/history";
 import type {
   OutputDirectoryState,
   OutputDirectoryTestResult,
@@ -25,6 +26,7 @@ type SaveGeneratedImagePayload = {
   config: AppConfig;
   generatedAt: string;
   durationMs: number;
+  providerProfileSnapshot?: ProviderProfileSnapshot;
 };
 
 async function blobToBase64(blob: Blob): Promise<string> {
@@ -70,6 +72,7 @@ async function batchImageToBase64(input: BatchImageSaveInput): Promise<string> {
     config: input.config,
     generatedAt: input.generatedAt,
     durationMs: input.durationMs,
+    providerProfileSnapshot: input.providerProfileSnapshot,
   });
 }
 
@@ -82,6 +85,7 @@ async function createPayload(input: SaveImageInput): Promise<SaveGeneratedImageP
     config: input.config,
     generatedAt: input.generatedAt.toISOString(),
     durationMs: input.durationMs,
+    providerProfileSnapshot: input.providerProfileSnapshot,
   };
 }
 
@@ -100,6 +104,7 @@ async function createBatchImagePayload(input: BatchImageSaveInput) {
     config: input.config,
     generatedAt: input.generatedAt.toISOString(),
     durationMs: input.durationMs,
+    providerProfileSnapshot: input.providerProfileSnapshot,
   };
 }
 

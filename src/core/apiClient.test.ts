@@ -10,6 +10,7 @@ import {
   parseImageGenerationResponse,
   parseTextResponse,
   requestJsonWithTimeout,
+  resolveProviderRequestConfig,
   testTextModel,
   sendTextRequest,
   testImageEditModel,
@@ -426,6 +427,7 @@ describe("requestJsonWithTimeout", () => {
     baseUrl: "https://api.example.com",
     apiKey: "sk-test",
     timeoutSeconds: 5,
+    providerProfiles: [{ ...DEFAULT_CONFIG.providerProfiles[0], baseUrl: "https://api.example.com/v1", apiKey: "sk-test" }],
   };
 
   afterEach(() => {
@@ -501,6 +503,7 @@ describe("sendTextRequest", () => {
     baseUrl: "https://api.example.com",
     apiKey: "sk-test",
     timeoutSeconds: 5,
+    providerProfiles: [{ ...DEFAULT_CONFIG.providerProfiles[0], baseUrl: "https://api.example.com/v1", apiKey: "sk-test" }],
     textModel: "gpt-5.4-mini",
   };
 
@@ -661,6 +664,7 @@ describe("testImageModel", () => {
     defaultFormat: "png",
     defaultCompression: 90,
     imageResponseMode: "force-base64",
+    providerProfiles: [{ ...DEFAULT_CONFIG.providerProfiles[0], baseUrl: "https://api.example.com/v1", apiKey: "sk-test", imageModel: "gpt-image-1", imageResponseMode: "force-base64" }],
   };
 
   afterEach(() => {
@@ -714,6 +718,7 @@ describe("generateImages", () => {
     defaultFormat: "png",
     defaultCompression: 90,
     imageResponseMode: "force-base64",
+    providerProfiles: [{ ...DEFAULT_CONFIG.providerProfiles[0], baseUrl: "https://api.example.com/v1", apiKey: "sk-test", imageModel: "gpt-image-2", imageResponseMode: "force-base64" }],
   };
 
   afterEach(() => {
@@ -866,6 +871,35 @@ describe("active provider request resolution", () => {
     expect(body.model).toBe("image-a");
     expect(body.response_format).toBeUndefined();
   });
+
+  it("always resolves a single active profile instead of stale top-level fields", () => {
+    expect(resolveProviderRequestConfig({
+      ...config,
+      providerProfiles: [config.providerProfiles[1]],
+      activeProviderProfileId: "profile-b",
+    })).toEqual({
+      baseUrl: "https://b.example/v1",
+      apiKey: "key-b",
+      textModel: "text-b",
+      imageModel: "image-b",
+      imageResponseMode: "force-base64",
+    });
+  });
+
+  it("isolates image model connectivity tests to the active profile", async () => {
+    const fetchMock = vi.fn<(_: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+      .mockImplementation(async () => new Response(JSON.stringify({ data: [{ b64_json: "ok" }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await testImageModel(config);
+    await testImageEditModel({ ...config, activeProviderProfileId: "profile-a" });
+
+    expect(fetchMock.mock.calls[0][0]).toContain("https://b.example/v1/images/generations");
+    expect(JSON.parse(fetchMock.mock.calls[0][1]?.body as string).model).toBe("image-b");
+    expect(fetchMock.mock.calls[1][0]).toContain("https://a.example/v1/images/edits");
+    expect((fetchMock.mock.calls[1][1]?.body as FormData).get("model")).toBe("image-a");
+    expect((fetchMock.mock.calls[1][1]?.body as FormData).get("response_format")).toBeNull();
+  });
 });
 
 describe("testImageEditModel", () => {
@@ -881,6 +915,7 @@ describe("testImageEditModel", () => {
     defaultFormat: "png",
     defaultCompression: 90,
     imageResponseMode: "force-base64",
+    providerProfiles: [{ ...DEFAULT_CONFIG.providerProfiles[0], baseUrl: "https://api.example.com/v1", apiKey: "sk-test", imageModel: "gpt-image-2", imageResponseMode: "force-base64" }],
   };
 
   afterEach(() => {

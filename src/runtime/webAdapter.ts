@@ -486,6 +486,7 @@ function buildRecord(input: SaveImageInput, outputPath: string): ImageRecord {
     size: input.config.defaultSize,
     outputPath,
     durationMs: input.durationMs,
+    providerProfileSnapshot: input.providerProfileSnapshot,
   };
 }
 
@@ -1048,6 +1049,7 @@ export const webAdapter: RuntimeAdapter = {
         size: input.config.defaultSize,
         outputPath,
         durationMs: input.durationMs,
+        providerProfileSnapshot: input.providerProfileSnapshot,
         batch: {
           id: input.batchId,
           title: input.batchTitle,

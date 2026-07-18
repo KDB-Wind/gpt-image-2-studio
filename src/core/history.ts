@@ -1,6 +1,8 @@
 import { formatDateFolder } from "./fileNames";
 
 import type { ImageResponseMode } from "./config";
+import type { AppConfig } from "./config";
+import { resolveActiveProviderProfile } from "./providerProfiles";
 
 export type ImageRecordStatus = "success" | "failed" | "cancelled";
 
@@ -10,6 +12,16 @@ export type ProviderProfileSnapshot = {
   imageModel: string;
   imageResponseMode: ImageResponseMode;
 };
+
+export function createProviderProfileSnapshot(config: AppConfig): ProviderProfileSnapshot {
+  const profile = resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId);
+  return {
+    providerProfileId: profile.id,
+    providerProfileName: profile.name,
+    imageModel: profile.imageModel,
+    imageResponseMode: profile.imageResponseMode,
+  };
+}
 
 export type ImageRecord = {
   id: string;

@@ -727,6 +727,40 @@ describe("webAdapter history deletion", () => {
     expect((await webAdapter.loadHistory()).map((record) => record.id)).toEqual([second.record.id]);
   });
 
+  it("persists the provider profile snapshot on single and batch history records", async () => {
+    const snapshot = {
+      providerProfileId: "profile-a",
+      providerProfileName: "Profile A",
+      imageModel: "image-a",
+      imageResponseMode: "official" as const,
+    };
+    const single = await webAdapter.saveImage({
+      image: { base64: ONE_PIXEL_PNG },
+      prompt: "single",
+      optimizedPrompt: "",
+      customName: "single",
+      config: { ...DEFAULT_CONFIG, defaultFormat: "png" },
+      generatedAt: new Date("2026-05-05T00:00:00.000Z"),
+      durationMs: 1,
+      providerProfileSnapshot: snapshot,
+    });
+    const batch = await webAdapter.saveBatchImage({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-05T00:00:00.000Z",
+      task: createBatchTask({ id: "task-1" }),
+      image: { base64: ONE_PIXEL_PNG },
+      config: { ...DEFAULT_CONFIG, defaultFormat: "png" },
+      generatedAt: new Date("2026-05-05T00:01:00.000Z"),
+      durationMs: 1,
+      providerProfileSnapshot: snapshot,
+    });
+
+    expect(single.record.providerProfileSnapshot).toEqual(snapshot);
+    expect(batch.record.providerProfileSnapshot).toEqual(snapshot);
+    expect(JSON.stringify(await webAdapter.loadHistory())).not.toMatch(/apiKey|Authorization|signatureUrl/i);
+  });
+
   it("records the real browser download file name when no authorized output directory is available", async () => {
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fallback-download");
 

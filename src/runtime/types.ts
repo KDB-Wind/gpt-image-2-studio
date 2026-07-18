@@ -9,7 +9,7 @@ import type {
 } from "../core/batchTypes";
 import type { AppConfig } from "../core/config";
 import type { ProviderProfileMetadata } from "../core/providerProfiles";
-import type { ImageRecord } from "../core/history";
+import type { ImageRecord, ProviderProfileSnapshot } from "../core/history";
 
 export type SaveImageInput = {
   image: ParsedImage;
@@ -19,6 +19,7 @@ export type SaveImageInput = {
   config: AppConfig;
   generatedAt: Date;
   durationMs: number;
+  providerProfileSnapshot?: ProviderProfileSnapshot;
 };
 
 export type SaveImageResult = {
