@@ -1004,27 +1004,55 @@ describe("webAdapter history deletion", () => {
     ).rejects.toThrow("Failed to download generated image (HTTP 403).");
   });
 
-  it("keeps an invalid provider URL generic and does not attempt a fetch", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+  it.each(["official", "force-base64"] as const)(
+    "keeps an invalid provider URL generic in %s mode and does not attempt a fetch",
+    async (imageResponseMode) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
 
-    await expect(
-      webAdapter.saveImage({
-        image: { url: "https://" },
-        prompt: "A malformed URL image.",
-        optimizedPrompt: "",
-        customName: "",
-        config: DEFAULT_CONFIG,
-        generatedAt: new Date("2026-07-05T10:00:00.000Z"),
-        durationMs: 1200,
-      }),
-    ).rejects.toMatchObject({
-      code: "image-download-failed",
-      message: "Failed to download generated image.",
-    });
+      await expect(
+        webAdapter.saveImage({
+          image: { url: "https://" },
+          prompt: "A malformed URL image.",
+          optimizedPrompt: "",
+          customName: "",
+          config: {
+            ...DEFAULT_CONFIG,
+            providerProfiles: [{ ...DEFAULT_CONFIG.providerProfiles[0], imageResponseMode }],
+          },
+          generatedAt: new Date("2026-07-05T10:00:00.000Z"),
+          durationMs: 1200,
+        }),
+      ).rejects.toMatchObject({
+        code: "image-download-failed",
+        message: "Failed to download generated image.",
+      });
 
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["blob:revoked-image", "data:image/png;base64,invalid", "ftp://provider.example/image.png"])(
+    "keeps non-http image URL fetch failures generic: %s",
+    async (providerUrl) => {
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValueOnce(new TypeError("Failed to fetch")));
+
+      await expect(
+        webAdapter.saveImage({
+          image: { url: providerUrl },
+          prompt: "A non-provider image URL.",
+          optimizedPrompt: "",
+          customName: "",
+          config: DEFAULT_CONFIG,
+          generatedAt: new Date("2026-07-05T10:00:00.000Z"),
+          durationMs: 1200,
+        }),
+      ).rejects.toMatchObject({
+        code: "image-download-failed",
+        message: "Failed to download generated image.",
+      });
+    },
+  );
 
   it("keeps a response blob TypeError generic instead of classifying it as CORS", async () => {
     const providerUrl = "https://provider.example/generated.png?signature=private-token";

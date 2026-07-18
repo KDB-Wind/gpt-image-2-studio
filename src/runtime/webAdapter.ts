@@ -451,11 +451,12 @@ async function imageToBlob(input: SaveImageInput): Promise<Blob> {
       input.config.activeProviderProfileId,
     ).imageResponseMode;
 
-    if (responseMode === "force-base64") {
-      throw classifyImageDownloadFailure({ responseMode, cause: undefined, operation: "url" });
+    const parsedUrl = parseSupportedImageUrl(input.image.url);
+    if (!parsedUrl) {
+      throw classifyImageDownloadFailure({ responseMode: "official", cause: undefined, operation: "url" });
     }
 
-    if (!isSupportedImageUrl(input.image.url)) {
+    if (responseMode === "force-base64") {
       throw classifyImageDownloadFailure({ responseMode, cause: undefined, operation: "url" });
     }
 
@@ -463,7 +464,12 @@ async function imageToBlob(input: SaveImageInput): Promise<Blob> {
     try {
       response = await fetch(input.image.url);
     } catch (error) {
-      throw classifyImageDownloadFailure({ responseMode, cause: error, operation: "fetch" });
+      throw classifyImageDownloadFailure({
+        responseMode,
+        cause: error,
+        operation: "fetch",
+        urlProtocol: parsedUrl.protocol,
+      });
     }
 
     if (!response.ok) {
@@ -485,15 +491,22 @@ async function imageToBlob(input: SaveImageInput): Promise<Blob> {
   throw new Error("Image payload did not include base64 data or a URL.");
 }
 
-function isSupportedImageUrl(value: string): boolean {
+function parseSupportedImageUrl(value: string): URL | null {
   try {
-    const parsed = new URL(value, window.location.href);
-    return parsed.protocol === "http:"
-      || parsed.protocol === "https:"
+    const trimmed = value.trim();
+    const hasExplicitScheme = /^[a-z][a-z\d+.-]*:/i.test(trimmed);
+    const parsed = hasExplicitScheme
+      ? new URL(trimmed)
+      : new URL(trimmed, window.location.href);
+    const isHttpUrl = parsed.protocol === "http:" || parsed.protocol === "https:";
+    if ((isHttpUrl && parsed.hostname)
       || parsed.protocol === "blob:"
-      || parsed.protocol === "data:";
+      || parsed.protocol === "data:") {
+      return parsed;
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 

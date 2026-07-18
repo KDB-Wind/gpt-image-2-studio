@@ -12,6 +12,7 @@ describe("image download error classification", () => {
       responseMode: "official",
       cause: new TypeError(`Failed to fetch ${providerUrl}`),
       operation: "fetch",
+      urlProtocol: "https:",
     });
 
     expect(error).toBeInstanceOf(ImageDownloadError);
@@ -62,6 +63,7 @@ describe("image download error classification", () => {
       responseMode: "official",
       cause: new TypeError("Failed to parse URL from https://invalid-url"),
       operation: "fetch",
+      urlProtocol: "https:",
     });
 
     expect(error).toMatchObject({ code: "image-download-failed" });
@@ -78,6 +80,21 @@ describe("image download error classification", () => {
     expect(error).toMatchObject({ code: "image-download-failed" });
     expect(error.message).not.toContain("provider.example");
   });
+
+  it.each(["blob:", "data:", "file:", "ftp:"])(
+    "keeps %s fetch failures generic instead of classifying them as CORS",
+    (urlProtocol) => {
+      const error = classifyImageDownloadFailure({
+        responseMode: "official",
+        cause: new TypeError("Failed to fetch a local or unsupported image URL."),
+        operation: "fetch",
+        urlProtocol,
+      });
+
+      expect(error).toMatchObject({ code: "image-download-failed" });
+      expect(error.message).toBe("Failed to download generated image.");
+    },
+  );
 
   it.each([-1, 0, 99, 600, NaN, Infinity])("uses a generic failure for invalid HTTP status %s", (status) => {
     const error = classifyImageDownloadFailure({
