@@ -1,6 +1,6 @@
 import type { ParsedImage } from "./apiClient";
 import type { AppConfig } from "./config";
-import type { ImageRecord } from "./history";
+import type { ImageRecord, ProviderProfileSnapshot } from "./history";
 
 export type BatchSource = "same-prompt" | "custom-prompts";
 export type BatchStatus = "draft" | "running" | "paused" | "cancelled" | "completed";
@@ -40,6 +40,7 @@ export type BatchTask = {
   durationMs: number;
   startedAt: string;
   completedAt: string;
+  providerProfileSnapshot?: ProviderProfileSnapshot;
 };
 
 export type BatchDraft = {
@@ -136,6 +137,7 @@ export type BatchImageSaveInput = {
   config: AppConfig;
   generatedAt: Date;
   durationMs: number;
+  providerProfileSnapshot?: ProviderProfileSnapshot;
 };
 
 export type ImageSaveMode = "authorized-directory" | "browser-download";
@@ -171,6 +173,7 @@ export type BatchManifestTask = Pick<
   | "durationMs"
   | "startedAt"
   | "completedAt"
+  | "providerProfileSnapshot"
 >;
 
 export type BatchManifest = {

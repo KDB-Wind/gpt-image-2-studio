@@ -6,9 +6,11 @@ import {
   buildImageGenerationRequest,
   buildResponsesRequest,
   generateImages,
+  optimizePrompt,
   parseImageGenerationResponse,
   parseTextResponse,
   requestJsonWithTimeout,
+  testTextModel,
   sendTextRequest,
   testImageEditModel,
   testImageModel,
@@ -776,6 +778,93 @@ describe("generateImages", () => {
     expect(formData.get("response_format")).toBe("b64_json");
     expect(formData.getAll("image[]")).toHaveLength(0);
     expect(formData.getAll("image")).toHaveLength(1);
+  });
+});
+
+describe("active provider request resolution", () => {
+  const config = {
+    ...DEFAULT_CONFIG,
+    baseUrl: "https://stale.example/v1",
+    apiKey: "stale-key",
+    textModel: "stale-text",
+    imageModel: "stale-image",
+    imageResponseMode: "official" as const,
+    providerSchemaVersion: 1 as const,
+    activeProviderProfileId: "profile-b",
+    providerProfiles: [
+      {
+        id: "profile-a",
+        name: "Profile A",
+        baseUrl: "https://a.example/v1",
+        apiKey: "key-a",
+        textModel: "text-a",
+        imageModel: "image-a",
+        imageResponseMode: "official" as const,
+        rememberApiKey: true,
+      },
+      {
+        id: "profile-b",
+        name: "Profile B",
+        baseUrl: "https://b.example/v1",
+        apiKey: "key-b",
+        textModel: "text-b",
+        imageModel: "image-b",
+        imageResponseMode: "force-base64" as const,
+        rememberApiKey: true,
+      },
+    ],
+  } satisfies AppConfig;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("uses the active profile for text, optimize, generation, edit, and model tests", async () => {
+    const fetchMock = vi.fn<(_: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({ output_text: "text" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ output_text: "optimized" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ b64_json: "gen" }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ b64_json: "edit" }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ output_text: "tested" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendTextRequest(config, "system", "user");
+    await optimizePrompt(config, "prompt");
+    await generateImages(config, "generate");
+    await generateImages(config, "edit", { referenceImages: [new File(["ref"], "ref.png")] });
+    await testTextModel(config);
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    for (const call of fetchMock.mock.calls) {
+      expect(call[0]).toContain("https://b.example/v1/");
+      expect((call[1]?.headers as Record<string, string>).Authorization).toBe("Bearer key-b");
+    }
+    expect(JSON.parse(fetchMock.mock.calls[0][1]?.body as string).model).toBe("text-b");
+    expect(JSON.parse(fetchMock.mock.calls[1][1]?.body as string).model).toBe("text-b");
+    expect(JSON.parse(fetchMock.mock.calls[2][1]?.body as string)).toEqual(expect.objectContaining({
+      model: "image-b",
+      response_format: "b64_json",
+    }));
+    expect((fetchMock.mock.calls[3][1]?.body as FormData).get("model")).toBe("image-b");
+    expect((fetchMock.mock.calls[3][1]?.body as FormData).get("response_format")).toBe("b64_json");
+    expect(JSON.parse(fetchMock.mock.calls[4][1]?.body as string).model).toBe("text-b");
+  });
+
+  it("omits response_format when the active profile uses official image responses", async () => {
+    const fetchMock = vi.fn<(_: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValue(new Response(JSON.stringify({ data: [{ url: "https://image.example/result" }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await generateImages({
+      ...config,
+      activeProviderProfileId: "profile-a",
+    }, "generate");
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1]?.body as string);
+    expect(fetchMock.mock.calls[0][0]).toContain("https://a.example/v1/");
+    expect(body.model).toBe("image-a");
+    expect(body.response_format).toBeUndefined();
   });
 });
 

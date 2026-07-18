@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   groupHistoryRecordsForDisplay,
   groupHistoryByDate,
+  getHistoryProviderLabel,
+  normalizeImageRecord,
   sortHistoryNewestFirst,
   type ImageRecord,
 } from "./history";
@@ -80,6 +82,31 @@ describe("groupHistoryByDate", () => {
         records: [outputPathWins],
       },
     ]);
+  });
+});
+
+describe("provider profile snapshots", () => {
+  it("keeps a non-sensitive profile snapshot and labels legacy records by their model", () => {
+    const record = createRecord({
+      providerProfileSnapshot: {
+        providerProfileId: "profile-a",
+        providerProfileName: "Profile A",
+        imageModel: "image-a",
+        imageResponseMode: "official",
+      },
+    });
+
+    expect(normalizeImageRecord(record)).toEqual(record);
+    expect(getHistoryProviderLabel(record)).toBe("Profile A");
+    expect(getHistoryProviderLabel(createRecord({ model: "legacy-image" }))).toBe("legacy-image");
+    expect(JSON.stringify(record)).not.toContain("apiKey");
+    expect(JSON.stringify(record)).not.toContain("Authorization");
+  });
+
+  it("accepts old persisted records without a snapshot", () => {
+    const legacy = createRecord({});
+    expect(normalizeImageRecord(legacy)).toEqual(legacy);
+    expect(getHistoryProviderLabel(legacy)).toBe(legacy.model);
   });
 });
 

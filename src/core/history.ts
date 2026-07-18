@@ -1,6 +1,15 @@
 import { formatDateFolder } from "./fileNames";
 
+import type { ImageResponseMode } from "./config";
+
 export type ImageRecordStatus = "success" | "failed" | "cancelled";
+
+export type ProviderProfileSnapshot = {
+  providerProfileId: string;
+  providerProfileName: string;
+  imageModel: string;
+  imageResponseMode: ImageResponseMode;
+};
 
 export type ImageRecord = {
   id: string;
@@ -12,6 +21,7 @@ export type ImageRecord = {
   size: string;
   outputPath: string;
   durationMs: number;
+  providerProfileSnapshot?: ProviderProfileSnapshot;
   errorMessage?: string;
   batch?: {
     id: string;
@@ -23,6 +33,66 @@ export type ImageRecord = {
     totalTasks?: number;
   };
 };
+
+export function normalizeImageRecord(value: unknown): ImageRecord | null {
+  if (!isRecord(value)
+    || typeof value.id !== "string"
+    || !isImageRecordStatus(value.status)
+    || typeof value.createdAt !== "string"
+    || typeof value.prompt !== "string"
+    || typeof value.optimizedPrompt !== "string"
+    || typeof value.model !== "string"
+    || typeof value.size !== "string"
+    || typeof value.outputPath !== "string"
+    || typeof value.durationMs !== "number") {
+    return null;
+  }
+
+  const record: ImageRecord = {
+    id: value.id,
+    status: value.status,
+    createdAt: value.createdAt,
+    prompt: value.prompt,
+    optimizedPrompt: value.optimizedPrompt,
+    model: value.model,
+    size: value.size,
+    outputPath: value.outputPath,
+    durationMs: value.durationMs,
+  };
+  const snapshot = normalizeProviderProfileSnapshot(value.providerProfileSnapshot);
+  if (snapshot) record.providerProfileSnapshot = snapshot;
+  if (typeof value.errorMessage === "string") record.errorMessage = value.errorMessage;
+  if (isRecord(value.batch)) record.batch = value.batch as ImageRecord["batch"];
+  return record;
+}
+
+export function normalizeProviderProfileSnapshot(value: unknown): ProviderProfileSnapshot | undefined {
+  if (!isRecord(value)
+    || typeof value.providerProfileId !== "string"
+    || typeof value.providerProfileName !== "string"
+    || typeof value.imageModel !== "string"
+    || (value.imageResponseMode !== "official" && value.imageResponseMode !== "force-base64")) {
+    return undefined;
+  }
+  return {
+    providerProfileId: value.providerProfileId,
+    providerProfileName: value.providerProfileName,
+    imageModel: value.imageModel,
+    imageResponseMode: value.imageResponseMode,
+  };
+}
+
+export function getHistoryProviderLabel(record: ImageRecord): string {
+  return record.providerProfileSnapshot?.providerProfileName || record.model;
+}
+
+function isImageRecordStatus(value: unknown): value is ImageRecordStatus {
+  return value === "success" || value === "failed" || value === "cancelled";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
 export type HistoryGroup = {
   date: string;

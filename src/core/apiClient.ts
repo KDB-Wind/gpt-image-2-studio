@@ -1,6 +1,12 @@
 import { isCompressionFormat, type ImageOutputFormat, type ImageQuality } from "./imageOptions";
 import { normalizeBaseUrl, type AppConfig, type ImageResponseMode } from "./config";
 import { safeErrorMessage } from "./errorSanitizer";
+import { resolveActiveProviderProfile, type ProviderProfile } from "./providerProfiles";
+
+export type ProviderRequestConfig = Pick<
+  ProviderProfile,
+  "baseUrl" | "apiKey" | "textModel" | "imageModel" | "imageResponseMode"
+>;
 
 export type TextRequestInput = {
   model: string;
@@ -245,7 +251,38 @@ export function parseImageGenerationResponse(payload: unknown): ParsedImage[] {
   throw new Error("Image generation response did not contain any image data.");
 }
 
-export async function requestJsonWithTimeout(config: AppConfig, { path, body }: RequestJsonInput) {
+export function resolveProviderRequestConfig(config: AppConfig): ProviderRequestConfig {
+  const profile = resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId);
+  // Keep direct callers that construct a legacy one-profile AppConfig working.
+  if (config.providerProfiles.length === 1
+    && config.activeProviderProfileId === profile.id
+    && (config.baseUrl !== profile.baseUrl
+      || config.apiKey !== profile.apiKey
+      || config.textModel !== profile.textModel
+      || config.imageModel !== profile.imageModel
+      || config.imageResponseMode !== profile.imageResponseMode)) {
+    return {
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      textModel: config.textModel,
+      imageModel: config.imageModel,
+      imageResponseMode: config.imageResponseMode,
+    };
+  }
+  return {
+    baseUrl: profile.baseUrl,
+    apiKey: profile.apiKey,
+    textModel: profile.textModel,
+    imageModel: profile.imageModel,
+    imageResponseMode: profile.imageResponseMode,
+  };
+}
+
+export async function requestJsonWithTimeout(
+  config: AppConfig,
+  { path, body }: RequestJsonInput,
+  provider: ProviderRequestConfig = resolveProviderRequestConfig(config),
+) {
   const controller = new AbortController();
   let timedOut = false;
   const timeoutMs = config.timeoutSeconds * 1_000;
@@ -255,10 +292,10 @@ export async function requestJsonWithTimeout(config: AppConfig, { path, body }: 
   }, timeoutMs);
 
   try {
-    const response = await fetch(`${normalizeBaseUrl(config.baseUrl)}${path}`, {
+    const response = await fetch(`${normalizeBaseUrl(provider.baseUrl)}${path}`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${config.apiKey}`,
+        Authorization: `Bearer ${provider.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
@@ -294,7 +331,11 @@ export async function requestJsonWithTimeout(config: AppConfig, { path, body }: 
   }
 }
 
-export async function requestMultipartWithTimeout(config: AppConfig, { path, body }: RequestMultipartInput) {
+export async function requestMultipartWithTimeout(
+  config: AppConfig,
+  { path, body }: RequestMultipartInput,
+  provider: ProviderRequestConfig = resolveProviderRequestConfig(config),
+) {
   const controller = new AbortController();
   let timedOut = false;
   const timeoutMs = config.timeoutSeconds * 1_000;
@@ -304,10 +345,10 @@ export async function requestMultipartWithTimeout(config: AppConfig, { path, bod
   }, timeoutMs);
 
   try {
-    const response = await fetch(`${normalizeBaseUrl(config.baseUrl)}${path}`, {
+    const response = await fetch(`${normalizeBaseUrl(provider.baseUrl)}${path}`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${config.apiKey}`,
+        Authorization: `Bearer ${provider.apiKey}`,
       },
       body,
       signal: controller.signal,
@@ -343,17 +384,18 @@ export async function requestMultipartWithTimeout(config: AppConfig, { path, bod
 }
 
 export async function sendTextRequest(config: AppConfig, system: string, user: string): Promise<string> {
+  const provider = resolveProviderRequestConfig(config);
   try {
     const responsesPayload = await requestJsonWithTimeout(config, {
       path: "/responses",
       body: buildResponsesRequest({
-        model: config.textModel,
+        model: provider.textModel,
         input: [
           { role: "system", content: system },
           { role: "user", content: user },
         ],
       }),
-    });
+    }, provider);
 
     return parseTextResponse(responsesPayload);
   } catch (error) {
@@ -364,11 +406,11 @@ export async function sendTextRequest(config: AppConfig, system: string, user: s
     const chatPayload = await requestJsonWithTimeout(config, {
       path: "/chat/completions",
       body: buildChatCompletionsRequest({
-        model: config.textModel,
+        model: provider.textModel,
         system,
         user,
       }),
-    });
+    }, provider);
 
     return parseTextResponse(chatPayload);
   }
@@ -395,35 +437,36 @@ export async function generateImages(
   prompt: string,
   options?: { referenceImages?: File[] },
 ): Promise<ParsedImage[]> {
+  const provider = resolveProviderRequestConfig(config);
   const referenceImages = options?.referenceImages?.filter((file) => file instanceof File) ?? [];
   const payload = referenceImages.length > 0
     ? await requestMultipartWithTimeout(config, {
         path: "/images/edits",
         body: buildImageEditRequest({
-          model: config.imageModel,
+          model: provider.imageModel,
           prompt,
           size: config.defaultSize,
           quality: config.defaultQuality,
           n: IMAGES_PER_TASK,
           outputFormat: config.defaultFormat,
           outputCompression: config.defaultCompression,
-          responseMode: config.imageResponseMode,
+          responseMode: provider.imageResponseMode,
           referenceImages,
         }),
-      })
+      }, provider)
     : await requestJsonWithTimeout(config, {
         path: "/images/generations",
         body: buildImageGenerationRequest({
-          model: config.imageModel,
+          model: provider.imageModel,
           prompt,
           size: config.defaultSize,
           quality: config.defaultQuality,
           n: IMAGES_PER_TASK,
           outputFormat: config.defaultFormat,
           outputCompression: config.defaultCompression,
-          responseMode: config.imageResponseMode,
+          responseMode: provider.imageResponseMode,
         }),
-      });
+      }, provider);
 
   return parseImageGenerationResponse(payload);
 }
