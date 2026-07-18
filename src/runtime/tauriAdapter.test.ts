@@ -169,3 +169,48 @@ describe("tauriAdapter output directory state", () => {
     await expect(tauriAdapter.saveBatchManifest(manifest)).resolves.toBe("manifest.json");
   });
 });
+
+describe("tauriAdapter provider profile bridge", () => {
+  beforeEach(() => invokeMock.mockReset());
+
+  it("hydrates the default provider profile from the legacy native config", async () => {
+    invokeMock.mockResolvedValue({ ...DEFAULT_CONFIG, apiKey: "desktop-fake-key" });
+
+    await expect(tauriAdapter.loadConfig()).resolves.toMatchObject({
+      activeProviderProfileId: "provider-default",
+      apiKey: "desktop-fake-key",
+      providerProfiles: [expect.objectContaining({ id: "provider-default", apiKey: "desktop-fake-key" })],
+    });
+  });
+
+  it("saves the active profile through the legacy native config shape", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    const config = {
+      ...DEFAULT_CONFIG,
+      activeProviderProfileId: "provider-alt",
+      apiKey: "desktop-alt-fake-key",
+      providerProfiles: [
+        { ...DEFAULT_CONFIG.providerProfiles[0], apiKey: "desktop-default-fake-key" },
+        {
+          ...DEFAULT_CONFIG.providerProfiles[0],
+          id: "provider-alt",
+          name: "Alternate provider",
+          baseUrl: "https://alternate.example/v1",
+          apiKey: "desktop-alt-fake-key",
+        },
+      ],
+    };
+
+    await tauriAdapter.saveConfig(config);
+
+    expect(invokeMock).toHaveBeenCalledWith("save_config", expect.objectContaining({
+      config: expect.objectContaining({
+        apiKey: "desktop-alt-fake-key",
+        baseUrl: "https://alternate.example/v1",
+        imageModel: config.providerProfiles[1].imageModel,
+      }),
+    }));
+    const payload = invokeMock.mock.calls[0][1] as { config: Record<string, unknown> };
+    expect(payload.config.providerProfiles).toBeUndefined();
+  });
+});

@@ -37,7 +37,8 @@ describe("webAdapter history deletion", () => {
 
     const storedConfig = JSON.parse(localStorage.getItem("chat-to-image.config.v1") ?? "{}");
     expect(storedConfig.apiKey).toBeUndefined();
-    expect(localStorage.getItem("chat-to-image.api-key.persistent.v1")).toBeNull();
+    expect(JSON.parse(localStorage.getItem("chat-to-image.api-keys.persistent.v1") ?? "{}"))
+      .toEqual({});
     await expect(webAdapter.loadConfig()).resolves.toMatchObject({
       apiKey: SESSION_API_KEY,
       rememberApiKey: false,
@@ -54,7 +55,8 @@ describe("webAdapter history deletion", () => {
 
     const storedConfig = JSON.parse(localStorage.getItem("chat-to-image.config.v1") ?? "{}");
     expect(storedConfig.apiKey).toBeUndefined();
-    expect(localStorage.getItem("chat-to-image.api-key.persistent.v1")).toContain(REMEMBERED_API_KEY);
+    expect(JSON.parse(localStorage.getItem("chat-to-image.api-keys.persistent.v1") ?? "{}"))
+      .toEqual({ "provider-default": REMEMBERED_API_KEY });
 
     sessionStorage.clear();
     await expect(webAdapter.loadConfig()).resolves.toMatchObject({
@@ -75,7 +77,8 @@ describe("webAdapter history deletion", () => {
       rememberApiKey: false,
     });
 
-    expect(localStorage.getItem("chat-to-image.api-key.persistent.v1")).toBeNull();
+    expect(JSON.parse(localStorage.getItem("chat-to-image.api-keys.persistent.v1") ?? "{}"))
+      .toEqual({});
     await expect(webAdapter.loadConfig()).resolves.toMatchObject({
       apiKey: CURRENT_SESSION_API_KEY,
       rememberApiKey: false,
@@ -111,6 +114,77 @@ describe("webAdapter history deletion", () => {
     });
     const migratedConfig = JSON.parse(localStorage.getItem("chat-to-image.config.v1") ?? "{}");
     expect(migratedConfig.apiKey).toBeUndefined();
+  });
+
+  it("isolates every provider key in local and session maps and prunes deleted profiles", async () => {
+    const defaultKey = "default-profile-fake-key";
+    const alternateKey = "alternate-profile-fake-key";
+    const config = {
+      ...DEFAULT_CONFIG,
+      activeProviderProfileId: "provider-alt",
+      apiKey: alternateKey,
+      rememberApiKey: false,
+      providerProfiles: [
+        { ...DEFAULT_CONFIG.providerProfiles[0], apiKey: defaultKey, rememberApiKey: true },
+        {
+          ...DEFAULT_CONFIG.providerProfiles[0],
+          id: "provider-alt",
+          name: "Alternate provider",
+          apiKey: alternateKey,
+          rememberApiKey: false,
+        },
+      ],
+    };
+
+    await webAdapter.saveConfig(config);
+
+    const storedConfig = JSON.parse(localStorage.getItem("chat-to-image.config.v1") ?? "{}");
+    expect(storedConfig.apiKey).toBeUndefined();
+    expect(storedConfig.providerProfiles).toEqual([
+      expect.not.objectContaining({ apiKey: expect.anything() }),
+      expect.not.objectContaining({ apiKey: expect.anything() }),
+    ]);
+    expect(JSON.parse(localStorage.getItem("chat-to-image.api-keys.persistent.v1") ?? "{}"))
+      .toEqual({ "provider-default": defaultKey });
+    expect(JSON.parse(sessionStorage.getItem("chat-to-image.api-keys.session.v1") ?? "{}"))
+      .toEqual({ "provider-alt": alternateKey });
+
+    await webAdapter.saveConfig({
+      ...config,
+      activeProviderProfileId: "provider-default",
+      apiKey: defaultKey,
+      rememberApiKey: true,
+      providerProfiles: [config.providerProfiles[0]],
+    });
+
+    expect(JSON.parse(sessionStorage.getItem("chat-to-image.api-keys.session.v1") ?? "{}"))
+      .toEqual({});
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      activeProviderProfileId: "provider-default",
+      apiKey: defaultKey,
+      providerProfiles: [expect.objectContaining({ id: "provider-default", apiKey: defaultKey })],
+    });
+  });
+
+  it("migrates a legacy single key into the default profile map once", async () => {
+    localStorage.setItem(
+      "chat-to-image.config.v1",
+      JSON.stringify({ ...DEFAULT_CONFIG, apiKey: LEGACY_API_KEY, rememberApiKey: true }),
+    );
+
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      activeProviderProfileId: "provider-default",
+      apiKey: LEGACY_API_KEY,
+    });
+    expect(JSON.parse(localStorage.getItem("chat-to-image.api-keys.persistent.v1") ?? "{}"))
+      .toEqual({ "provider-default": LEGACY_API_KEY });
+
+    localStorage.setItem("chat-to-image.config.v1", JSON.stringify({
+      ...DEFAULT_CONFIG,
+      providerProfiles: [{ ...DEFAULT_CONFIG.providerProfiles[0], rememberApiKey: false }],
+      rememberApiKey: false,
+    }));
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({ apiKey: LEGACY_API_KEY });
   });
 
   it("falls back safely when the stored config JSON is not an object", async () => {

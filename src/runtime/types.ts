@@ -8,6 +8,7 @@ import type {
   ImageSaveMode,
 } from "../core/batchTypes";
 import type { AppConfig } from "../core/config";
+import type { ProviderProfileMetadata } from "../core/providerProfiles";
 import type { ImageRecord } from "../core/history";
 
 export type SaveImageInput = {
@@ -47,6 +48,15 @@ export type RuntimeStorageCapabilities = {
   local: boolean;
   session: boolean;
 };
+
+export type PersistedRuntimeConfig = Omit<AppConfig, "apiKey" | "providerProfiles"> & {
+  providerProfiles: ProviderProfileMetadata[];
+};
+
+export type LegacyRuntimeConfig = Omit<
+  AppConfig,
+  "providerSchemaVersion" | "activeProviderProfileId" | "providerProfiles"
+>;
 
 export type RuntimeAdapter = {
   mode: "web" | "desktop";

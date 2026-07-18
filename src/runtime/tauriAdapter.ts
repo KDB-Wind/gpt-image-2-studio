@@ -5,12 +5,14 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { sanitizeBatchManifest } from "../core/batchManifest";
 import { safeErrorMessage } from "../core/errorSanitizer";
 import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest } from "../core/batchTypes";
-import type { AppConfig } from "../core/config";
+import { mergeConfig, type AppConfig } from "../core/config";
+import { resolveActiveProviderProfile } from "../core/providerProfiles";
 import type { ImageRecord } from "../core/history";
 import type {
   OutputDirectoryState,
   OutputDirectoryTestResult,
   RuntimeAdapter,
+  LegacyRuntimeConfig,
   SaveImageInput,
   SaveImageResult,
 } from "./types";
@@ -105,11 +107,35 @@ export const tauriAdapter: RuntimeAdapter = {
   mode: "desktop",
 
   loadConfig() {
-    return invoke<AppConfig>("load_config");
+    return invoke<LegacyRuntimeConfig>("load_config").then((config) => {
+      const {
+        providerSchemaVersion: _providerSchemaVersion,
+        activeProviderProfileId: _activeProviderProfileId,
+        providerProfiles: _providerProfiles,
+        ...legacyConfig
+      } = config as LegacyRuntimeConfig & Partial<AppConfig>;
+      return mergeConfig(legacyConfig);
+    });
   },
 
   saveConfig(config: AppConfig) {
-    return invoke<void>("save_config", { config });
+    const activeProfile = resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId);
+    const {
+      providerSchemaVersion: _providerSchemaVersion,
+      activeProviderProfileId: _activeProviderProfileId,
+      providerProfiles: _providerProfiles,
+      ...nativeConfig
+    } = config;
+    const bridgeConfig: LegacyRuntimeConfig = {
+      ...nativeConfig,
+      baseUrl: activeProfile.baseUrl,
+      apiKey: activeProfile.apiKey,
+      textModel: activeProfile.textModel,
+      imageModel: activeProfile.imageModel,
+      imageResponseMode: activeProfile.imageResponseMode,
+      rememberApiKey: activeProfile.rememberApiKey,
+    };
+    return invoke<void>("save_config", { config: bridgeConfig });
   },
 
   loadHistory() {

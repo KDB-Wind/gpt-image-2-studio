@@ -8,14 +8,17 @@ import { sortHistoryNewestFirst, type ImageRecord } from "../core/history";
 import type {
   OutputDirectoryState,
   RuntimeAdapter,
+  PersistedRuntimeConfig,
   RuntimeStorageCapabilities,
   SaveImageInput,
   SaveImageResult,
 } from "./types";
 
 const CONFIG_KEY = "chat-to-image.config.v1";
-const SESSION_API_KEY = "chat-to-image.api-key.session.v1";
-const PERSISTENT_API_KEY = "chat-to-image.api-key.persistent.v1";
+const SESSION_API_KEYS = "chat-to-image.api-keys.session.v1";
+const PERSISTENT_API_KEYS = "chat-to-image.api-keys.persistent.v1";
+const LEGACY_SESSION_API_KEY = "chat-to-image.api-key.session.v1";
+const LEGACY_PERSISTENT_API_KEY = "chat-to-image.api-key.persistent.v1";
 const HISTORY_KEY = "chat-to-image.history.v1";
 const BATCH_WORKSPACE_KEY = "chat-to-image.batch.draft.v1";
 const FILE_HANDLE_DB_NAME = "chat-to-image.file-handles.v1";
@@ -27,6 +30,26 @@ const OUTPUT_DIRECTORY_TEST_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lwP8NwAAAABJRU5ErkJggg==";
 const MEMORY_ONLY_HISTORY_WARNING =
   "History is available only in this open app instance because browser storage rejected the update. Refreshing or reopening will not restore this record.";
+
+function toPersistedConfig(
+  value: Omit<Partial<AppConfig>, "providerProfiles"> & {
+    providerProfiles?: Array<Partial<AppConfig["providerProfiles"][number]>>;
+  },
+): PersistedRuntimeConfig {
+  const { apiKey: _apiKey, providerProfiles = [], ...config } = value;
+  return {
+    ...config,
+    providerProfiles: providerProfiles.map(({ apiKey: _profileApiKey, ...profile }) => profile),
+  } as PersistedRuntimeConfig;
+}
+
+function pruneKeyMap(value: Record<string, string>, profileIds: Set<string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(value).filter(([id, key]) => profileIds.has(id) && typeof key === "string"));
+}
+
+function hasAnyProfileKey(...maps: Record<string, string>[]): boolean {
+  return maps.some((map) => Object.values(map).some(Boolean));
+}
 
 let directoryHandle: FileSystemDirectoryHandle | null = null;
 let readyOutputDirectory: PersistedReadyOutputDirectory | null = null;
@@ -632,48 +655,97 @@ export const webAdapter: RuntimeAdapter = {
       ? storedValue as Partial<AppConfig>
       : {};
     const legacyApiKey = typeof storedConfig.apiKey === "string" ? storedConfig.apiKey : "";
-    const { apiKey: _legacyApiKey, ...persistableConfig } = storedConfig;
-    const mergedConfig = mergeConfig({ ...persistableConfig, apiKey: "" });
-    const sessionApiKey = readStoredValue<string>(SESSION_API_KEY, "", "session");
-    const rememberApiKey = mergedConfig.rememberApiKey && storageCapabilities.local;
-    const persistentApiKey = rememberApiKey
-      ? readStoredValue<string>(PERSISTENT_API_KEY, "")
-      : "";
-    const apiKey = sessionApiKey || persistentApiKey || legacyApiKey;
-
-    if (!rememberApiKey) {
-      removeStoredValue(PERSISTENT_API_KEY);
+    const persistableConfig = toPersistedConfig(storedConfig);
+    let configWithoutKeys = mergeConfig({
+      ...persistableConfig,
+      providerSchemaVersion: DEFAULT_CONFIG.providerSchemaVersion,
+      apiKey: "",
+    } as Partial<AppConfig>);
+    if (legacyApiKey && configWithoutKeys.activeProviderProfileId === "provider-default") {
+      const legacyRememberApiKey = typeof storedConfig.rememberApiKey === "boolean"
+        ? storedConfig.rememberApiKey
+        : false;
+      configWithoutKeys = {
+        ...configWithoutKeys,
+        providerProfiles: configWithoutKeys.providerProfiles.map((profile) => profile.id === "provider-default"
+          ? { ...profile, rememberApiKey: legacyRememberApiKey }
+          : profile),
+      };
     }
+    const sessionKeys = readStoredValue<Record<string, string>>(SESSION_API_KEYS, {}, "session");
+    const persistentKeys = readStoredValue<Record<string, string>>(PERSISTENT_API_KEYS, {});
+    const legacySessionKey = readStoredValue<string>(LEGACY_SESSION_API_KEY, "", "session");
+    const legacyPersistentKey = readStoredValue<string>(LEGACY_PERSISTENT_API_KEY, "");
+    if (legacySessionKey && !sessionKeys["provider-default"]) sessionKeys["provider-default"] = legacySessionKey;
+    if (legacyPersistentKey && !persistentKeys["provider-default"]) {
+      persistentKeys["provider-default"] = legacyPersistentKey;
+    }
+    const profileIds = new Set(configWithoutKeys.providerProfiles.map((profile) => profile.id));
+    const cleanedSessionKeys = pruneKeyMap(sessionKeys, profileIds);
+    const cleanedPersistentKeys = pruneKeyMap(persistentKeys, profileIds);
 
     if (legacyApiKey) {
-      writeStoredValue(SESSION_API_KEY, legacyApiKey, "session");
-      if (rememberApiKey) {
-        writeStoredValue(PERSISTENT_API_KEY, legacyApiKey);
+      if (!hasAnyProfileKey(cleanedSessionKeys, cleanedPersistentKeys)) {
+        cleanedSessionKeys["provider-default"] = legacyApiKey;
+        if (configWithoutKeys.providerProfiles.some((profile) => profile.id === "provider-default"
+          && profile.rememberApiKey && storageCapabilities.local)) {
+          cleanedPersistentKeys["provider-default"] = legacyApiKey;
+        }
       }
       writeStoredValue(CONFIG_KEY, persistableConfig);
     }
 
-    return { ...mergedConfig, apiKey, rememberApiKey };
+    const hydratedProfiles = configWithoutKeys.providerProfiles.map((profile) => ({
+      ...profile,
+      rememberApiKey: profile.rememberApiKey && storageCapabilities.local,
+      apiKey: cleanedSessionKeys[profile.id]
+        || (profile.rememberApiKey && storageCapabilities.local ? cleanedPersistentKeys[profile.id] : "")
+        || "",
+    }));
+    writeStoredValue(SESSION_API_KEYS, cleanedSessionKeys, "session");
+    writeStoredValue(PERSISTENT_API_KEYS, cleanedPersistentKeys);
+    removeStoredValue(LEGACY_SESSION_API_KEY, "session");
+    removeStoredValue(LEGACY_PERSISTENT_API_KEY);
+    const hydratedConfig = mergeConfig({
+      ...persistableConfig,
+      providerSchemaVersion: DEFAULT_CONFIG.providerSchemaVersion,
+      providerProfiles: hydratedProfiles,
+      apiKey: "",
+    });
+    return hydratedConfig;
   },
 
   async saveConfig(config: AppConfig) {
     const storageCapabilities = getWebStorageCapabilities();
-    const rememberApiKey = config.rememberApiKey && storageCapabilities.local;
-    const { apiKey, ...configWithoutApiKey } = config;
-    const persistableConfig = { ...configWithoutApiKey, rememberApiKey };
+    const profiles = config.providerProfiles.map((profile) => profile.id === config.activeProviderProfileId && !profile.apiKey
+      ? { ...profile, apiKey: config.apiKey, rememberApiKey: config.rememberApiKey }
+      : profile);
+    const profileIds = new Set(profiles.map((profile) => profile.id));
+    const sessionKeys = pruneKeyMap(readStoredValue<Record<string, string>>(SESSION_API_KEYS, {}, "session"), profileIds);
+    const persistentKeys = pruneKeyMap(readStoredValue<Record<string, string>>(PERSISTENT_API_KEYS, {}), profileIds);
+    for (const profile of profiles) {
+      delete sessionKeys[profile.id];
+      delete persistentKeys[profile.id];
+      if (!profile.apiKey) continue;
+      if (profile.rememberApiKey && storageCapabilities.local) {
+        persistentKeys[profile.id] = profile.apiKey;
+      } else {
+        sessionKeys[profile.id] = profile.apiKey;
+      }
+    }
+    const persistableConfig = toPersistedConfig({
+      ...config,
+      rememberApiKey: config.rememberApiKey && storageCapabilities.local,
+      providerProfiles: profiles.map(({ apiKey: _apiKey, ...profile }) => ({
+        ...profile,
+        rememberApiKey: profile.rememberApiKey && storageCapabilities.local,
+      })),
+    });
     writeStoredValue(CONFIG_KEY, persistableConfig);
-
-    if (apiKey) {
-      writeStoredValue(SESSION_API_KEY, apiKey, "session");
-    } else {
-      removeStoredValue(SESSION_API_KEY, "session");
-    }
-
-    if (rememberApiKey && apiKey) {
-      writeStoredValue(PERSISTENT_API_KEY, apiKey);
-    } else {
-      removeStoredValue(PERSISTENT_API_KEY);
-    }
+    writeStoredValue(SESSION_API_KEYS, sessionKeys, "session");
+    writeStoredValue(PERSISTENT_API_KEYS, persistentKeys);
+    removeStoredValue(LEGACY_SESSION_API_KEY, "session");
+    removeStoredValue(LEGACY_PERSISTENT_API_KEY);
   },
 
   async loadHistory() {
