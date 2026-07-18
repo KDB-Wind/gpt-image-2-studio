@@ -232,6 +232,51 @@ describe("webAdapter history deletion", () => {
       .toEqual({ "provider-default": legacyKey, "provider-alt": alternateKey });
   });
 
+  it("targets a legacy top-level key at the active custom profile", async () => {
+    const legacyKey = "legacy-custom-active-fake-key";
+    localStorage.setItem("chat-to-image.config.v1", JSON.stringify({
+      ...DEFAULT_CONFIG,
+      apiKey: legacyKey,
+      providerProfiles: [{
+        ...DEFAULT_CONFIG.providerProfiles[0],
+        id: "provider-custom",
+        name: "Custom provider",
+        apiKey: "",
+      }],
+      activeProviderProfileId: "provider-custom",
+    }));
+
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      activeProviderProfileId: "provider-custom",
+      apiKey: legacyKey,
+      providerProfiles: [expect.objectContaining({ id: "provider-custom", apiKey: legacyKey })],
+    });
+    expect(JSON.parse(sessionStorage.getItem("chat-to-image.api-keys.session.v1") ?? "{}"))
+      .toEqual({ "provider-custom": legacyKey });
+  });
+
+  it("targets a legacy top-level key at the only profile when the active id is invalid", async () => {
+    const legacyKey = "legacy-custom-fallback-fake-key";
+    localStorage.setItem("chat-to-image.config.v1", JSON.stringify({
+      ...DEFAULT_CONFIG,
+      apiKey: legacyKey,
+      providerProfiles: [{
+        ...DEFAULT_CONFIG.providerProfiles[0],
+        id: "provider-only",
+        name: "Only provider",
+        apiKey: "",
+      }],
+      activeProviderProfileId: "missing-provider",
+    }));
+
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      activeProviderProfileId: "provider-only",
+      apiKey: legacyKey,
+    });
+    expect(JSON.parse(sessionStorage.getItem("chat-to-image.api-keys.session.v1") ?? "{}"))
+      .toEqual({ "provider-only": legacyKey });
+  });
+
   it("ignores malformed key maps and null provider metadata entries", async () => {
     localStorage.setItem("chat-to-image.config.v1", JSON.stringify({
       ...DEFAULT_CONFIG,

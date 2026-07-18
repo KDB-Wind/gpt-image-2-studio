@@ -671,13 +671,14 @@ export const webAdapter: RuntimeAdapter = {
       providerSchemaVersion: DEFAULT_CONFIG.providerSchemaVersion,
       apiKey: "",
     } as Partial<AppConfig>);
-    if (legacyApiKey && configWithoutKeys.activeProviderProfileId === "provider-default") {
+    const legacyTargetProfileId = configWithoutKeys.activeProviderProfileId;
+    if (legacyApiKey) {
       const legacyRememberApiKey = typeof storedConfig.rememberApiKey === "boolean"
         ? storedConfig.rememberApiKey
         : false;
       configWithoutKeys = {
         ...configWithoutKeys,
-        providerProfiles: configWithoutKeys.providerProfiles.map((profile) => profile.id === "provider-default"
+        providerProfiles: configWithoutKeys.providerProfiles.map((profile) => profile.id === legacyTargetProfileId
           ? { ...profile, rememberApiKey: legacyRememberApiKey }
           : profile),
       };
@@ -710,11 +711,11 @@ export const webAdapter: RuntimeAdapter = {
     }
 
     if (legacyApiKey) {
-      if (!cleanedSessionKeys["provider-default"] && !cleanedPersistentKeys["provider-default"]) {
-        cleanedSessionKeys["provider-default"] = legacyApiKey;
-        if (configWithoutKeys.providerProfiles.some((profile) => profile.id === "provider-default"
-          && profile.rememberApiKey && storageCapabilities.local)) {
-          cleanedPersistentKeys["provider-default"] = legacyApiKey;
+      if (!cleanedSessionKeys[legacyTargetProfileId] && !cleanedPersistentKeys[legacyTargetProfileId]) {
+        const targetProfile = configWithoutKeys.providerProfiles.find((profile) => profile.id === legacyTargetProfileId);
+        cleanedSessionKeys[legacyTargetProfileId] = legacyApiKey;
+        if (targetProfile?.rememberApiKey && storageCapabilities.local) {
+          cleanedPersistentKeys[legacyTargetProfileId] = legacyApiKey;
         }
       }
     }
