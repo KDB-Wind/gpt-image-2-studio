@@ -874,9 +874,9 @@ export const webAdapter: RuntimeAdapter = {
     const profileIds = new Set(config.providerProfiles.map((profile) => profile.id));
     const sessionKeys = pruneKeyMap(readStoredValue<Record<string, string>>(SESSION_API_KEYS, {}, "session"), profileIds);
     const persistentKeys = pruneKeyMap(readStoredValue<Record<string, string>>(PERSISTENT_API_KEYS, {}), profileIds);
-    delete sessionKeys[activeProfile.id];
-    delete persistentKeys[activeProfile.id];
     if (activeApiKey) {
+      delete sessionKeys[activeProfile.id];
+      delete persistentKeys[activeProfile.id];
       if (activeRememberApiKey && storageCapabilities.local) {
         persistentKeys[activeProfile.id] = activeApiKey;
       } else {

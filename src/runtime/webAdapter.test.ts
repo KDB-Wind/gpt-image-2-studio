@@ -179,6 +179,53 @@ describe("webAdapter history deletion", () => {
     });
   });
 
+  it("preserves another profile key when deleting the active profile after refresh hydration", async () => {
+    const defaultKey = "refresh-default-profile-key";
+    const alternateKey = "refresh-alternate-profile-key";
+    const profiles = [
+      { ...DEFAULT_CONFIG.providerProfiles[0], apiKey: defaultKey, rememberApiKey: true },
+      {
+        ...DEFAULT_CONFIG.providerProfiles[0],
+        id: "provider-alt",
+        name: "Alternate provider",
+        apiKey: alternateKey,
+        rememberApiKey: false,
+      },
+    ];
+
+    await webAdapter.saveConfig({
+      ...DEFAULT_CONFIG,
+      apiKey: defaultKey,
+      rememberApiKey: true,
+    });
+    await webAdapter.saveConfig({
+      ...DEFAULT_CONFIG,
+      activeProviderProfileId: "provider-alt",
+      apiKey: alternateKey,
+      rememberApiKey: false,
+      providerProfiles: profiles,
+    });
+
+    const refreshed = await webAdapter.loadConfig();
+    expect(refreshed.providerProfiles).toEqual([
+      expect.objectContaining({ id: "provider-default", apiKey: "" }),
+      expect.objectContaining({ id: "provider-alt", apiKey: alternateKey }),
+    ]);
+
+    const remainingProfile = refreshed.providerProfiles.find((profile) => profile.id === "provider-default");
+    expect(remainingProfile).toBeDefined();
+    await webAdapter.saveConfig({
+      ...refreshed,
+      activeProviderProfileId: "provider-default",
+      apiKey: "",
+      providerProfiles: [remainingProfile!],
+    });
+
+    expect(JSON.parse(localStorage.getItem("chat-to-image.api-keys.persistent.v1") ?? "{}"))
+      .toEqual({ "provider-default": defaultKey });
+    await expect(webAdapter.loadProviderApiKey?.("provider-default")).resolves.toBe(defaultKey);
+  });
+
   it("migrates a legacy single key into the default profile map once", async () => {
     localStorage.setItem(
       "chat-to-image.config.v1",
