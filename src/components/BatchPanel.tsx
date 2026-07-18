@@ -65,6 +65,7 @@ type BatchPanelProps = {
   renderOutputOptions?: (disabled: boolean) => ReactNode;
   onProviderProfileChange?: (profileId: string) => void | Promise<void>;
   getRequestConfig?: () => AppConfig;
+  onSwitchToForceBase64?: () => void | Promise<void>;
 };
 
 export function BatchPanel({
@@ -81,6 +82,7 @@ export function BatchPanel({
   renderOutputOptions,
   onProviderProfileChange,
   getRequestConfig,
+  onSwitchToForceBase64,
 }: BatchPanelProps) {
   const copy = getTranslations(language);
   const [source, setSource] = useState<BatchSource>("same-prompt");
@@ -155,6 +157,12 @@ export function BatchPanel({
   const recoverableTaskCount = useMemo(() => countRecoverableBatchTasks(tasks), [tasks]);
   const hasFailedTasks = useMemo(() => hasFailedBatchTasks(tasks), [tasks]);
   const hasExecutedTasks = Boolean(startedAt) || summary.succeeded > 0 || summary.failed > 0 || summary.skipped > 0;
+  const forceBase64SuggestionTask = tasks.find((task) => task.suggestedAction === "force-base64");
+  const forceBase64SuggestionProfileId = forceBase64SuggestionTask?.providerProfileSnapshot?.providerProfileId
+    ?? config.activeProviderProfileId;
+  const hasForceBase64Suggestion = config.imageResponseMode !== "force-base64"
+    && config.activeProviderProfileId === forceBase64SuggestionProfileId
+    && Boolean(forceBase64SuggestionTask);
   const primaryBatchActionLabel =
     hasExecutedTasks && recoverableTaskCount > 0
       ? copy.batch.actions.continueUnfinished
@@ -1078,7 +1086,9 @@ export function BatchPanel({
         return;
       }
       commitTasks(result.tasks);
-      if (result.pauseReason?.failureCategory === "cost_risk") {
+      if (result.tasks.some((task) => task.suggestedAction === "force-base64")) {
+        setPauseMessage(copy.messages.imageUrlCorsFailure);
+      } else if (result.pauseReason?.failureCategory === "cost_risk") {
         setPauseMessage(copy.batch.messages.costRiskPaused);
       } else if (result.pauseReason?.failureCategory === "auth") {
         setPauseMessage(copy.batch.messages.authPaused);
@@ -1610,7 +1620,21 @@ export function BatchPanel({
         ) : null}
       </div>
 
-      {pauseMessage ? <div className="message-card warning">{pauseMessage}</div> : null}
+      {pauseMessage ? (
+        <div className="message-card warning">
+          <p>{pauseMessage}</p>
+          {hasForceBase64Suggestion && onSwitchToForceBase64 ? (
+            <button
+              type="button"
+              className="secondary-button"
+              data-testid="batch-force-base64"
+              onClick={() => void onSwitchToForceBase64()}
+            >
+              {copy.actions.switchToForceBase64}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="action-row batch-execution-row">
         <button

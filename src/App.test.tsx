@@ -7,6 +7,7 @@ import staticVersionManifest from "../static-versions/manifest.json";
 import * as apiClient from "./core/apiClient";
 import { DEFAULT_CONFIG, mergeConfig } from "./core/config";
 import type { ImageRecord } from "./core/history";
+import { ImageDownloadError } from "./core/imageDownloadError";
 import type { ProviderProfile } from "./core/providerProfiles";
 import { getTranslations } from "./i18n/translations";
 import * as runtimeModule from "./runtime";
@@ -1097,6 +1098,93 @@ describe("App batch workspace", () => {
         providerProfileName: "Profile B",
       }),
     }));
+  });
+
+  it("offers a force-base64 profile update after a CORS image URL failure without retrying", async () => {
+    const copy = getTranslations("en-US");
+    const profiles = [
+      createProviderProfile({ id: "provider-a", name: "Profile A", apiKey: "profile-a-key" }),
+      createProviderProfile({ id: "provider-b", name: "Profile B", apiKey: "profile-b-key" }),
+    ];
+    const runtime = createPreviewRuntime([]);
+    runtime.loadConfig = vi.fn().mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      ...profiles[0],
+      providerProfiles: profiles,
+      activeProviderProfileId: "provider-a",
+      uiLanguage: "en-US",
+      hasDismissedWelcome: true,
+    });
+    runtime.saveImage = vi.fn().mockRejectedValue(new ImageDownloadError("image-url-cors"));
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    const generateSpy = vi.spyOn(apiClient, "generateImages").mockResolvedValue([
+      { url: "https://images.example/generated.png" },
+    ]);
+
+    await renderApp();
+    clickButton(copy.tabs.settings);
+    setFieldValue(getField<HTMLInputElement>(copy.fields.textModel, "input"), "unsaved-text-model");
+    clickButton(copy.tabs.generate);
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create a CORS test image.");
+    await clickButtonAsync(copy.actions.generate);
+
+    expect(container.textContent).toContain(copy.messages.imageUrlCorsFailure);
+    const action = container.querySelector<HTMLButtonElement>('[data-testid="single-force-base64"]');
+    expect(action?.textContent).toBe(copy.actions.switchToForceBase64);
+    expect(generateSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      action?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await flushEffects();
+
+    expect(generateSpy).toHaveBeenCalledTimes(1);
+    expect(runtime.saveConfig).toHaveBeenCalledTimes(1);
+    expect(runtime.saveConfig).toHaveBeenCalledWith(expect.objectContaining({
+      activeProviderProfileId: "provider-a",
+      textModel: "text-model",
+      providerProfiles: [
+        expect.objectContaining({
+          id: "provider-a",
+          textModel: "text-model",
+          imageResponseMode: "force-base64",
+        }),
+        expect.objectContaining({ id: "provider-b", imageResponseMode: "official" }),
+      ],
+    }));
+    expect(container.querySelector('[data-testid="single-force-base64"]')).toBeNull();
+    expect(container.textContent).toContain(copy.messages.imageResponseModeSwitched);
+  });
+
+  it("does not offer the force-base64 action when the active profile already requests base64", async () => {
+    const copy = getTranslations("en-US");
+    const profile = createProviderProfile({
+      id: "provider-base64",
+      name: "Base64 profile",
+      apiKey: "profile-key",
+      imageResponseMode: "force-base64",
+    });
+    const runtime = createPreviewRuntime([]);
+    runtime.loadConfig = vi.fn().mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      ...profile,
+      providerProfiles: [profile],
+      activeProviderProfileId: profile.id,
+      uiLanguage: "en-US",
+      hasDismissedWelcome: true,
+    });
+    runtime.saveImage = vi.fn().mockRejectedValue(new ImageDownloadError("image-url-base64-ignored"));
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.spyOn(apiClient, "generateImages").mockResolvedValue([{ url: "https://images.example/generated.png" }]);
+
+    await renderApp();
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create one image.");
+    await clickButtonAsync(copy.actions.generate);
+
+    expect(container.querySelector('[data-testid="single-force-base64"]')).toBeNull();
+    expect(runtime.saveConfig).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(copy.messages.imageUrlBase64Ignored);
   });
 
   it("deletes a provider profile durably before switching and saving the remaining profile", async () => {

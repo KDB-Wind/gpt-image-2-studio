@@ -14,6 +14,7 @@ import {
 import type { BatchPreviewImage, BatchPreviewState } from "./core/batchPreview";
 import { DEFAULT_CONFIG, mergeConfig, type AppConfig, validateConfig } from "./core/config";
 import { safeErrorMessage } from "./core/errorSanitizer";
+import { isImageDownloadError } from "./core/imageDownloadError";
 import { MAX_BATCH_TASK_COUNT, clampBatchTaskCount, type ImageSaveMode } from "./core/batchTypes";
 import {
   groupHistoryByDate,
@@ -97,6 +98,11 @@ const QUICK_SIZE_BY_ASPECT: Record<Exclude<QuickAspect, "auto">, Record<QuickRes
 type SettingsMessage = {
   tone: "neutral" | "success" | "error";
   text: string;
+};
+
+type ImageResponseSuggestion = {
+  profileId: string;
+  action: "force-base64";
 };
 
 type EditFromImageDraft = {
@@ -387,6 +393,7 @@ export default function App() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [appMessage, setAppMessage] = useState("");
   const [settingsMessage, setSettingsMessage] = useState<SettingsMessage>({ tone: "neutral", text: "" });
+  const [imageResponseSuggestion, setImageResponseSuggestion] = useState<ImageResponseSuggestion | null>(null);
   const [isLoadingApp, setIsLoadingApp] = useState(true);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -845,7 +852,49 @@ export default function App() {
     );
     configRef.current = nextConfig;
     setConfig(nextConfig);
+    setImageResponseSuggestion(null);
     await persistActiveProviderProfileId(profileId, hydratedApiKey);
+  }
+
+  async function handleSwitchCurrentProfileToForceBase64() {
+    if (!runtime) {
+      return;
+    }
+
+    const currentConfig = configRef.current;
+    const currentProfile = resolveActiveProviderProfile(
+      currentConfig.providerProfiles,
+      currentConfig.activeProviderProfileId,
+    );
+    const suggestedProfileId = imageResponseSuggestion?.profileId ?? currentProfile.id;
+    if (currentProfile.id !== suggestedProfileId || currentProfile.imageResponseMode === "force-base64") {
+      setImageResponseSuggestion(null);
+      return;
+    }
+
+    const nextProfile = { ...currentProfile, imageResponseMode: "force-base64" as const };
+    const nextConfig = syncActiveProfile(
+      currentConfig,
+      nextProfile,
+      upsertProviderProfile(currentConfig.providerProfiles, nextProfile),
+    );
+    const persistedProfile = persistedConfig.providerProfiles.find((profile) => profile.id === currentProfile.id);
+    const nextPersistedProfile = persistedProfile
+      ? { ...persistedProfile, imageResponseMode: "force-base64" as const }
+      : nextProfile;
+    const persistedProfiles = upsertProviderProfile(persistedConfig.providerProfiles, nextPersistedProfile);
+    const nextPersistedConfig = syncActiveProfile(persistedConfig, nextPersistedProfile, persistedProfiles);
+
+    try {
+      await runtime.saveConfig(nextPersistedConfig);
+      configRef.current = nextConfig;
+      setConfig(nextConfig);
+      setPersistedConfig(nextPersistedConfig);
+      setImageResponseSuggestion(null);
+      setAppMessage(copy.messages.imageResponseModeSwitched);
+    } catch (error) {
+      setAppMessage(copy.messages.settingsSaveFailed(getErrorMessage(error)));
+    }
   }
 
   function clearReferenceInput() {
@@ -1377,12 +1426,13 @@ export default function App() {
 
     setIsGenerating(true);
     setAppMessage("");
+    setImageResponseSuggestion(null);
     const startedAt = Date.now();
     setPreviewStateWithCleanup({ status: "running", startedAt, prompt: finalPrompt });
     let savedPreviewUrl: string | undefined;
+    const requestConfig = configRef.current;
 
     try {
-      const requestConfig = configRef.current;
       const generatedImages = await generateImages(
         requestConfig,
         finalPrompt,
@@ -1441,10 +1491,26 @@ export default function App() {
         revokePreviewUrl(savedPreviewUrl);
         return;
       }
+      const requestProfile = requestConfig
+        ? resolveActiveProviderProfile(requestConfig.providerProfiles, requestConfig.activeProviderProfileId)
+        : null;
+      const imageDownloadCode = isImageDownloadError(error) ? error.code : null;
+      const canSuggestForceBase64 = Boolean(
+        requestProfile
+        && requestProfile.imageResponseMode !== "force-base64"
+        && imageDownloadCode === "image-url-cors",
+      );
+      if (canSuggestForceBase64 && requestProfile) {
+        setImageResponseSuggestion({ profileId: requestProfile.id, action: "force-base64" });
+      }
       setPreviewStateWithCleanup({
         status: "failed",
         prompt: finalPrompt,
-        message: getErrorMessage(error),
+        message: canSuggestForceBase64
+          ? copy.messages.imageUrlCorsFailure
+          : imageDownloadCode === "image-url-base64-ignored"
+            ? copy.messages.imageUrlBase64Ignored
+            : getErrorMessage(error),
         durationMs: Date.now() - startedAt,
       });
       releaseOwnedPreviewUrl(savedPreviewUrl);
@@ -2265,6 +2331,7 @@ export default function App() {
                 renderOutputOptions={renderQuickOutputOptions}
                 onProviderProfileChange={handleProviderProfileChange}
                 getRequestConfig={() => configRef.current}
+                onSwitchToForceBase64={handleSwitchCurrentProfileToForceBase64}
               />
             </div>
 
@@ -3018,6 +3085,17 @@ export default function App() {
                   <div className="preview-placeholder failed">{copy.preview.failed}</div>
                   <p>{previewState.prompt}</p>
                   <p className="error-copy">{previewState.message}</p>
+                  {imageResponseSuggestion?.profileId === config.activeProviderProfileId
+                    && activeProviderProfile.imageResponseMode !== "force-base64" ? (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      data-testid="single-force-base64"
+                      onClick={() => void handleSwitchCurrentProfileToForceBase64()}
+                    >
+                      {copy.actions.switchToForceBase64}
+                    </button>
+                  ) : null}
                   <p className="panel-note">
                     {copy.preview.elapsedPrefix}
                     {formatDuration(previewState.durationMs)}

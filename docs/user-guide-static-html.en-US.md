@@ -54,6 +54,13 @@ The default language is Simplified Chinese. You can switch to English in the hea
 
 Settings are stored locally in the current browser and are not uploaded to the author.
 
+You can save multiple provider profiles. Each profile keeps its own Base URL, text model, image model, image response compatibility mode, and API-key storage preference. API keys are never shown in profile lists, history records, or page summaries.
+
+- Create up to 20 profiles; at least one profile must remain.
+- Remember API key applies only to the current profile and never copies the key to another profile.
+- Use the compact selector at the top of Single image or Batch to switch profiles without clearing prompts, references, or batch drafts.
+- Profile switching is locked while a batch is running and becomes available again after the batch pauses or finishes.
+
 Required fields:
 
 - `API key`: your model provider key. Do not post it in issues, screenshots, or chat logs.
@@ -68,6 +75,13 @@ Configure your own model provider endpoint:
 Evaluate provider stability, pricing, and compliance yourself.
 
 Settings include minimal tests for text, text-to-image, and image-to-image. You can still save settings if tests fail.
+
+Image response compatibility modes:
+
+- Official URL mode: does not request an extra response format. Use it when the service returns accessible image URLs or a standard compatible response.
+- Force base64: requests `b64_json` image data directly. Use it when provider-hosted image URLs cannot be downloaded by the browser because of CORS.
+- When the page offers “Switch to force base64,” the failed call may already have incurred cost, so do not retry repeatedly. The action changes only the current profile and does not call the model again; generate manually after confirming.
+- If the service still returns an image URL in force-base64 mode, it ignored the requested format. Do not keep retrying; use a compatible service or another delivery method.
 
 Timeout accepts `60` to `600` seconds. Shorter values are useful for quick 1K tests; for slower image models, 2K/4K generation, or complex prompts, use `180` to `300` seconds.
 
@@ -97,7 +111,7 @@ Common errors:
 - `429`: provider rate limit.
 - `500`, `524`, or `upstream error`: provider or upstream failure. Retrying may still cost money.
 - `response did not contain any image data`: the provider returned no image payload.
-- CORS error: the provider does not allow direct browser requests.
+- Image URL / CORS error: switch the current profile to Force base64 when offered, then retry manually. If the service still returns a URL, use a compatible provider or request path.
 
 ## Batch
 

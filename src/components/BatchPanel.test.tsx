@@ -1505,6 +1505,61 @@ describe("BatchPanel", () => {
     expect(profileSelect?.disabled).toBe(false);
   });
 
+  it("offers a force-base64 action for a paused CORS batch without rerunning tasks", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createRuntime();
+    const onSwitchToForceBase64 = vi.fn().mockResolvedValue(undefined);
+    runBatchTasksMock.mockImplementation(async (input) => ({
+      status: "paused",
+      tasks: input.tasks.map((task: BatchTask, index: number) => ({
+        ...task,
+        status: index === 0 ? "failed" as const : "pending" as const,
+        failureCategory: index === 0 ? "cost_risk" as const : null,
+        suggestedAction: index === 0 ? "force-base64" as const : undefined,
+        errorMessage: index === 0 ? "redacted CORS failure" : "",
+      })),
+      pauseReason: {
+        taskId: input.tasks[0].id,
+        failureCategory: "cost_risk",
+        message: "redacted CORS failure",
+      },
+    }));
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 2 }}
+          runtime={runtime}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+          onSwitchToForceBase64={onSwitchToForceBase64}
+        />,
+      );
+    });
+
+    setFieldValue(getField(copy.batch.fields.masterPrompt, "textarea"), "Create two posters.");
+    clickButton(copy.batch.actions.createTasks);
+    await clickButtonAsync(copy.batch.actions.start);
+    await flushPromises();
+
+    expect(container.textContent).toContain(copy.messages.imageUrlCorsFailure);
+    const action = container.querySelector<HTMLButtonElement>('[data-testid="batch-force-base64"]');
+    expect(action?.textContent).toBe(copy.actions.switchToForceBase64);
+    expect(runBatchTasksMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      action?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(onSwitchToForceBase64).toHaveBeenCalledTimes(1);
+    expect(runBatchTasksMock).toHaveBeenCalledTimes(1);
+  });
+
   it("persists the final merged retry snapshot while keeping sibling task state", async () => {
     const copy = getTranslations("en-US");
     const runtime = createRuntime();

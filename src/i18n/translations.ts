@@ -163,6 +163,7 @@ type TranslationBundle = {
     saveBusy: string;
     createProviderProfile: string;
     deleteProviderProfile: string;
+    switchToForceBase64: string;
     testOutputDirectory: string;
     testOutputDirectoryBusy: string;
     testText: string;
@@ -417,6 +418,9 @@ type TranslationBundle = {
     settingsSavedWithIssues: (details: string) => string;
     settingsSaveFailed: (detail: string) => string;
     providerProfileNameRequired: string;
+    imageUrlCorsFailure: string;
+    imageUrlBase64Ignored: string;
+    imageResponseModeSwitched: string;
     outputSelected: (directory: string) => string;
     chooseDirectoryUnavailableWeb: string;
     chooseDirectoryCancelled: string;
@@ -633,6 +637,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       saveBusy: "正在保存...",
       createProviderProfile: "新建档案",
       deleteProviderProfile: "删除档案",
+      switchToForceBase64: "切换为强制 base64",
       testOutputDirectory: "测试保存目录",
       testOutputDirectoryBusy: "测试中...",
       testText: "测试文字模型",
@@ -898,6 +903,11 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       settingsSavedWithIssues: (details) => `配置已保存。${details}`,
       settingsSaveFailed: (detail) => `保存配置失败。${detail}`,
       providerProfileNameRequired: "档案名称不能为空。",
+      imageUrlCorsFailure:
+        "供应商返回了图片 URL，但浏览器无法下载，通常是图片地址不允许跨域读取。本次调用可能已经产生费用，请不要连续重试。可以把当前档案切换为强制 base64；切换后不会自动重试，请确认后手动重新生成。",
+      imageUrlBase64Ignored:
+        "已经请求强制 base64，但供应商仍返回图片 URL，说明服务可能忽略了响应格式参数。本次调用可能已经产生费用，请不要连续重试；请检查服务兼容性或更换调用方式。",
+      imageResponseModeSwitched: "当前供应商档案已切换为强制 base64。请手动重新生成。",
       outputSelected: (directory) => `已授权目录：${directory}。浏览器不会暴露完整磁盘路径；历史预览会从这个授权目录中查找图片。`,
       chooseDirectoryUnavailableWeb: "当前浏览器或运行环境不支持目录授权。手动填写保存目录后仍可下载图片，但不能恢复历史预览。",
       chooseDirectoryCancelled: "未选择任何目录。",
@@ -1146,6 +1156,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       saveBusy: "Saving...",
       createProviderProfile: "New profile",
       deleteProviderProfile: "Delete profile",
+      switchToForceBase64: "Switch to force base64",
       testOutputDirectory: "Test output folder",
       testOutputDirectoryBusy: "Testing folder...",
       testText: "Test text model",
@@ -1421,6 +1432,11 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       settingsSavedWithIssues: (details) => `Settings saved. ${details}`,
       settingsSaveFailed: (detail) => `Failed to save settings. ${detail}`,
       providerProfileNameRequired: "Profile name is required.",
+      imageUrlCorsFailure:
+        "The provider returned an image URL that this browser could not download, usually because the image host blocks cross-origin access. This call may already have incurred cost, so do not retry repeatedly. You can switch the current profile to force base64. This will not retry automatically; generate again manually after confirming.",
+      imageUrlBase64Ignored:
+        "Force base64 was requested, but the provider still returned an image URL, so the service may have ignored the response-format parameter. This call may already have incurred cost; do not retry repeatedly. Check service compatibility or use another request path.",
+      imageResponseModeSwitched: "The current provider profile now uses force base64. Generate again manually.",
       outputSelected: (directory) =>
         `Folder authorized: ${directory}. Browsers do not expose the full disk path; history previews will search inside this authorized folder.`,
       chooseDirectoryUnavailableWeb:
