@@ -48,6 +48,7 @@ import {
 } from "../core/referenceImages";
 import { getTranslations, type UiLanguage } from "../i18n/translations";
 import type { RuntimeAdapter } from "../runtime/types";
+import { ProviderProfileSelector } from "./ProviderProfileSelector";
 
 type BatchPanelProps = {
   config: AppConfig;
@@ -62,6 +63,8 @@ type BatchPanelProps = {
   onBatchPreviewRelease?: (urls: string[]) => string[];
   batchPreviewReleaseVersion?: number;
   renderOutputOptions?: (disabled: boolean) => ReactNode;
+  onProviderProfileChange?: (profileId: string) => void | Promise<void>;
+  getRequestConfig?: () => AppConfig;
 };
 
 export function BatchPanel({
@@ -76,6 +79,8 @@ export function BatchPanel({
   onBatchPreviewRelease,
   batchPreviewReleaseVersion,
   renderOutputOptions,
+  onProviderProfileChange,
+  getRequestConfig,
 }: BatchPanelProps) {
   const copy = getTranslations(language);
   const [source, setSource] = useState<BatchSource>("same-prompt");
@@ -768,19 +773,20 @@ export function BatchPanel({
     setAppMessage(copy.batch.messages.splitRunning);
 
     try {
+      const requestConfig = getRequestConfig?.() ?? config;
       const planning = await splitPromptWithTextModel({
-        config,
+        config: requestConfig,
         masterPrompt,
         count: taskCount,
         templateId: splitTemplateId,
         customSystemPrompt: customSplitSystemPrompt,
         styleLock,
-        allowAiTaskCountPlanning: config.batchAutoPlanTaskCount,
+        allowAiTaskCountPlanning: requestConfig.batchAutoPlanTaskCount,
       });
       const normalizedPlan = normalizeBatchSplitPlan({
         planning,
         initialCount: taskCount,
-        allowAiTaskCountPlanning: config.batchAutoPlanTaskCount,
+        allowAiTaskCountPlanning: requestConfig.batchAutoPlanTaskCount,
       });
 
       if (normalizedPlan.status === "invalid") {
@@ -994,7 +1000,12 @@ export function BatchPanel({
     }
   }
 
-  async function persistManifest(nextStatus: BatchStatus, nextTasks: BatchTask[], manifestStartedAt: string) {
+  async function persistManifest(
+    nextStatus: BatchStatus,
+    nextTasks: BatchTask[],
+    manifestStartedAt: string,
+    requestConfig: AppConfig = getRequestConfig?.() ?? config,
+  ) {
     if (!runtime) {
       return;
     }
@@ -1008,7 +1019,7 @@ export function BatchPanel({
       startedAt: manifestStartedAt || startedAt,
       completedAt: finishedAt,
       executionConfig,
-      config,
+      config: requestConfig,
       tasks: nextTasks,
     });
 
@@ -1040,11 +1051,12 @@ export function BatchPanel({
     setAppMessage("");
 
     try {
+      const requestConfig = getRequestConfig?.() ?? config;
       const result = await runBatchTasks({
         batchId,
         batchTitle: batchDisplayTitle,
         batchCreatedAt,
-        config,
+        config: requestConfig,
         tasks: targetTasks,
         executionConfig,
         referenceImages: batchReferenceImages.map((image) => image.file),
@@ -1072,7 +1084,7 @@ export function BatchPanel({
         setPauseMessage(copy.batch.messages.authPaused);
       }
 
-      await persistManifest(result.status, result.tasks, nextStartedAt);
+      await persistManifest(result.status, result.tasks, nextStartedAt, requestConfig);
       if (!isMountedRef.current) {
         return;
       }
@@ -1147,11 +1159,12 @@ export function BatchPanel({
     );
 
     try {
+      const requestConfig = getRequestConfig?.() ?? config;
       const retried = await retrySingleBatchTask({
         batchId,
         batchTitle: batchDisplayTitle,
         batchCreatedAt,
-        config,
+        config: requestConfig,
         task: latestTask,
         referenceImages: getReferenceImagesForTask(latestTask),
         saveBatchImage: runtime.saveBatchImage.bind(runtime),
@@ -1162,7 +1175,7 @@ export function BatchPanel({
       }
       const finalTasks = mergeRetriedBatchTask(latestTasksRef.current, retried);
       commitTasks(finalTasks);
-      await persistManifest("completed", finalTasks, nextStartedAt);
+      await persistManifest("completed", finalTasks, nextStartedAt, requestConfig);
       if (!isMountedRef.current) {
         return;
       }
@@ -1174,6 +1187,16 @@ export function BatchPanel({
 
   return (
     <div className="panel-body form-stack batch-panel">
+      {onProviderProfileChange ? (
+        <ProviderProfileSelector
+          profiles={config.providerProfiles}
+          activeProfileId={config.activeProviderProfileId}
+          language={language}
+          testId="batch-provider-profile"
+          disabled={isTaskMutationLocked}
+          onChange={onProviderProfileChange}
+        />
+      ) : null}
       <div className="batch-source-grid">
         {([
           ["same-prompt", copy.batch.sources.samePrompt],

@@ -1032,6 +1032,73 @@ describe("App batch workspace", () => {
     }));
   });
 
+  it("quick-switches the single view without clearing the prompt and uses the selected profile", async () => {
+    const copy = getTranslations("en-US");
+    const profiles = [
+      createProviderProfile({
+        id: "provider-a",
+        name: "Profile A",
+        baseUrl: "https://provider-a.example/v1",
+        apiKey: "profile-a-key",
+        imageModel: "image-model-a",
+      }),
+      createProviderProfile({
+        id: "provider-b",
+        name: "Profile B",
+        baseUrl: "https://provider-b.example/v1",
+        apiKey: "",
+        imageModel: "image-model-b",
+        imageResponseMode: "force-base64",
+      }),
+    ];
+    const runtime = createPreviewRuntime([createSaveImageResult("blob:quick-switch")]);
+    runtime.loadConfig = vi.fn().mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      ...profiles[0],
+      providerProfiles: profiles,
+      activeProviderProfileId: "provider-a",
+      uiLanguage: "en-US",
+      hasDismissedWelcome: true,
+    });
+    runtime.loadProviderApiKey = vi.fn().mockResolvedValue("profile-b-key");
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    const generateSpy = vi.spyOn(apiClient, "generateImages").mockResolvedValue([{ base64: "image" }]);
+
+    await renderApp();
+    const promptField = getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea");
+    setFieldValue(promptField, "Keep this prompt while switching.");
+
+    const profileSelect = container.querySelector<HTMLSelectElement>('[data-testid="single-provider-profile"]');
+    expect(profileSelect?.value).toBe("provider-a");
+    setSelectValue(profileSelect ?? undefined, "provider-b");
+    await flushEffects();
+
+    expect(promptField.value).toBe("Keep this prompt while switching.");
+    expect(profileSelect?.value).toBe("provider-b");
+    expect(container.textContent).toContain(copy.options.imageResponseModeForceBase64);
+
+    await clickButtonAsync(copy.actions.generate);
+
+    expect(generateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activeProviderProfileId: "provider-b",
+        baseUrl: "https://provider-b.example/v1",
+        apiKey: "profile-b-key",
+        imageModel: "image-model-b",
+        imageResponseMode: "force-base64",
+      }),
+      "Keep this prompt while switching.",
+      undefined,
+    );
+    expect(runtime.saveImage).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({ activeProviderProfileId: "provider-b" }),
+      providerProfileSnapshot: expect.objectContaining({
+        providerProfileId: "provider-b",
+        providerProfileName: "Profile B",
+      }),
+    }));
+  });
+
   it("deletes a provider profile durably before switching and saving the remaining profile", async () => {
     const copy = getTranslations("en-US");
     const profiles = [
@@ -1129,8 +1196,47 @@ describe("App batch workspace", () => {
     expect(profileSelect?.options).toHaveLength(2);
     expect(profileSelect?.value).toBe("provider-b");
     expect(runtime.clearProviderApiKey).toHaveBeenCalledWith("provider-b");
-    expect(runtime.saveConfig).not.toHaveBeenCalled();
+    expect(runtime.saveConfig).toHaveBeenCalledTimes(2);
+    expect(runtime.saveConfig).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      activeProviderProfileId: "provider-a",
+      providerProfiles: [expect.objectContaining({ id: "provider-a" })],
+    }));
+    expect(runtime.saveConfig).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      activeProviderProfileId: "provider-b",
+      providerProfiles: expect.arrayContaining([expect.objectContaining({ id: "provider-b" })]),
+    }));
     expect(container.textContent).toContain("key cleanup was not durable");
+  });
+
+  it("does not clear a profile key when durable profile deletion fails before commit", async () => {
+    const copy = getTranslations("en-US");
+    const profiles = [
+      createProviderProfile({ id: "provider-a", name: "Profile A", apiKey: "profile-a-key" }),
+      createProviderProfile({ id: "provider-b", name: "Profile B", apiKey: "profile-b-key" }),
+    ];
+    const runtime = createPreviewRuntime([]);
+    runtime.loadConfig = vi.fn().mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      ...profiles[1],
+      providerProfiles: profiles,
+      activeProviderProfileId: "provider-b",
+      uiLanguage: "en-US" as const,
+      hasDismissedWelcome: true,
+    });
+    runtime.saveConfig = vi.fn().mockRejectedValue(new Error("profile storage unavailable"));
+    runtime.clearProviderApiKey = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+    clickButton(copy.tabs.settings);
+    clickButton(copy.actions.deleteProviderProfile);
+    await flushEffects();
+
+    expect(runtime.saveConfig).toHaveBeenCalledTimes(1);
+    expect(runtime.clearProviderApiKey).not.toHaveBeenCalled();
+    expect(container.querySelector<HTMLSelectElement>('[data-testid="settings-provider-profile"]')?.value)
+      .toBe("provider-b");
+    expect(container.textContent).toContain("profile storage unavailable");
   });
 
   it("hydrates only the selected profile API key on demand in web runtime", async () => {

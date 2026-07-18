@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { AppLogo } from "./components/AppLogo";
 import { BatchPanel } from "./components/BatchPanel";
+import { ProviderProfileSelector } from "./components/ProviderProfileSelector";
 import {
   generateImages,
   optimizePrompt,
@@ -419,6 +420,7 @@ export default function App() {
   const isMountedRef = useRef(true);
   const outputDirectoryStateRequestRef = useRef(0);
   const providerSwitchRequestRef = useRef(0);
+  const configRef = useRef<AppConfig>(DEFAULT_CONFIG);
   const setBatchPreviewStateWithCleanup = useCallback((nextPreview: BatchPreviewState | null) => {
     batchPreviewStateRef.current = nextPreview;
     for (const url of getBatchPreviewUrls(nextPreview)) {
@@ -441,6 +443,9 @@ export default function App() {
     () => resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId),
     [config.activeProviderProfileId, config.providerProfiles],
   );
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
   const validation = useMemo(() => validateConfig(config), [config]);
   const sizeValidation = useMemo(() => validateImageSize(config.defaultSize), [config.defaultSize]);
   const translatedValidationErrors = useMemo(
@@ -594,6 +599,7 @@ export default function App() {
         setRuntime(adapter);
         setOutputDirectoryState(loadedOutputDirectoryState);
         setStorageCapabilities(loadedStorageCapabilities);
+        configRef.current = mergedConfig;
         setConfig(mergedConfig);
         setPersistedConfig(mergedConfig);
         setHistory(loadedHistory);
@@ -672,7 +678,11 @@ export default function App() {
   }
 
   function updateConfig<K extends keyof AppConfig>(key: K, value: AppConfig[K]) {
-    setConfig((current) => ({ ...current, [key]: value }));
+    setConfig((current) => {
+      const nextConfig = { ...current, [key]: value };
+      configRef.current = nextConfig;
+      return nextConfig;
+    });
   }
 
   function updateProviderProfile<K extends keyof ProviderProfile>(key: K, value: ProviderProfile[K]) {
@@ -680,7 +690,9 @@ export default function App() {
       const activeProfile = resolveActiveProviderProfile(current.providerProfiles, current.activeProviderProfileId);
       const nextProfile = { ...activeProfile, [key]: value } as ProviderProfile;
       const nextProfiles = upsertProviderProfile(current.providerProfiles, nextProfile);
-      return syncActiveProfile(current, nextProfile, nextProfiles);
+      const nextConfig = syncActiveProfile(current, nextProfile, nextProfiles);
+      configRef.current = nextConfig;
+      return nextConfig;
     });
   }
 
@@ -701,19 +713,22 @@ export default function App() {
       rememberApiKey: false,
     };
     const nextProfiles = addProviderProfile(config.providerProfiles, nextProfile);
-    setConfig(syncActiveProfile(config, nextProfile, nextProfiles));
+    const nextConfig = syncActiveProfile(configRef.current, nextProfile, nextProfiles);
+    configRef.current = nextConfig;
+    setConfig(nextConfig);
     setSettingsMessage({ tone: "neutral", text: "" });
   }
 
   async function handleDeleteProviderProfile() {
-    if (!runtime || config.providerProfiles.length <= 1) {
+    const currentConfig = configRef.current;
+    if (!runtime || currentConfig.providerProfiles.length <= 1) {
       return;
     }
 
-    const deletedProfileId = config.activeProviderProfileId;
-    const nextProfiles = removeProviderProfile(config.providerProfiles, deletedProfileId);
+    const deletedProfileId = currentConfig.activeProviderProfileId;
+    const nextProfiles = removeProviderProfile(currentConfig.providerProfiles, deletedProfileId);
     const nextActive = nextProfiles[0];
-    const nextConfig = syncActiveProfile(config, nextActive, nextProfiles);
+    const nextConfig = syncActiveProfile(currentConfig, nextActive, nextProfiles);
     const nextPersistedProfiles = persistedConfig.providerProfiles.filter((profile) => profile.id !== deletedProfileId);
     const nextPersistedActive = resolveActiveProviderProfile(
       nextPersistedProfiles.length > 0 ? nextPersistedProfiles : nextProfiles,
@@ -725,18 +740,6 @@ export default function App() {
       nextPersistedProfiles.length > 0 ? nextPersistedProfiles : nextProfiles,
     );
 
-    if (runtime.clearProviderApiKey) {
-      try {
-        await runtime.clearProviderApiKey(deletedProfileId);
-      } catch (error) {
-        setSettingsMessage({
-          tone: "error",
-          text: copy.messages.settingsSaveFailed(getErrorMessage(error)),
-        });
-        return;
-      }
-    }
-
     try {
       await runtime.saveConfig(nextPersistedConfig);
     } catch (error) {
@@ -747,6 +750,30 @@ export default function App() {
       return;
     }
 
+    if (runtime.clearProviderApiKey) {
+      try {
+        await runtime.clearProviderApiKey(deletedProfileId);
+      } catch (error) {
+        try {
+          await runtime.saveConfig(persistedConfig);
+        } catch (rollbackError) {
+          setSettingsMessage({
+            tone: "error",
+            text: copy.messages.settingsSaveFailed(
+              `${getErrorMessage(error)}; rollback failed: ${getErrorMessage(rollbackError)}`,
+            ),
+          });
+          return;
+        }
+        setSettingsMessage({
+          tone: "error",
+          text: copy.messages.settingsSaveFailed(getErrorMessage(error)),
+        });
+        return;
+      }
+    }
+
+    configRef.current = nextConfig;
     setConfig(nextConfig);
     setPersistedConfig(nextPersistedConfig);
     setSettingsMessage({ tone: "neutral", text: "" });
@@ -787,7 +814,7 @@ export default function App() {
 
   async function handleProviderProfileChange(profileId: string) {
     const requestedId = ++providerSwitchRequestRef.current;
-    const targetProfile = config.providerProfiles.find((profile) => profile.id === profileId);
+    const targetProfile = configRef.current.providerProfiles.find((profile) => profile.id === profileId);
     if (!targetProfile) {
       return;
     }
@@ -805,14 +832,19 @@ export default function App() {
       return;
     }
 
-    setConfig((current) => {
-      const currentTarget = current.providerProfiles.find((profile) => profile.id === profileId);
-      if (!currentTarget) {
-        return current;
-      }
-      const nextTarget = currentTarget.apiKey ? currentTarget : { ...currentTarget, apiKey: hydratedApiKey };
-      return syncActiveProfile(current, nextTarget, upsertProviderProfile(current.providerProfiles, nextTarget));
-    });
+    const latestConfig = configRef.current;
+    const currentTarget = latestConfig.providerProfiles.find((profile) => profile.id === profileId);
+    if (!currentTarget) {
+      return;
+    }
+    const nextTarget = currentTarget.apiKey ? currentTarget : { ...currentTarget, apiKey: hydratedApiKey };
+    const nextConfig = syncActiveProfile(
+      latestConfig,
+      nextTarget,
+      upsertProviderProfile(latestConfig.providerProfiles, nextTarget),
+    );
+    configRef.current = nextConfig;
+    setConfig(nextConfig);
     await persistActiveProviderProfileId(profileId, hydratedApiKey);
   }
 
@@ -969,7 +1001,7 @@ export default function App() {
   }
 
   function requireValidConfig(actionLabel: string): boolean {
-    const nextValidation = validateConfig(config);
+    const nextValidation = validateConfig(configRef.current);
     const translatedErrors = translateValidationMessages(nextValidation.errors, language);
 
     if (translatedErrors.length === 0) {
@@ -1286,7 +1318,7 @@ export default function App() {
     optimizeRequestIdRef.current = requestId;
 
     try {
-      const revisedPrompt = await optimizePrompt(config, nextPrompt);
+      const revisedPrompt = await optimizePrompt(configRef.current, nextPrompt);
 
       if (optimizeRequestIdRef.current !== requestId) {
         return;
@@ -1350,8 +1382,9 @@ export default function App() {
     let savedPreviewUrl: string | undefined;
 
     try {
+      const requestConfig = configRef.current;
       const generatedImages = await generateImages(
-        config,
+        requestConfig,
         finalPrompt,
         generationMode === "image-to-image" && referenceImages.length > 0
           ? { referenceImages: referenceImages.map((item) => item.file) }
@@ -1373,10 +1406,10 @@ export default function App() {
         prompt: sourcePrompt,
         optimizedPrompt: optimizedPrompt.trim(),
         customName: customName.trim(),
-        config,
+        config: requestConfig,
         generatedAt,
         durationMs,
-        providerProfileSnapshot: createProviderProfileSnapshot(config),
+        providerProfileSnapshot: createProviderProfileSnapshot(requestConfig),
       });
 
       savedPreviewUrl = savedResult.previewUrl;
@@ -1444,6 +1477,7 @@ export default function App() {
         nextProfile,
         upsertProviderProfile(config.providerProfiles, nextProfile),
       );
+      configRef.current = nextConfig;
       setConfig(nextConfig);
       await runtime.saveConfig(nextConfig);
       setPersistedConfig(nextConfig);
@@ -1474,6 +1508,7 @@ export default function App() {
 
       if (selectedDirectory) {
         const nextConfig = { ...config, outputDirectory: selectedDirectory };
+        configRef.current = nextConfig;
         setConfig(nextConfig);
         await runtime.saveConfig(nextConfig);
         setPersistedConfig(nextConfig);
@@ -1507,7 +1542,7 @@ export default function App() {
     setIsTestingText(true);
 
     try {
-      const response = await testTextModel(config);
+      const response = await testTextModel(configRef.current);
       setSettingsMessage({
         tone: "success",
         text: copy.messages.textTestSuccess(response.trim().slice(0, 120) || "OK"),
@@ -1530,7 +1565,7 @@ export default function App() {
     setIsTestingImage(true);
 
     try {
-      const images = await testImageModel(config);
+      const images = await testImageModel(configRef.current);
       setSettingsMessage({
         tone: "success",
         text: copy.messages.imageTestSuccess(images.length),
@@ -1553,7 +1588,7 @@ export default function App() {
     setIsTestingImageEdit(true);
 
     try {
-      const images = await testImageEditModel(config);
+      const images = await testImageEditModel(configRef.current);
       setSettingsMessage({
         tone: "success",
         text: copy.messages.imageEditTestSuccess(images.length),
@@ -1975,6 +2010,14 @@ export default function App() {
 
             {activeTab === "generate" ? (
               <div className="panel-body form-stack">
+                <ProviderProfileSelector
+                  profiles={config.providerProfiles}
+                  activeProfileId={config.activeProviderProfileId}
+                  language={language}
+                  testId="single-provider-profile"
+                  disabled={isGenerating || isOptimizing || isLoadingApp}
+                  onChange={handleProviderProfileChange}
+                />
                 <div className="mode-toggle" role="tablist" aria-label={copy.labels.mode}>
                   <button
                     type="button"
@@ -2220,6 +2263,8 @@ export default function App() {
                 onBatchPreviewRelease={getReleasableBatchPreviewUrls}
                 batchPreviewReleaseVersion={batchPreviewReleaseVersion}
                 renderOutputOptions={renderQuickOutputOptions}
+                onProviderProfileChange={handleProviderProfileChange}
+                getRequestConfig={() => configRef.current}
               />
             </div>
 

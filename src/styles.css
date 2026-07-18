@@ -930,6 +930,41 @@ img {
   gap: 18px;
 }
 
+.provider-quick-switcher {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 12px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  background: rgba(255, 252, 247, 0.72);
+}
+
+.provider-quick-switcher-field {
+  min-width: 0;
+}
+
+.provider-quick-switcher-field select {
+  min-height: 2.65rem;
+  padding: 9px 12px;
+  border-radius: 14px;
+}
+
+.provider-response-mode {
+  display: inline-flex;
+  min-height: 2.65rem;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid rgba(136, 113, 73, 0.16);
+  border-radius: 14px;
+  color: var(--text-muted);
+  background: var(--bg-strong);
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .batch-reference-section {
   border-color: rgba(128, 168, 122, 0.26);
   background: linear-gradient(135deg, rgba(255, 252, 245, 0.88), rgba(241, 249, 232, 0.82));
@@ -1963,8 +1998,13 @@ img {
   .field-grid,
   .stats-grid,
   .range-field,
-  .provider-profile-toolbar {
+  .provider-profile-toolbar,
+  .provider-quick-switcher {
     grid-template-columns: 1fr;
+  }
+
+  .provider-response-mode {
+    justify-self: start;
   }
 
   .provider-profile-actions {
