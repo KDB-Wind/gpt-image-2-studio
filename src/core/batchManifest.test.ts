@@ -56,7 +56,17 @@ describe("batchManifest", () => {
     });
   });
 
-  it("builds a manifest with image config snapshot", () => {
+  it("builds a manifest with active profile image config snapshot", () => {
+    const config = {
+      ...DEFAULT_CONFIG,
+      imageModel: "stale-top-level-model",
+      activeProviderProfileId: "provider-active",
+      providerProfiles: [{
+        ...DEFAULT_CONFIG.providerProfiles[0],
+        id: "provider-active",
+        imageModel: "active-image-model",
+      }],
+    };
     const manifest = buildBatchManifest({
       id: "batch-1",
       title: "World Cup Posters",
@@ -65,12 +75,12 @@ describe("batchManifest", () => {
       startedAt: "2026-05-17T12:00:10.000Z",
       completedAt: "2026-05-17T12:03:00.000Z",
       executionConfig: DEFAULT_BATCH_EXECUTION_CONFIG,
-      config: DEFAULT_CONFIG,
+      config,
       tasks: [baseTask],
     });
 
     expect(manifest.imageConfig).toEqual({
-      model: DEFAULT_CONFIG.imageModel,
+      model: "active-image-model",
       size: DEFAULT_CONFIG.defaultSize,
       quality: DEFAULT_CONFIG.defaultQuality,
       format: DEFAULT_CONFIG.defaultFormat,

@@ -5,6 +5,7 @@ import { sanitizeBatchWorkspace } from "../core/batchWorkspace";
 import { buildImageFileName, formatDateFolder } from "../core/fileNames";
 import { safeErrorMessage } from "../core/errorSanitizer";
 import { sortHistoryNewestFirst, type ImageRecord } from "../core/history";
+import { resolveActiveProviderProfile } from "../core/providerProfiles";
 import type {
   OutputDirectoryState,
   RuntimeAdapter,
@@ -476,13 +477,14 @@ async function batchImageToBlob(input: BatchImageSaveInput): Promise<Blob> {
 }
 
 function buildRecord(input: SaveImageInput, outputPath: string): ImageRecord {
+  const activeProfile = resolveActiveProviderProfile(input.config.providerProfiles, input.config.activeProviderProfileId);
   return {
     id: crypto.randomUUID(),
     status: "success",
     createdAt: input.generatedAt.toISOString(),
     prompt: input.prompt,
     optimizedPrompt: input.optimizedPrompt,
-    model: input.config.imageModel,
+    model: activeProfile.imageModel,
     size: input.config.defaultSize,
     outputPath,
     durationMs: input.durationMs,
@@ -1039,13 +1041,14 @@ export const webAdapter: RuntimeAdapter = {
         previewUrl = downloadBlob(blob, fileName);
       }
 
+      const activeProfile = resolveActiveProviderProfile(input.config.providerProfiles, input.config.activeProviderProfileId);
       const record: ImageRecord = {
         id: crypto.randomUUID(),
         status: "success",
         createdAt: input.generatedAt.toISOString(),
         prompt: input.task.prompt,
         optimizedPrompt: "",
-        model: input.config.imageModel,
+        model: activeProfile.imageModel,
         size: input.config.defaultSize,
         outputPath,
         durationMs: input.durationMs,

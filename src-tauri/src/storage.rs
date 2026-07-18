@@ -62,6 +62,17 @@ pub fn default_config() -> AppConfig {
         batch_auto_plan_task_count: true,
         batch_custom_split_system_prompt: String::new(),
         batch_last_split_template_id: "basic".to_string(),
+        provider_schema_version: 1,
+        active_provider_profile_id: "provider-default".to_string(),
+        provider_profiles: vec![crate::models::ProviderProfileMetadata {
+            id: "provider-default".to_string(),
+            name: "Default provider".to_string(),
+            base_url: "https://ruoli.dev/v1".to_string(),
+            text_model: "gpt-5.4-mini".to_string(),
+            image_model: "gpt-image-2".to_string(),
+            image_response_mode: "official".to_string(),
+            remember_api_key: false,
+        }],
     }
 }
 
@@ -227,6 +238,19 @@ pub fn merge_config_value(value: serde_json::Value) -> AppConfig {
             _ => "basic".to_string(),
         };
     }
+    if let Some(provider_schema_version) = value.get("providerSchemaVersion").and_then(|item| item.as_u64()) {
+        config.provider_schema_version = provider_schema_version as u8;
+    }
+    if let Some(active_provider_profile_id) = get_string_field(&value, "activeProviderProfileId") {
+        config.active_provider_profile_id = active_provider_profile_id;
+    }
+    if let Some(provider_profiles) = value.get("providerProfiles") {
+        if let Ok(provider_profiles) = serde_json::from_value::<Vec<crate::models::ProviderProfileMetadata>>(provider_profiles.clone()) {
+            if !provider_profiles.is_empty() {
+                config.provider_profiles = provider_profiles;
+            }
+        }
+    }
 
     config
 }
@@ -274,6 +298,11 @@ pub(crate) fn write_config_file(
     api_key_storage_mode: &str,
 ) -> Result<(), String> {
     let mut value = serde_json::to_value(config).map_err(|error| error.to_string())?;
+    if api_key_storage_mode == KEYRING_STORAGE_MODE {
+        if let Some(object) = value.as_object_mut() {
+            object.remove("apiKey");
+        }
+    }
     value[API_KEY_STORAGE_FIELD] = serde_json::Value::String(api_key_storage_mode.to_string());
     write_json(path, &value)
 }
@@ -676,13 +705,14 @@ fn build_batch_file_name(input: &SaveBatchImageInput, directory: &Path) -> Resul
 }
 
 fn create_record(input: SaveGeneratedImageInput, output_path: &Path) -> ImageRecord {
+    let image_model = active_image_model(&input.config);
     ImageRecord {
         id: unique_id(),
         status: "success".to_string(),
         created_at: input.generated_at,
         prompt: input.prompt,
         optimized_prompt: input.optimized_prompt,
-        model: input.config.image_model,
+        model: image_model,
         size: input.config.default_size,
         output_path: output_path.to_string_lossy().to_string(),
         duration_ms: input.duration_ms,
@@ -771,6 +801,15 @@ pub fn delete_history_records(record_ids: Vec<String>) -> Result<Vec<ImageRecord
     sort_history(&mut history);
     write_json(&path, &history)?;
     Ok(history)
+}
+
+fn active_image_model(config: &AppConfig) -> String {
+    config
+        .provider_profiles
+        .iter()
+        .find(|profile| profile.id == config.active_provider_profile_id)
+        .map(|profile| profile.image_model.clone())
+        .unwrap_or_else(|| config.image_model.clone())
 }
 
 #[tauri::command]
@@ -869,12 +908,12 @@ pub fn save_batch_image_at(
     write_new_file(&output_path, &bytes)?;
 
     let record = ImageRecord {
+        model: active_image_model(&input.config),
         id: unique_id(),
         status: "success".to_string(),
         created_at: input.generated_at,
         prompt: input.task.prompt,
         optimized_prompt: String::new(),
-        model: input.config.image_model,
         size: input.config.default_size,
         output_path: output_path.to_string_lossy().to_string(),
         duration_ms: input.duration_ms,

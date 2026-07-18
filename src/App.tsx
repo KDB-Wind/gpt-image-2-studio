@@ -2899,6 +2899,10 @@ export default function App() {
                                   </dd>
                                 </div>
                                 <div>
+                                  <dt>{copy.labels.model}</dt>
+                                  <dd>{getHistoryProviderLabel(item.records[0], copy.labels.legacyProvider)}</dd>
+                                </div>
+                                <div>
                                   <dt>{copy.labels.duration}</dt>
                                   <dd>{formatDuration(durationMs)}</dd>
                                 </div>
@@ -2929,6 +2933,7 @@ export default function App() {
                                         <span className={`status-pill ${record.status}`}>{record.status}</span>
                                       </div>
                                       <p className="history-prompt">{record.optimizedPrompt || record.prompt}</p>
+                                      <p className="history-prompt">{getHistoryProviderLabel(record, copy.labels.legacyProvider)}</p>
                                       <div className="history-actions">
                                         <button
                                           type="button"
@@ -2975,7 +2980,7 @@ export default function App() {
                             <dl className="history-meta">
                               <div>
                                 <dt>{copy.labels.model}</dt>
-                                <dd>{getHistoryProviderLabel(record)}</dd>
+                                <dd>{getHistoryProviderLabel(record, copy.labels.legacyProvider)}</dd>
                               </div>
                               <div>
                                 <dt>{copy.labels.duration}</dt>

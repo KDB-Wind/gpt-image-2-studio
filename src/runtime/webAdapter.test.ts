@@ -734,12 +734,23 @@ describe("webAdapter history deletion", () => {
       imageModel: "image-a",
       imageResponseMode: "official" as const,
     };
+    const config = {
+      ...DEFAULT_CONFIG,
+      imageModel: "stale-top-level-model",
+      activeProviderProfileId: "profile-a",
+      providerProfiles: [{
+        ...DEFAULT_CONFIG.providerProfiles[0],
+        id: "profile-a",
+        name: "Profile A",
+        imageModel: "active-image-model",
+      }],
+    };
     const single = await webAdapter.saveImage({
       image: { base64: ONE_PIXEL_PNG },
       prompt: "single",
       optimizedPrompt: "",
       customName: "single",
-      config: { ...DEFAULT_CONFIG, defaultFormat: "png" },
+      config: { ...config, defaultFormat: "png" },
       generatedAt: new Date("2026-05-05T00:00:00.000Z"),
       durationMs: 1,
       providerProfileSnapshot: snapshot,
@@ -750,7 +761,7 @@ describe("webAdapter history deletion", () => {
       batchCreatedAt: "2026-05-05T00:00:00.000Z",
       task: createBatchTask({ id: "task-1" }),
       image: { base64: ONE_PIXEL_PNG },
-      config: { ...DEFAULT_CONFIG, defaultFormat: "png" },
+      config: { ...config, defaultFormat: "png" },
       generatedAt: new Date("2026-05-05T00:01:00.000Z"),
       durationMs: 1,
       providerProfileSnapshot: snapshot,
@@ -758,6 +769,8 @@ describe("webAdapter history deletion", () => {
 
     expect(single.record.providerProfileSnapshot).toEqual(snapshot);
     expect(batch.record.providerProfileSnapshot).toEqual(snapshot);
+    expect(single.record.model).toBe("active-image-model");
+    expect(batch.record.model).toBe("active-image-model");
     expect(JSON.stringify(await webAdapter.loadHistory())).not.toMatch(/apiKey|Authorization|signatureUrl/i);
   });
 

@@ -94,8 +94,11 @@ export function normalizeProviderProfileSnapshot(value: unknown): ProviderProfil
   };
 }
 
-export function getHistoryProviderLabel(record: ImageRecord): string {
-  return record.providerProfileSnapshot?.providerProfileName || record.model;
+export function getHistoryProviderLabel(record: ImageRecord, legacyLabel = ""): string {
+  if (record.providerProfileSnapshot?.providerProfileName) {
+    return record.providerProfileSnapshot.providerProfileName;
+  }
+  return legacyLabel ? `${legacyLabel}: ${record.model}` : record.model;
 }
 
 function isImageRecordStatus(value: unknown): value is ImageRecordStatus {

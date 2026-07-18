@@ -101,6 +101,41 @@ fn config_file_round_trip_retains_image_response_and_batch_settings() {
 }
 
 #[test]
+fn config_file_round_trip_retains_provider_profiles_without_api_keys() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-provider-profile-round-trip-test-{}",
+        std::process::id()
+    ));
+    let config_path = temp_root.join("config.json");
+    let mut config = crate::storage::default_config();
+    config.provider_schema_version = 1;
+    config.active_provider_profile_id = "provider-alt".to_string();
+    config.provider_profiles = vec![crate::models::ProviderProfileMetadata {
+        id: "provider-alt".to_string(),
+        name: "Alternate provider".to_string(),
+        base_url: "https://alternate.example/v1".to_string(),
+        text_model: "text-alt".to_string(),
+        image_model: "image-alt".to_string(),
+        image_response_mode: "force-base64".to_string(),
+        remember_api_key: true,
+    }];
+    config.api_key = "runtime-only-key".to_string();
+
+    std::fs::create_dir_all(&temp_root).unwrap();
+    crate::storage::write_config_file(&config_path, &config, "keyring").unwrap();
+    let raw = std::fs::read_to_string(&config_path).unwrap();
+    assert!(raw.contains("providerSchemaVersion"));
+    assert!(raw.contains("provider-alt"));
+    assert!(!raw.contains("runtime-only-key"));
+
+    let loaded = crate::storage::load_config_from_path(&config_path).unwrap();
+    assert_eq!(loaded.active_provider_profile_id, "provider-alt");
+    assert_eq!(loaded.provider_profiles[0].image_model, "image-alt");
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
 fn default_config_uses_chinese_ui_and_shows_welcome_once() {
     let defaults = crate::storage::default_config();
 

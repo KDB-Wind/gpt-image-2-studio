@@ -183,7 +183,7 @@ describe("tauriAdapter provider profile bridge", () => {
     });
   });
 
-  it("saves the active profile through the legacy native config shape", async () => {
+  it("persists provider metadata without embedding profile API keys", async () => {
     invokeMock.mockResolvedValue(undefined);
     const config = {
       ...DEFAULT_CONFIG,
@@ -205,12 +205,16 @@ describe("tauriAdapter provider profile bridge", () => {
 
     expect(invokeMock).toHaveBeenCalledWith("save_config", expect.objectContaining({
       config: expect.objectContaining({
-        apiKey: "desktop-alt-fake-key",
-        baseUrl: "https://alternate.example/v1",
-        imageModel: config.providerProfiles[1].imageModel,
+        providerSchemaVersion: config.providerSchemaVersion,
+        activeProviderProfileId: "provider-alt",
+        providerProfiles: [
+          expect.not.objectContaining({ apiKey: expect.anything() }),
+          expect.objectContaining({ id: "provider-alt", name: "Alternate provider" }),
+        ],
       }),
     }));
     const payload = invokeMock.mock.calls[0][1] as { config: Record<string, unknown> };
-    expect(payload.config.providerProfiles).toBeUndefined();
+    expect(payload.config.apiKey).toBe("desktop-alt-fake-key");
+    expect(JSON.stringify(payload.config.providerProfiles)).not.toContain("desktop-alt-fake-key");
   });
 });

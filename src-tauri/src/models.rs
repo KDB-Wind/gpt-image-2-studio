@@ -25,6 +25,21 @@ pub struct AppConfig {
     pub batch_auto_plan_task_count: bool,
     pub batch_custom_split_system_prompt: String,
     pub batch_last_split_template_id: String,
+    pub provider_schema_version: u8,
+    pub active_provider_profile_id: String,
+    pub provider_profiles: Vec<ProviderProfileMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderProfileMetadata {
+    pub id: String,
+    pub name: String,
+    pub base_url: String,
+    pub text_model: String,
+    pub image_model: String,
+    pub image_response_mode: String,
+    pub remember_api_key: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

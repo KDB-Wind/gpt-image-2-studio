@@ -9,6 +9,7 @@ import type {
 import type { AppConfig } from "./config";
 import { sanitizeFileBaseName } from "./fileNames";
 import { summarizeSensitiveError } from "./providerErrors";
+import { resolveActiveProviderProfile } from "./providerProfiles";
 
 export type BuildBatchManifestInput = {
   id: string;
@@ -75,6 +76,10 @@ export function summarizeBatchTasks(tasks: BatchTask[]): BatchSummary {
 }
 
 export function buildBatchManifest(input: BuildBatchManifestInput): BatchManifest {
+  const activeProfile = resolveActiveProviderProfile(
+    input.config.providerProfiles,
+    input.config.activeProviderProfileId,
+  );
   return {
     id: input.id,
     title: input.title,
@@ -84,7 +89,7 @@ export function buildBatchManifest(input: BuildBatchManifestInput): BatchManifes
     completedAt: input.completedAt,
     executionConfig: input.executionConfig,
     imageConfig: {
-      model: input.config.imageModel,
+      model: activeProfile.imageModel,
       size: input.config.defaultSize,
       quality: input.config.defaultQuality,
       format: input.config.defaultFormat,

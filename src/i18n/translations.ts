@@ -302,6 +302,7 @@ type TranslationBundle = {
     customName: string;
     status: string;
     model: string;
+    legacyProvider: string;
     dateGroups: string;
     totalRecords: string;
     currentVersion: string;
@@ -765,6 +766,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       customName: "图片名称",
       status: "状态",
       model: "模型",
+      legacyProvider: "旧版配置",
       dateGroups: "日期分组",
       totalRecords: "总记录数",
       currentVersion: "当前版本",
@@ -1271,6 +1273,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       customName: "Image name",
       status: "Status",
       model: "Model",
+      legacyProvider: "Legacy provider",
       dateGroups: "Date groups",
       totalRecords: "Total records",
       currentVersion: "Current version",

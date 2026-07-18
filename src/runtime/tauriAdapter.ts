@@ -9,11 +9,11 @@ import { mergeConfig, type AppConfig } from "../core/config";
 import { resolveActiveProviderProfile } from "../core/providerProfiles";
 import type { ImageRecord } from "../core/history";
 import type { ProviderProfileSnapshot } from "../core/history";
+import type { ProviderProfileMetadata } from "../core/providerProfiles";
 import type {
   OutputDirectoryState,
   OutputDirectoryTestResult,
   RuntimeAdapter,
-  LegacyRuntimeConfig,
   SaveImageInput,
   SaveImageResult,
 } from "./types";
@@ -112,33 +112,27 @@ export const tauriAdapter: RuntimeAdapter = {
   mode: "desktop",
 
   loadConfig() {
-    return invoke<LegacyRuntimeConfig>("load_config").then((config) => {
-      const {
-        providerSchemaVersion: _providerSchemaVersion,
-        activeProviderProfileId: _activeProviderProfileId,
-        providerProfiles: _providerProfiles,
-        ...legacyConfig
-      } = config as LegacyRuntimeConfig & Partial<AppConfig>;
-      return mergeConfig(legacyConfig);
+    return invoke<AppConfig>("load_config").then((config) => {
+      const providerProfiles = config.providerProfiles.map((profile) => ({
+        ...profile,
+        apiKey: profile.id === config.activeProviderProfileId ? config.apiKey : "",
+      }));
+      return mergeConfig({ ...config, providerProfiles });
     });
   },
 
   saveConfig(config: AppConfig) {
     const activeProfile = resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId);
-    const {
-      providerSchemaVersion: _providerSchemaVersion,
-      activeProviderProfileId: _activeProviderProfileId,
-      providerProfiles: _providerProfiles,
-      ...nativeConfig
-    } = config;
-    const bridgeConfig: LegacyRuntimeConfig = {
-      ...nativeConfig,
+    const providerProfiles: ProviderProfileMetadata[] = config.providerProfiles.map(({ apiKey: _apiKey, ...profile }) => profile);
+    const bridgeConfig = {
+      ...config,
       baseUrl: activeProfile.baseUrl,
       apiKey: activeProfile.apiKey,
       textModel: activeProfile.textModel,
       imageModel: activeProfile.imageModel,
       imageResponseMode: activeProfile.imageResponseMode,
       rememberApiKey: activeProfile.rememberApiKey,
+      providerProfiles,
     };
     return invoke<void>("save_config", { config: bridgeConfig });
   },

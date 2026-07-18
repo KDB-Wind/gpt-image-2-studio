@@ -866,6 +866,50 @@ describe("App batch workspace", () => {
     expect(container.textContent).not.toContain("legacy-model-label");
   });
 
+  it("shows provider labels on batch cards and expanded tasks, with a localized legacy fallback", async () => {
+    const copy = getTranslations("en-US");
+    const profileRecord = createHistoryRecord({
+      id: "profile-batch-record",
+      providerProfileSnapshot: {
+        providerProfileId: "profile-a",
+        providerProfileName: "Profile A",
+        imageModel: "image-a",
+        imageResponseMode: "official",
+      },
+      batch: {
+        id: "batch-profile",
+        title: "Profile batch",
+        createdAt: "2026-05-24T00:00:00.000Z",
+        taskId: "task-profile",
+        taskIndex: 0,
+        taskTitle: "Profile task",
+      },
+    });
+    const legacyRecord = createHistoryRecord({
+      id: "legacy-batch-record",
+      model: "legacy-image-model",
+      batch: {
+        id: "batch-legacy",
+        title: "Legacy batch",
+        createdAt: "2026-05-24T00:00:00.000Z",
+        taskId: "task-legacy",
+        taskIndex: 0,
+        taskTitle: "Legacy task",
+      },
+    });
+    const runtime = createPreviewRuntime([], [profileRecord, legacyRecord]);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+    clickButton(copy.tabs.history);
+    await flushPromises();
+    clickButton(copy.actions.expandBatch);
+    await flushPromises();
+
+    expect(container.textContent).toContain("Profile A");
+    expect(container.textContent).toContain("Legacy provider: legacy-image-model");
+  });
+
   it("exposes timeout as a user controlled setting with safe bounds", async () => {
     const copy = getTranslations("en-US");
 
