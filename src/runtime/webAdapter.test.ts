@@ -351,6 +351,33 @@ describe("webAdapter history deletion", () => {
     expect(localStorage.getItem("chat-to-image.api-key.persistent.v1")).toBeNull();
   });
 
+  it("uses the session memory fallback when migrating a persistent key and session storage is unavailable", async () => {
+    const legacyKey = "legacy-persistent-memory-session-fake-key";
+    localStorage.setItem("chat-to-image.config.v1", JSON.stringify({
+      ...DEFAULT_CONFIG,
+      providerProfiles: [{
+        ...DEFAULT_CONFIG.providerProfiles[0],
+        id: "provider-memory-session",
+        name: "Memory session provider",
+        apiKey: "",
+        rememberApiKey: false,
+      }],
+      activeProviderProfileId: "provider-memory-session",
+    }));
+    localStorage.setItem("chat-to-image.api-key.persistent.v1", JSON.stringify(legacyKey));
+    vi.spyOn(window, "sessionStorage", "get").mockImplementation(() => {
+      throw new DOMException("Access is denied for this document.", "SecurityError");
+    });
+
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      activeProviderProfileId: "provider-memory-session",
+      apiKey: legacyKey,
+    });
+    expect(localStorage.getItem("chat-to-image.api-key.persistent.v1")).toBeNull();
+    expect(JSON.parse(localStorage.getItem("chat-to-image.api-keys.persistent.v1") ?? "{}"))
+      .toEqual({});
+  });
+
   it("ignores malformed key maps and null provider metadata entries", async () => {
     localStorage.setItem("chat-to-image.config.v1", JSON.stringify({
       ...DEFAULT_CONFIG,

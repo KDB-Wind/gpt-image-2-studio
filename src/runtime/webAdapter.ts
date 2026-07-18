@@ -691,7 +691,7 @@ export const webAdapter: RuntimeAdapter = {
     const cleanedSessionKeys = pruneKeyMap(sessionKeys, profileIds);
     const cleanedPersistentKeys = pruneKeyMap(persistentKeys, profileIds);
     const targetProfile = configWithoutKeys.providerProfiles.find((profile) => profile.id === legacyTargetProfileId);
-    if (legacySessionKey && storageCapabilities.session && !cleanedSessionKeys[legacyTargetProfileId]) {
+    if (legacySessionKey && !cleanedSessionKeys[legacyTargetProfileId]) {
       cleanedSessionKeys[legacyTargetProfileId] = legacySessionKey;
     }
     if (legacyPersistentKey) {
@@ -701,7 +701,7 @@ export const webAdapter: RuntimeAdapter = {
         }
       } else {
         delete cleanedPersistentKeys[legacyTargetProfileId];
-        if (storageCapabilities.session && !cleanedSessionKeys[legacyTargetProfileId]) {
+        if (!cleanedSessionKeys[legacyTargetProfileId]) {
           cleanedSessionKeys[legacyTargetProfileId] = legacyPersistentKey;
         }
       }
