@@ -10,6 +10,7 @@ import {
   type BatchImageSaveInput,
   type BatchImageSaveResult,
   type BatchStatus,
+  type BatchSuggestedAction,
   type BatchTask,
 } from "./batchTypes";
 
@@ -218,7 +219,9 @@ function resolveTaskReferenceImages(input: RunBatchTasksInput, task: BatchTask):
 
 export function classifyBatchFailure(error: unknown): BatchFailureCategory {
   if (isImageDownloadError(error)) {
-    return error.code === "image-url-cors" ? "cost_risk" : "unknown";
+    return error.code === "image-url-cors" || error.code === "image-url-base64-ignored"
+      ? "cost_risk"
+      : "unknown";
   }
 
   const message = error instanceof Error ? error.message : String(error);
@@ -267,8 +270,20 @@ export function classifyBatchFailure(error: unknown): BatchFailureCategory {
   return "unknown";
 }
 
-function getSuggestedAction(error: unknown): "force-base64" | undefined {
-  return isImageDownloadError(error) && error.code === "image-url-cors" ? "force-base64" : undefined;
+function getSuggestedAction(error: unknown): BatchSuggestedAction | undefined {
+  if (!isImageDownloadError(error)) {
+    return undefined;
+  }
+
+  if (error.code === "image-url-cors") {
+    return "force-base64";
+  }
+
+  if (error.code === "image-url-base64-ignored") {
+    return "none";
+  }
+
+  return undefined;
 }
 
 function takeNextRunnableTask(tasks: BatchTask[], next: () => number): BatchTask | null {

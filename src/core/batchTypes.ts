@@ -13,7 +13,7 @@ export type BatchFailureCategory =
   | "validation"
   | "cost_risk"
   | "unknown";
-export type BatchSuggestedAction = "force-base64";
+export type BatchSuggestedAction = "force-base64" | "none";
 
 export type BatchExecutionConfig = {
   concurrency: number;

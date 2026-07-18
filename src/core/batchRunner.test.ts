@@ -491,6 +491,33 @@ describe("batchRunner", () => {
     expect(result.tasks[1].status).toBe("pending");
   });
 
+  it("pauses on a provider URL that ignored force-base64 without suggesting an invalid switch", async () => {
+    const tasks = createTasksFromMultilinePrompts("one\ntwo");
+    const result = await runBatchTasks({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG,
+      tasks,
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 3 },
+      referenceImages: [],
+      generateImages: async () => {
+        throw new ImageDownloadError("image-url-base64-ignored");
+      },
+      saveBatchImage: vi.fn(),
+    });
+
+    expect(result.status).toBe("paused");
+    expect(result.pauseReason?.failureCategory).toBe("cost_risk");
+    expect(result.tasks[0]).toMatchObject({
+      status: "failed",
+      failureCategory: "cost_risk",
+      suggestedAction: "none",
+    });
+    expect(result.tasks[0].suggestedAction).not.toBe("force-base64");
+    expect(result.tasks[1].status).toBe("pending");
+  });
+
   it("retries one failed task without changing successful tasks", async () => {
     const tasks = createTasksFromMultilinePrompts("one\ntwo").map((task, index) => ({
       ...task,

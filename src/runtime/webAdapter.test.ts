@@ -1004,6 +1004,53 @@ describe("webAdapter history deletion", () => {
     ).rejects.toThrow("Failed to download generated image (HTTP 403).");
   });
 
+  it("keeps an invalid provider URL generic and does not attempt a fetch", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      webAdapter.saveImage({
+        image: { url: "https://" },
+        prompt: "A malformed URL image.",
+        optimizedPrompt: "",
+        customName: "",
+        config: DEFAULT_CONFIG,
+        generatedAt: new Date("2026-07-05T10:00:00.000Z"),
+        durationMs: 1200,
+      }),
+    ).rejects.toMatchObject({
+      code: "image-download-failed",
+      message: "Failed to download generated image.",
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a response blob TypeError generic instead of classifying it as CORS", async () => {
+    const providerUrl = "https://provider.example/generated.png?signature=private-token";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce({
+      ok: true,
+      blob: async () => {
+        throw new TypeError(`Response body stream failed for ${providerUrl}`);
+      },
+    }));
+
+    await expect(
+      webAdapter.saveImage({
+        image: { url: providerUrl },
+        prompt: "A broken blob image.",
+        optimizedPrompt: "",
+        customName: "",
+        config: DEFAULT_CONFIG,
+        generatedAt: new Date("2026-07-05T10:00:00.000Z"),
+        durationMs: 1200,
+      }),
+    ).rejects.toMatchObject({
+      code: "image-download-failed",
+      message: "Failed to download generated image.",
+    });
+  });
+
   it("classifies a provider URL returned despite force-base64 mode", async () => {
     const providerUrl = "https://provider.example/generated.png?signature=private-token";
     const config = {

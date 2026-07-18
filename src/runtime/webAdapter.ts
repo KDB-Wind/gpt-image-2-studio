@@ -7,7 +7,6 @@ import { safeErrorMessage } from "../core/errorSanitizer";
 import { sortHistoryNewestFirst, type ImageRecord } from "../core/history";
 import {
   classifyImageDownloadFailure,
-  isImageDownloadError,
 } from "../core/imageDownloadError";
 import { resolveActiveProviderProfile } from "../core/providerProfiles";
 import type {
@@ -453,29 +452,49 @@ async function imageToBlob(input: SaveImageInput): Promise<Blob> {
     ).imageResponseMode;
 
     if (responseMode === "force-base64") {
-      throw classifyImageDownloadFailure({ responseMode, cause: undefined });
+      throw classifyImageDownloadFailure({ responseMode, cause: undefined, operation: "url" });
     }
 
-    let failedHttpStatus: number | undefined;
+    if (!isSupportedImageUrl(input.image.url)) {
+      throw classifyImageDownloadFailure({ responseMode, cause: undefined, operation: "url" });
+    }
+
+    let response: Response;
     try {
-      const response = await fetch(input.image.url);
-
-      if (!response.ok) {
-        failedHttpStatus = response.status;
-        throw new Error("Image download returned an unsuccessful HTTP response.");
-      }
-
-      return response.blob();
+      response = await fetch(input.image.url);
     } catch (error) {
-      if (isImageDownloadError(error)) {
-        throw error;
-      }
+      throw classifyImageDownloadFailure({ responseMode, cause: error, operation: "fetch" });
+    }
 
-      throw classifyImageDownloadFailure({ responseMode, cause: error, status: failedHttpStatus });
+    if (!response.ok) {
+      throw classifyImageDownloadFailure({
+        responseMode,
+        cause: undefined,
+        operation: "fetch",
+        status: response.status,
+      });
+    }
+
+    try {
+      return await response.blob();
+    } catch (error) {
+      throw classifyImageDownloadFailure({ responseMode, cause: error, operation: "blob" });
     }
   }
 
   throw new Error("Image payload did not include base64 data or a URL.");
+}
+
+function isSupportedImageUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value, window.location.href);
+    return parsed.protocol === "http:"
+      || parsed.protocol === "https:"
+      || parsed.protocol === "blob:"
+      || parsed.protocol === "data:";
+  } catch {
+    return false;
+  }
 }
 
 async function batchImageToBlob(input: BatchImageSaveInput): Promise<Blob> {
