@@ -48,10 +48,10 @@ const RULES = [
   {
     name: "sensitive-assignment",
     pattern: new RegExp(
-      `\\b${SENSITIVE_ASSIGNMENT_NAME}\\b\\s*[:=]\\s*["']?([A-Za-z0-9._~+/=-]{20,})`,
+      `\\b${SENSITIVE_ASSIGNMENT_NAME}\\b\\s*[:=]\\s*(?:["']([A-Za-z0-9._~+/=-]{20,})["']|([A-Za-z0-9._~+/-]{20,}={0,2}))`,
       "gi",
     ),
-    value: (match) => match[1],
+    value: (match) => match[1] ?? match[2],
     requireEntropy: true,
   },
 ];

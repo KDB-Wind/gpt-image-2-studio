@@ -754,9 +754,10 @@ export const webAdapter: RuntimeAdapter = {
     const legacyApiKey = typeof storedConfig.apiKey === "string" ? storedConfig.apiKey : "";
     const rawProviderProfiles = Array.isArray(storedConfig.providerProfiles) ? storedConfig.providerProfiles : [];
     const persistableConfig = toPersistedConfig(storedConfig);
+    const needsProviderMetadataMigration = storedConfig.providerSchemaVersion !== DEFAULT_CONFIG.providerSchemaVersion
+      || !Array.isArray(storedConfig.providerProfiles);
     let configWithoutKeys = mergeConfig({
       ...persistableConfig,
-      providerSchemaVersion: DEFAULT_CONFIG.providerSchemaVersion,
       apiKey: "",
     } as Partial<AppConfig>);
     const legacyTargetProfileId = configWithoutKeys.activeProviderProfileId;
@@ -818,7 +819,10 @@ export const webAdapter: RuntimeAdapter = {
         }
       }
     }
-    if (legacyApiKey || migratedProfileKey) writeStoredValue(CONFIG_KEY, persistableConfig);
+    const normalizedPersistableConfig = toPersistedConfig(configWithoutKeys);
+    if (needsProviderMetadataMigration || legacyApiKey || migratedProfileKey) {
+      writeStoredValue(CONFIG_KEY, normalizedPersistableConfig);
+    }
 
     const activeApiKey = cleanedSessionKeys[configWithoutKeys.activeProviderProfileId]
       || (storageCapabilities.local ? cleanedPersistentKeys[configWithoutKeys.activeProviderProfileId] : "")
@@ -833,8 +837,7 @@ export const webAdapter: RuntimeAdapter = {
     removeStoredValue(LEGACY_SESSION_API_KEY, "session");
     removeStoredValue(LEGACY_PERSISTENT_API_KEY);
     const hydratedConfig = mergeConfig({
-      ...persistableConfig,
-      providerSchemaVersion: DEFAULT_CONFIG.providerSchemaVersion,
+      ...normalizedPersistableConfig,
       providerProfiles: hydratedProfiles,
       apiKey: "",
     });

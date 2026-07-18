@@ -179,6 +179,25 @@ describe("secret scan", () => {
     ]);
   });
 
+  it("does not mistake a minified conditional expression for an assigned token", () => {
+    const source = "apiKey:t.id===n.activeProviderProfileId?y:``";
+
+    expect(findSecretFindings({ "dist-static/index.js": source })).toEqual([]);
+  });
+
+  it("detects unquoted assigned tokens before comments and shell commands", () => {
+    const token = ["Ab3", "Cd4", "Ef5", "Gh6", "Ij7", "Kl8", "Mn9", "Op0"].join("");
+    const findings = findSecretFindings({
+      "config.env": `API_KEY=${token} # local credential`,
+      "scripts/start.sh": `API_KEY=${token} npm run start`,
+    });
+
+    expect(findings).toEqual([
+      expect.objectContaining({ path: "config.env", rule: "sensitive-assignment" }),
+      expect.objectContaining({ path: "scripts/start.sh", rule: "sensitive-assignment" }),
+    ]);
+  });
+
   it("does not suppress a real-looking prefixed key merely because one segment says test", () => {
     const token = ["sk", "live", "A".repeat(16), "test", "B".repeat(16)].join("-");
 

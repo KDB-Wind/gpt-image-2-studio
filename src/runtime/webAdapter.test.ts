@@ -1109,6 +1109,54 @@ describe("webAdapter history deletion", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("migrates legacy provider metadata before applying the current provider schema", async () => {
+    localStorage.setItem("chat-to-image.config.v1", JSON.stringify({
+      uiLanguage: "en-US",
+      hasDismissedWelcome: true,
+      baseUrl: "https://legacy-provider.example/v1",
+      apiKey: "legacy-provider-fake-key",
+      rememberApiKey: false,
+      textModel: "legacy-text-model",
+      imageModel: "legacy-image-model",
+      imageResponseMode: "force-base64",
+    }));
+
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      baseUrl: "https://legacy-provider.example/v1",
+      apiKey: "legacy-provider-fake-key",
+      textModel: "legacy-text-model",
+      imageModel: "legacy-image-model",
+      imageResponseMode: "force-base64",
+      activeProviderProfileId: "provider-default",
+      providerProfiles: [expect.objectContaining({
+        id: "provider-default",
+        name: "Default provider",
+        baseUrl: "https://legacy-provider.example/v1",
+        apiKey: "legacy-provider-fake-key",
+        textModel: "legacy-text-model",
+        imageModel: "legacy-image-model",
+        imageResponseMode: "force-base64",
+        rememberApiKey: false,
+      })],
+    });
+
+    const migrated = JSON.parse(localStorage.getItem("chat-to-image.config.v1") ?? "{}");
+    expect(migrated).not.toHaveProperty("apiKey");
+    expect(migrated).toMatchObject({
+      providerSchemaVersion: 1,
+      activeProviderProfileId: "provider-default",
+      providerProfiles: [expect.objectContaining({
+        id: "provider-default",
+        baseUrl: "https://legacy-provider.example/v1",
+        textModel: "legacy-text-model",
+        imageModel: "legacy-image-model",
+        imageResponseMode: "force-base64",
+      })],
+    });
+    expect(JSON.parse(sessionStorage.getItem("chat-to-image.api-keys.session.v1") ?? "{}"))
+      .toEqual({ "provider-default": "legacy-provider-fake-key" });
+  });
+
   it("loads and clears one profile key without touching another profile", async () => {
     const defaultKey = "load-default-profile-key";
     const alternateKey = "load-alternate-profile-key";

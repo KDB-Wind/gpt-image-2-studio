@@ -1,7 +1,7 @@
 # 供应商配置档案设计
 
 **Date:** 2026-07-18  
-**Status:** Approved design, implementation pending
+**Status:** Implemented and verified locally; release pending
 
 ## Context
 
@@ -167,6 +167,23 @@ imageResponseMode
 - UI 可新增、编辑、删除和切换档案。
 - 单图、批量、AI 拆分、历史、设置和移动端回归测试通过。
 - 构建产物密钥扫描通过。
+
+### Implementation Evidence (2026-07-19)
+
+- `npm run test:run`: 35 test files passed, 590 tests passed.
+- `cargo test`: 41 tests passed.
+- `npm run build` and `npm run build:static`: passed.
+- Provider-profile focused Playwright run: 5 passed, 1 desktop-only skip for the Pixel 7 case.
+- `npm run e2e:static:mock`: 17 passed, 3 expected project-specific skips.
+- `npx tsc --noEmit` and `git diff --check`: passed.
+- `npm run secret:scan` and `npm run secret:scan:release`: passed.
+- `npm audit --omit=dev --audit-level=high`: 0 production vulnerabilities.
+- Static E2E exposed a legacy migration regression where the old Base URL and model names were replaced by defaults. The web runtime now migrates legacy metadata before applying the current schema, persists the sanitized schema, and keeps the API key in the profile-scoped key store.
+- Static artifact scanning exposed a false positive on a minified conditional expression after `apiKey:`. The scanner now accepts complete quoted strings or valid bare tokens while continuing to detect real high-entropy assignments.
+- Public artifact checks found no real API key, configured E2E secret, signed URL secret, or private provider response in tracked or generated artifacts.
+- `.env.e2e.local`, `test-results/`, and `playwright-report/` are ignored and were not staged. Generated Playwright reports were removed after verification.
+- The pre-existing uncommitted `dist-static` directory was backed up before static builds and restored byte-for-byte afterward (11 files verified by SHA-256).
+- `static-versions/versions/v0.1.7/index.html` remains unchanged. Archive parity and GitHub Pages deployment are intentionally deferred to a separately approved `v0.1.8` release task.
 
 ### Manual
 
