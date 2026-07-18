@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createTasksFromMultilinePrompts } from "./batchPlanner";
 import { runBatchTasks, retrySingleBatchTask } from "./batchRunner";
 import { DEFAULT_CONFIG } from "./config";
+import { ImageDownloadError } from "./imageDownloadError";
 import type { BatchImageSaveInput, BatchImageSaveResult } from "./batchTypes";
 
 function createSaveResult(input: BatchImageSaveInput): BatchImageSaveResult {
@@ -457,6 +458,36 @@ describe("batchRunner", () => {
     expect(result.status).toBe("paused");
     expect(result.pauseReason?.failureCategory).toBe("cost_risk");
     expect(result.tasks[0].status).toBe("failed");
+    expect(result.tasks[1].status).toBe("pending");
+  });
+
+  it("classifies image URL CORS failures as cost risk and suggests force-base64", async () => {
+    const tasks = createTasksFromMultilinePrompts("one\ntwo");
+    const providerUrl = "https://provider.example/generated.png?signature=private-token";
+    const result = await runBatchTasks({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG,
+      tasks,
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 3 },
+      referenceImages: [],
+      generateImages: async () => {
+        throw new ImageDownloadError("image-url-cors");
+      },
+      saveBatchImage: vi.fn(),
+    });
+
+    expect(result.status).toBe("paused");
+    expect(result.pauseReason).toMatchObject({
+      failureCategory: "cost_risk",
+      message: expect.not.stringContaining(providerUrl),
+    });
+    expect(result.tasks[0]).toMatchObject({
+      status: "failed",
+      failureCategory: "cost_risk",
+      suggestedAction: "force-base64",
+    });
     expect(result.tasks[1].status).toBe("pending");
   });
 

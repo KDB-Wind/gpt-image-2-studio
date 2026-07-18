@@ -1,6 +1,7 @@
 import { generateImages as defaultGenerateImages } from "./apiClient";
 import type { AppConfig } from "./config";
 import { createProviderProfileSnapshot } from "./history";
+import { isImageDownloadError } from "./imageDownloadError";
 import { classifyProviderError, summarizeSensitiveError, type ProviderTransportKind } from "./providerErrors";
 import {
   clampBatchExecutionConfig,
@@ -71,6 +72,7 @@ export async function runBatchTasks(input: RunBatchTasksInput): Promise<RunBatch
         attemptCount: Math.max(1, task.attemptCount + 1),
         errorMessage: "",
         failureCategory: null,
+        suggestedAction: undefined,
         startedAt: new Date().toISOString(),
         completedAt: "",
       };
@@ -138,6 +140,7 @@ async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<B
       attemptCount: attempt,
       errorMessage: "",
       failureCategory: null,
+      suggestedAction: undefined,
       startedAt: startedAt.toISOString(),
       completedAt: "",
     };
@@ -176,18 +179,21 @@ async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<B
         saveFallbackReason: saved.saveFallbackReason ? summarizeSensitiveError(saved.saveFallbackReason) : undefined,
         historyDurability: saved.historyDurability,
         historyWarning: saved.historyWarning ? summarizeSensitiveError(saved.historyWarning) : undefined,
+        suggestedAction: undefined,
         durationMs,
         completedAt: new Date().toISOString(),
         providerProfileSnapshot,
       };
     } catch (error) {
       const failureCategory = classifyBatchFailure(error);
+      const suggestedAction = getSuggestedAction(error);
       const message = summarizeSensitiveError(error);
       const failedTask: BatchTask = {
         ...runningTask,
         status: "failed",
         errorMessage: message,
         failureCategory,
+        suggestedAction,
         completedAt: new Date().toISOString(),
         durationMs: Date.now() - startedAt.getTime(),
       };
@@ -211,6 +217,10 @@ function resolveTaskReferenceImages(input: RunBatchTasksInput, task: BatchTask):
 }
 
 export function classifyBatchFailure(error: unknown): BatchFailureCategory {
+  if (isImageDownloadError(error)) {
+    return error.code === "image-url-cors" ? "cost_risk" : "unknown";
+  }
+
   const message = error instanceof Error ? error.message : String(error);
   const details = errorObject(error);
   const providerCategory = classifyProviderError({
@@ -255,6 +265,10 @@ export function classifyBatchFailure(error: unknown): BatchFailureCategory {
   }
 
   return "unknown";
+}
+
+function getSuggestedAction(error: unknown): "force-base64" | undefined {
+  return isImageDownloadError(error) && error.code === "image-url-cors" ? "force-base64" : undefined;
 }
 
 function takeNextRunnableTask(tasks: BatchTask[], next: () => number): BatchTask | null {

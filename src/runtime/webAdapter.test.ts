@@ -1001,7 +1001,57 @@ describe("webAdapter history deletion", () => {
         generatedAt: new Date("2026-07-05T10:00:00.000Z"),
         durationMs: 1200,
       }),
-    ).rejects.toThrow("Original error: HTTP 403");
+    ).rejects.toThrow("Failed to download generated image (HTTP 403).");
+  });
+
+  it("classifies a provider URL returned despite force-base64 mode", async () => {
+    const providerUrl = "https://provider.example/generated.png?signature=private-token";
+    const config = {
+      ...DEFAULT_CONFIG,
+      providerProfiles: [{
+        ...DEFAULT_CONFIG.providerProfiles[0],
+        imageResponseMode: "force-base64" as const,
+      }],
+    };
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      webAdapter.saveImage({
+        image: { url: providerUrl },
+        prompt: "A small test image.",
+        optimizedPrompt: "",
+        customName: "",
+        config,
+        generatedAt: new Date("2026-07-05T10:00:00.000Z"),
+        durationMs: 1200,
+      }),
+    ).rejects.toMatchObject({
+      code: "image-url-base64-ignored",
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("saves a normally downloadable provider URL", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      blob: async () => new Blob(["image"], { type: "image/png" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:url-save");
+
+    const result = await webAdapter.saveImage({
+      image: { url: "https://provider.example/generated.png" },
+      prompt: "A normal URL image.",
+      optimizedPrompt: "",
+      customName: "url-image",
+      config: DEFAULT_CONFIG,
+      generatedAt: new Date("2026-07-05T10:00:00.000Z"),
+      durationMs: 1200,
+    });
+
+    expect(result.previewUrl).toBe("blob:url-save");
   });
 
   it("requests read-write access when choosing an output directory", async () => {

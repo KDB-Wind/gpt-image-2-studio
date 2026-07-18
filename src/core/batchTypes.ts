@@ -13,6 +13,7 @@ export type BatchFailureCategory =
   | "validation"
   | "cost_risk"
   | "unknown";
+export type BatchSuggestedAction = "force-base64";
 
 export type BatchExecutionConfig = {
   concurrency: number;
@@ -31,6 +32,7 @@ export type BatchTask = {
   attemptCount: number;
   errorMessage: string;
   failureCategory: BatchFailureCategory | null;
+  suggestedAction?: BatchSuggestedAction;
   outputPath: string;
   previewUrl: string;
   saveMode?: ImageSaveMode;
@@ -165,6 +167,7 @@ export type BatchManifestTask = Pick<
   | "attemptCount"
   | "errorMessage"
   | "failureCategory"
+  | "suggestedAction"
   | "outputPath"
   | "saveMode"
   | "saveFallbackReason"

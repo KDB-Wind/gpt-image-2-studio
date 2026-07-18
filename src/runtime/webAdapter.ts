@@ -5,6 +5,10 @@ import { sanitizeBatchWorkspace } from "../core/batchWorkspace";
 import { buildImageFileName, formatDateFolder } from "../core/fileNames";
 import { safeErrorMessage } from "../core/errorSanitizer";
 import { sortHistoryNewestFirst, type ImageRecord } from "../core/history";
+import {
+  classifyImageDownloadFailure,
+  isImageDownloadError,
+} from "../core/imageDownloadError";
 import { resolveActiveProviderProfile } from "../core/providerProfiles";
 import type {
   OutputDirectoryState,
@@ -443,21 +447,31 @@ async function imageToBlob(input: SaveImageInput): Promise<Blob> {
   }
 
   if (input.image.url) {
+    const responseMode = resolveActiveProviderProfile(
+      input.config.providerProfiles,
+      input.config.activeProviderProfileId,
+    ).imageResponseMode;
+
+    if (responseMode === "force-base64") {
+      throw classifyImageDownloadFailure({ responseMode, cause: undefined });
+    }
+
+    let failedHttpStatus: number | undefined;
     try {
       const response = await fetch(input.image.url);
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        failedHttpStatus = response.status;
+        throw new Error("Image download returned an unsuccessful HTTP response.");
       }
 
       return response.blob();
     } catch (error) {
-      const reason = safeErrorMessage(error);
-      throw new Error(
-        `The provider returned an image URL, but this browser could not download it. ` +
-          `This is usually caused by CORS restrictions on the provider-hosted image. ` +
-          `Use a provider or request mode that returns b64_json image data. Original error: ${reason}`,
-      );
+      if (isImageDownloadError(error)) {
+        throw error;
+      }
+
+      throw classifyImageDownloadFailure({ responseMode, cause: error, status: failedHttpStatus });
     }
   }
 
