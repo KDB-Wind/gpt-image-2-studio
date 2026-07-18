@@ -423,7 +423,7 @@ pub fn persist_api_key_json_fallback(path: &Path, profile_id: &str, api_key: &st
 }
 
 pub fn clear_api_key_json_fallback(path: &Path, profile_id: &str) -> Result<(), String> {
-    let Some(mut value) = read_json_value(path) else {
+    let Some(mut value) = read_json_value_result(path, "provider API key fallback")? else {
         return Ok(());
     };
     if let Some(object) = value.as_object_mut() {
@@ -437,11 +437,41 @@ pub fn clear_api_key_json_fallback(path: &Path, profile_id: &str) -> Result<(), 
     write_json(path, &value)
 }
 
+pub fn resolve_keyring_clear_result(
+    delete_result: Result<(), String>,
+    verify_absent_result: Result<bool, String>,
+) -> Result<(), String> {
+    match delete_result {
+        Ok(()) => Ok(()),
+        Err(delete_error) => match verify_absent_result {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(format!(
+                "Failed to clear provider API key from keyring: {delete_error}"
+            )),
+            Err(verify_error) => Err(format!(
+                "Failed to verify provider API key removal after keyring error ({delete_error}): {verify_error}"
+            )),
+        },
+    }
+}
+
 fn clear_api_key(path: &Path, profile_id: &str) -> Result<(), String> {
     let account = profile_keyring_account(profile_id);
-    if let Ok(entry) = Entry::new(KEYRING_SERVICE, &account) {
-        let _ = entry.delete_credential();
+    let entry = Entry::new(KEYRING_SERVICE, &account)
+        .map_err(|error| format!("Failed to open provider API key in keyring: {error}"))?;
+    let delete_result = entry
+        .delete_credential()
+        .map_err(|error| error.to_string());
+    if delete_result.is_ok() {
+        return clear_api_key_json_fallback(path, profile_id);
     }
+
+    let verify_absent_result = match entry.get_password() {
+        Ok(_) => Ok(false),
+        Err(keyring::Error::NoEntry) => Ok(true),
+        Err(error) => Err(error.to_string()),
+    };
+    resolve_keyring_clear_result(delete_result, verify_absent_result)?;
     clear_api_key_json_fallback(path, profile_id)
 }
 

@@ -380,6 +380,34 @@ fn clearing_json_fallback_key_keeps_other_provider_profiles() {
 }
 
 #[test]
+fn accepts_keyring_delete_failure_only_when_absence_is_confirmed() {
+    assert!(crate::storage::resolve_keyring_clear_result(
+        Err("delete failed".to_string()),
+        Ok(true),
+    )
+    .is_ok());
+
+    let error = crate::storage::resolve_keyring_clear_result(
+        Err("delete failed".to_string()),
+        Ok(false),
+    )
+    .unwrap_err();
+    assert!(error.contains("delete failed"));
+}
+
+#[test]
+fn propagates_keyring_absence_verification_failure() {
+    let error = crate::storage::resolve_keyring_clear_result(
+        Err("delete failed".to_string()),
+        Err("verification failed".to_string()),
+    )
+    .unwrap_err();
+
+    assert!(error.contains("delete failed"));
+    assert!(error.contains("verification failed"));
+}
+
+#[test]
 fn keyring_results_are_isolated_by_provider_profile() {
     let temp_root = std::env::temp_dir().join(format!(
         "chat-to-image-keyring-profile-isolation-test-{}",

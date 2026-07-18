@@ -725,7 +725,20 @@ export default function App() {
 
     const nextProfiles = removeProviderProfile(config.providerProfiles, deletedProfileId);
     const nextActive = nextProfiles[0];
-    setConfig(syncActiveProfile(config, nextActive, nextProfiles));
+    const nextConfig = syncActiveProfile(config, nextActive, nextProfiles);
+    setConfig(nextConfig);
+    setPersistedConfig((current) => {
+      const nextPersistedProfiles = current.providerProfiles.filter((profile) => profile.id !== deletedProfileId);
+      if (nextPersistedProfiles.length === 0) {
+        return nextConfig;
+      }
+
+      const nextPersistedActive = resolveActiveProviderProfile(
+        nextPersistedProfiles,
+        nextConfig.activeProviderProfileId,
+      );
+      return syncActiveProfile(current, nextPersistedActive, nextPersistedProfiles);
+    });
     setSettingsMessage({ tone: "neutral", text: "" });
   }
 
@@ -734,7 +747,9 @@ export default function App() {
       return;
     }
 
-    const persistedProfile = persistedConfig.providerProfiles.find((profile) => profile.id === profileId);
+    const currentProfileIds = new Set(config.providerProfiles.map((profile) => profile.id));
+    const persistedProfiles = persistedConfig.providerProfiles.filter((profile) => currentProfileIds.has(profile.id));
+    const persistedProfile = persistedProfiles.find((profile) => profile.id === profileId);
     if (!persistedProfile) {
       return;
     }
@@ -746,7 +761,7 @@ export default function App() {
     const nextConfig = syncActiveProfile(
       persistedConfig,
       nextProfile,
-      persistedConfig.providerProfiles.map((profile) => profile.id === profileId ? nextProfile : profile),
+      persistedProfiles.map((profile) => profile.id === profileId ? nextProfile : profile),
     );
 
     try {

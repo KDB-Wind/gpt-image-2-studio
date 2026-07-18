@@ -1032,21 +1032,28 @@ describe("App batch workspace", () => {
     }));
   });
 
-  it("deletes the active provider profile and selects the remaining profile", async () => {
+  it("deletes a provider profile durably before switching and saving the remaining profile", async () => {
     const copy = getTranslations("en-US");
     const profiles = [
-      createProviderProfile({ id: "provider-a", name: "Profile A" }),
-      createProviderProfile({ id: "provider-b", name: "Profile B", imageResponseMode: "force-base64" }),
+      createProviderProfile({ id: "provider-a", name: "Profile A", apiKey: "profile-a-key" }),
+      createProviderProfile({ id: "provider-b", name: "Profile B", apiKey: "profile-b-key", imageResponseMode: "force-base64" }),
     ];
     const runtime = createPreviewRuntime([]);
-    runtime.loadConfig = vi.fn().mockResolvedValue({
+    let storedConfig = {
       ...DEFAULT_CONFIG,
       ...profiles[1],
       providerProfiles: profiles,
       activeProviderProfileId: "provider-b",
-      uiLanguage: "en-US",
+      uiLanguage: "en-US" as const,
       hasDismissedWelcome: true,
+    };
+    runtime.loadConfig = vi.fn().mockResolvedValue({
+      ...storedConfig,
     });
+    const saveConfigMock = vi.fn().mockImplementation(async (nextConfig) => {
+      storedConfig = nextConfig;
+    });
+    runtime.saveConfig = saveConfigMock;
     runtime.clearProviderApiKey = vi.fn().mockResolvedValue(undefined);
     vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
 
@@ -1061,6 +1068,31 @@ describe("App batch workspace", () => {
     expect(profileSelect?.value).toBe("provider-a");
     expect(getField<HTMLInputElement>(copy.fields.providerProfileName, "input").value).toBe("Profile A");
     expect(getField<HTMLSelectElement>(copy.fields.imageResponseMode, "select").value).toBe("official");
+
+    setSelectValue(profileSelect ?? undefined, "provider-a");
+    await flushEffects();
+    clickButton(copy.actions.save);
+    await flushEffects();
+
+    for (const [payload] of saveConfigMock.mock.calls) {
+      expect(payload.providerProfiles).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: "provider-b" }),
+      ]));
+      expect(JSON.stringify(payload)).not.toContain("profile-b-key");
+    }
+
+    runtime.loadConfig = vi.fn().mockResolvedValue(storedConfig);
+    act(() => {
+      root.unmount();
+    });
+    root = createRoot(container);
+    await renderApp();
+
+    clickButton(copy.tabs.settings);
+    const reloadedProfileSelect = container.querySelector<HTMLSelectElement>('[data-testid="settings-provider-profile"]');
+    expect(reloadedProfileSelect?.options).toHaveLength(1);
+    expect(reloadedProfileSelect?.value).toBe("provider-a");
+    expect(container.textContent).not.toContain("Profile B");
   });
 
   it("hydrates only the selected profile API key on demand in web runtime", async () => {
