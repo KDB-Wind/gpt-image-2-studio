@@ -393,6 +393,25 @@ fn keyring_results_are_isolated_by_provider_profile() {
 }
 
 #[test]
+fn empty_save_does_not_replace_existing_profile_key() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-empty-key-save-{}",
+        std::process::id()
+    ));
+    let config_path = temp_root.join("config.json");
+
+    std::fs::create_dir_all(&temp_root).unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "provider-a", "key-a").unwrap();
+    let mode = crate::storage::save_config_for_test(&config_path, "provider-a", "").unwrap();
+
+    assert_eq!(mode, "json-fallback");
+    let stored: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert_eq!(stored["__apiKeys"]["provider-a"], "key-a");
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
 fn migrates_legacy_single_json_key_to_active_profile() {
     let temp_root = std::env::temp_dir().join(format!(
         "chat-to-image-api-key-profile-migration-test-{}",

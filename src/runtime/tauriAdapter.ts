@@ -121,8 +121,15 @@ export const tauriAdapter: RuntimeAdapter = {
     });
   },
 
-  saveConfig(config: AppConfig) {
+  loadProviderApiKey(profileId: string) {
+    return invoke<string>("load_provider_api_key", { profileId });
+  },
+
+  async saveConfig(config: AppConfig) {
     const activeProfile = resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId);
+    const activeProfileApiKey = activeProfile.apiKey || await invoke<string>("load_provider_api_key", {
+      profileId: activeProfile.id,
+    }).catch(() => "");
     const providerProfiles: ProviderProfileMetadata[] = config.providerProfiles.map(({ apiKey: _apiKey, ...profile }) => profile);
     const { apiKey: _apiKey, ...configWithoutApiKey } = config;
     const bridgeConfig = {
@@ -136,7 +143,7 @@ export const tauriAdapter: RuntimeAdapter = {
     };
     return invoke<void>("save_config", {
       config: bridgeConfig,
-      activeProfileApiKey: activeProfile.apiKey,
+      activeProfileApiKey,
     });
   },
 

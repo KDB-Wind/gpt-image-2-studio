@@ -350,11 +350,20 @@ fn load_api_key(path: &Path, profile_id: &str, allow_legacy_migration: bool) -> 
         && read_api_key_storage_mode(path) != JSON_FALLBACK_STORAGE_MODE;
     let loaded = load_api_key_with_result(path, profile_id, keyring_result, legacy_keyring_result, allow_legacy_migration);
     if should_migrate_legacy {
-        if let Ok(entry) = Entry::new(KEYRING_SERVICE, &profile_account) {
-            let _ = entry.set_password(legacy_key.as_deref().unwrap_or_default());
-        }
-        if let Ok(entry) = Entry::new(KEYRING_SERVICE, LEGACY_KEYRING_ACCOUNT) {
-            let _ = entry.delete_credential();
+        let migrated = Entry::new(KEYRING_SERVICE, &profile_account)
+            .map_err(|error| error.to_string())
+            .and_then(|entry| {
+                entry.set_password(legacy_key.as_deref().unwrap_or_default())
+                    .map_err(|error| error.to_string())?;
+                Entry::new(KEYRING_SERVICE, &profile_account)
+                    .map_err(|error| error.to_string())
+                    .and_then(|fresh_entry| fresh_entry.get_password().map_err(|error| error.to_string()))
+            })
+            .is_ok_and(|value| value == legacy_key.as_deref().unwrap_or_default());
+        if migrated {
+            if let Ok(entry) = Entry::new(KEYRING_SERVICE, LEGACY_KEYRING_ACCOUNT) {
+                let _ = entry.delete_credential();
+            }
         }
     }
     loaded
@@ -406,6 +415,16 @@ pub fn persist_api_key_json_fallback(path: &Path, profile_id: &str, api_key: &st
 }
 
 fn save_api_key(path: &Path, profile_id: &str, api_key: &str) -> Result<String, String> {
+    // A profile switch can reach the native bridge before the UI has
+    // hydrated that profile's secret. Never replace an existing secret with
+    // an empty value; explicit clearing can be added as a separate command.
+    if api_key.trim().is_empty() {
+        let existing = load_api_key(path, profile_id, false);
+        if !existing.trim().is_empty() {
+            return Ok(read_api_key_storage_mode(path));
+        }
+    }
+
     let account = profile_keyring_account(profile_id);
     let keyring_result = Entry::new(KEYRING_SERVICE, &account)
         .map_err(|error| error.to_string())
@@ -576,6 +595,11 @@ fn build_file_name(input: &SaveGeneratedImageInput, directory: &Path) -> Result<
 
 fn output_base_dir() -> Result<PathBuf, String> {
     Ok(project_dirs()?.data_dir().to_path_buf())
+}
+
+#[cfg(test)]
+pub fn save_config_for_test(path: &Path, profile_id: &str, api_key: &str) -> Result<String, String> {
+    save_api_key(path, profile_id, api_key)
 }
 
 #[derive(Debug)]
@@ -862,6 +886,16 @@ pub(crate) fn load_config_at(path: &Path) -> Result<AppConfig, String> {
 #[tauri::command]
 pub fn load_config() -> Result<AppConfig, String> {
     load_config_at(&config_path()?)
+}
+
+#[tauri::command]
+pub fn load_provider_api_key(profile_id: String) -> Result<String, String> {
+    let profile_id = profile_id.trim();
+    if profile_id.is_empty() || profile_id.len() > 128 || profile_id.contains(['/', '\\']) {
+        return Err("Invalid provider profile id".to_string());
+    }
+    let path = config_path()?;
+    Ok(load_api_key(&path, profile_id, false))
 }
 
 #[tauri::command]

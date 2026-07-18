@@ -63,6 +63,7 @@ export type RuntimeAdapter = {
   mode: "web" | "desktop";
   loadConfig(): Promise<AppConfig>;
   saveConfig(config: AppConfig): Promise<void>;
+  loadProviderApiKey?(profileId: string): Promise<string>;
   getStorageCapabilities?(): Promise<RuntimeStorageCapabilities>;
   loadHistory(): Promise<ImageRecord[]>;
   deleteHistoryRecords(recordIds: string[]): Promise<ImageRecord[]>;

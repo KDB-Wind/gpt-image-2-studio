@@ -149,7 +149,10 @@ export function mergeConfig(value: Partial<AppConfig> | null | undefined): AppCo
     return {
       ...profile,
       baseUrl: normalizeBaseUrl(profile.baseUrl),
-      apiKey: inputHasSchema ? sourceApiKey : asString(input.apiKey),
+      // A legacy top-level key may still be present when callers spread
+      // DEFAULT_CONFIG and override only apiKey. Keep it as a migration
+      // fallback when the active profile does not carry a key yet.
+      apiKey: inputHasSchema ? sourceApiKey || asString(input.apiKey) : asString(input.apiKey),
     };
   });
   const active = resolveActiveProviderProfile(profiles, migrated.activeProviderProfileId);
@@ -172,7 +175,7 @@ export function validateConfig(config: AppConfig): ValidationResult {
   const maybeConfig = config as MaybeConfig;
   const activeProfile = resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId);
   const baseUrl = activeProfile.baseUrl;
-  const apiKey = activeProfile.apiKey;
+  const credential = activeProfile.apiKey;
   const textModel = activeProfile.textModel;
   const imageModel = activeProfile.imageModel;
   const outputDirectory = asString(maybeConfig.outputDirectory);
@@ -189,7 +192,7 @@ export function validateConfig(config: AppConfig): ValidationResult {
     errors.push("Base URL must be a valid URL.");
   }
 
-  if (!apiKey.trim()) {
+  if (!credential.trim()) {
     errors.push("API key is required.");
   }
 
