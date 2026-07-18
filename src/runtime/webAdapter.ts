@@ -690,11 +690,21 @@ export const webAdapter: RuntimeAdapter = {
     const profileIds = new Set(configWithoutKeys.providerProfiles.map((profile) => profile.id));
     const cleanedSessionKeys = pruneKeyMap(sessionKeys, profileIds);
     const cleanedPersistentKeys = pruneKeyMap(persistentKeys, profileIds);
-    if (legacySessionKey && !cleanedSessionKeys[legacyTargetProfileId]) {
+    const targetProfile = configWithoutKeys.providerProfiles.find((profile) => profile.id === legacyTargetProfileId);
+    if (legacySessionKey && storageCapabilities.session && !cleanedSessionKeys[legacyTargetProfileId]) {
       cleanedSessionKeys[legacyTargetProfileId] = legacySessionKey;
     }
-    if (legacyPersistentKey && !cleanedPersistentKeys[legacyTargetProfileId]) {
-      cleanedPersistentKeys[legacyTargetProfileId] = legacyPersistentKey;
+    if (legacyPersistentKey) {
+      if (targetProfile?.rememberApiKey && storageCapabilities.local) {
+        if (!cleanedPersistentKeys[legacyTargetProfileId]) {
+          cleanedPersistentKeys[legacyTargetProfileId] = legacyPersistentKey;
+        }
+      } else {
+        delete cleanedPersistentKeys[legacyTargetProfileId];
+        if (storageCapabilities.session && !cleanedSessionKeys[legacyTargetProfileId]) {
+          cleanedSessionKeys[legacyTargetProfileId] = legacyPersistentKey;
+        }
+      }
     }
     let migratedProfileKey = false;
     for (const candidate of rawProviderProfiles) {
@@ -714,7 +724,6 @@ export const webAdapter: RuntimeAdapter = {
 
     if (legacyApiKey) {
       if (!cleanedSessionKeys[legacyTargetProfileId] && !cleanedPersistentKeys[legacyTargetProfileId]) {
-        const targetProfile = configWithoutKeys.providerProfiles.find((profile) => profile.id === legacyTargetProfileId);
         cleanedSessionKeys[legacyTargetProfileId] = legacyApiKey;
         if (targetProfile?.rememberApiKey && storageCapabilities.local) {
           cleanedPersistentKeys[legacyTargetProfileId] = legacyApiKey;

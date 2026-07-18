@@ -96,10 +96,12 @@ describe("webAdapter history deletion", () => {
     );
 
     await expect(webAdapter.loadConfig()).resolves.toMatchObject({
-      apiKey: "",
+      apiKey: STALE_API_KEY,
       rememberApiKey: false,
     });
     expect(localStorage.getItem("chat-to-image.api-key.persistent.v1")).toBeNull();
+    expect(JSON.parse(sessionStorage.getItem("chat-to-image.api-keys.session.v1") ?? "{}"))
+      .toEqual({ "provider-default": STALE_API_KEY });
   });
 
   it("migrates a legacy API key out of the ordinary config into session storage", async () => {
@@ -321,6 +323,32 @@ describe("webAdapter history deletion", () => {
     });
     expect(JSON.parse(localStorage.getItem("chat-to-image.api-keys.persistent.v1") ?? "{}"))
       .toEqual({ "provider-only": legacyKey });
+  });
+
+  it("moves a legacy persistent key to session when the target does not remember keys", async () => {
+    const legacyKey = "legacy-persistent-session-only-fake-key";
+    localStorage.setItem("chat-to-image.config.v1", JSON.stringify({
+      ...DEFAULT_CONFIG,
+      providerProfiles: [{
+        ...DEFAULT_CONFIG.providerProfiles[0],
+        id: "provider-session-only",
+        name: "Session only provider",
+        apiKey: "",
+        rememberApiKey: false,
+      }],
+      activeProviderProfileId: "provider-session-only",
+    }));
+    localStorage.setItem("chat-to-image.api-key.persistent.v1", JSON.stringify(legacyKey));
+
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      activeProviderProfileId: "provider-session-only",
+      apiKey: legacyKey,
+    });
+    expect(JSON.parse(localStorage.getItem("chat-to-image.api-keys.persistent.v1") ?? "{}"))
+      .toEqual({});
+    expect(JSON.parse(sessionStorage.getItem("chat-to-image.api-keys.session.v1") ?? "{}"))
+      .toEqual({ "provider-session-only": legacyKey });
+    expect(localStorage.getItem("chat-to-image.api-key.persistent.v1")).toBeNull();
   });
 
   it("ignores malformed key maps and null provider metadata entries", async () => {
