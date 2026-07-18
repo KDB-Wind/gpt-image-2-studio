@@ -711,18 +711,6 @@ export default function App() {
     }
 
     const deletedProfileId = config.activeProviderProfileId;
-    if (runtime?.clearProviderApiKey) {
-      try {
-        await runtime.clearProviderApiKey(deletedProfileId);
-      } catch (error) {
-        setSettingsMessage({
-          tone: "error",
-          text: copy.messages.settingsSaveFailed(getErrorMessage(error)),
-        });
-        return;
-      }
-    }
-
     const nextProfiles = removeProviderProfile(config.providerProfiles, deletedProfileId);
     const nextActive = nextProfiles[0];
     const nextConfig = syncActiveProfile(config, nextActive, nextProfiles);
@@ -745,6 +733,29 @@ export default function App() {
         text: copy.messages.settingsSaveFailed(getErrorMessage(error)),
       });
       return;
+    }
+
+    if (runtime.clearProviderApiKey) {
+      try {
+        await runtime.clearProviderApiKey(deletedProfileId);
+      } catch (error) {
+        try {
+          await runtime.saveConfig(persistedConfig);
+        } catch (rollbackError) {
+          setSettingsMessage({
+            tone: "error",
+            text: copy.messages.settingsSaveFailed(
+              `${getErrorMessage(error)}; rollback failed: ${getErrorMessage(rollbackError)}`,
+            ),
+          });
+          return;
+        }
+        setSettingsMessage({
+          tone: "error",
+          text: copy.messages.settingsSaveFailed(getErrorMessage(error)),
+        });
+        return;
+      }
     }
 
     setConfig(nextConfig);

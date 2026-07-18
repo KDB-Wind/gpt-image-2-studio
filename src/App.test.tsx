@@ -1101,6 +1101,37 @@ describe("App batch workspace", () => {
     expect(container.textContent).not.toContain("Profile B");
   });
 
+  it("does not clear a profile key when durable deletion fails before commit", async () => {
+    const copy = getTranslations("en-US");
+    const profiles = [
+      createProviderProfile({ id: "provider-a", name: "Profile A", apiKey: "profile-a-key" }),
+      createProviderProfile({ id: "provider-b", name: "Profile B", apiKey: "profile-b-key" }),
+    ];
+    const runtime = createPreviewRuntime([]);
+    runtime.loadConfig = vi.fn().mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      ...profiles[1],
+      providerProfiles: profiles,
+      activeProviderProfileId: "provider-b",
+      uiLanguage: "en-US" as const,
+      hasDismissedWelcome: true,
+    });
+    runtime.saveConfig = vi.fn().mockRejectedValue(new Error("persist failed"));
+    runtime.clearProviderApiKey = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+    clickButton(copy.tabs.settings);
+    clickButton(copy.actions.deleteProviderProfile);
+    await flushEffects();
+
+    const profileSelect = container.querySelector<HTMLSelectElement>('[data-testid="settings-provider-profile"]');
+    expect(profileSelect?.options).toHaveLength(2);
+    expect(profileSelect?.value).toBe("provider-b");
+    expect(runtime.clearProviderApiKey).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("persist failed");
+  });
+
   it("hydrates only the selected profile API key on demand in web runtime", async () => {
     const copy = getTranslations("en-US");
     const profiles = [
