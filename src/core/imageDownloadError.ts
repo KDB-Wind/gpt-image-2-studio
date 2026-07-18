@@ -20,12 +20,9 @@ export function classifyImageDownloadFailure(input: {
   responseMode: ImageResponseMode;
   cause: unknown;
   operation: ImageDownloadOperation;
+  urlProtocol?: string;
   status?: number;
 }): Error {
-  if (input.responseMode === "force-base64") {
-    return new ImageDownloadError("image-url-base64-ignored");
-  }
-
   if (input.status !== undefined) {
     if (!isValidHttpStatus(input.status)) {
       return new ImageDownloadError("image-download-failed");
@@ -34,7 +31,16 @@ export function classifyImageDownloadFailure(input: {
     return new Error(`Failed to download generated image (HTTP ${input.status}).`);
   }
 
-  if (input.operation === "fetch" && isBrowserFetchFailure(input.cause) && !isInvalidUrlFailure(input.cause)) {
+  if (input.responseMode === "force-base64" && input.operation === "url") {
+    return new ImageDownloadError("image-url-base64-ignored");
+  }
+
+  if (
+    input.operation === "fetch"
+    && (input.urlProtocol === "http:" || input.urlProtocol === "https:")
+    && isBrowserFetchFailure(input.cause)
+    && !isInvalidUrlFailure(input.cause)
+  ) {
     return new ImageDownloadError("image-url-cors");
   }
 

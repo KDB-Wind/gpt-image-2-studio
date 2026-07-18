@@ -512,9 +512,8 @@ describe("batchRunner", () => {
     expect(result.tasks[0]).toMatchObject({
       status: "failed",
       failureCategory: "cost_risk",
-      suggestedAction: "none",
     });
-    expect(result.tasks[0].suggestedAction).not.toBe("force-base64");
+    expect(result.tasks[0].suggestedAction).toBeUndefined();
     expect(result.tasks[1].status).toBe("pending");
   });
 

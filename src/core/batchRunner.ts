@@ -279,10 +279,6 @@ function getSuggestedAction(error: unknown): BatchSuggestedAction | undefined {
     return "force-base64";
   }
 
-  if (error.code === "image-url-base64-ignored") {
-    return "none";
-  }
-
   return undefined;
 }
 
