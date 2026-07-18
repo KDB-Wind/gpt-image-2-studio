@@ -1032,6 +1032,25 @@ describe("webAdapter history deletion", () => {
     },
   );
 
+  it("rejects a whitespace-only image URL before resolving it against the current page", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      webAdapter.saveImage({
+        image: { url: "   " },
+        prompt: "A blank image URL.",
+        optimizedPrompt: "",
+        customName: "",
+        config: DEFAULT_CONFIG,
+        generatedAt: new Date("2026-07-05T10:00:00.000Z"),
+        durationMs: 1200,
+      }),
+    ).rejects.toMatchObject({ code: "image-download-failed" });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it.each(["blob:revoked-image", "data:image/png;base64,invalid", "ftp://provider.example/image.png"])(
     "keeps non-http image URL fetch failures generic: %s",
     async (providerUrl) => {

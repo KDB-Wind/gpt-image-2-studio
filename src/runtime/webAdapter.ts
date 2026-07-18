@@ -494,6 +494,9 @@ async function imageToBlob(input: SaveImageInput): Promise<Blob> {
 function parseSupportedImageUrl(value: string): URL | null {
   try {
     const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
     const hasExplicitScheme = /^[a-z][a-z\d+.-]*:/i.test(trimmed);
     const parsed = hasExplicitScheme
       ? new URL(trimmed)
