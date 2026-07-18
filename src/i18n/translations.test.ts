@@ -146,4 +146,19 @@ describe("getTranslations", () => {
     expect(zh.welcome.privacyNote).toContain("Base URL");
     expect(en.welcome.privacyNote).toContain("Base URL");
   });
+
+  it("includes generic provider profile management copy in both languages", () => {
+    const zh = getTranslations("zh-CN");
+    const en = getTranslations("en-US");
+
+    expect(zh.sections.providerProfiles).toBe("供应商档案");
+    expect(zh.actions.createProviderProfile).toBe("新建档案");
+    expect(zh.actions.deleteProviderProfile).toBe("删除档案");
+    expect(en.sections.providerProfiles).toBe("Provider profiles");
+    expect(en.fields.providerProfileName).toBe("Profile name");
+    expect(en.notes.providerProfileLimit).toContain("20");
+    expect(en.options.imageResponseModeOfficial).toBe("Official URL mode");
+    expect(en.options.imageResponseModeForceBase64).toBe("Force base64");
+    expect(en.notes.imageResponseModeHint).not.toMatch(/OpenAI|GPT|relay/i);
+  });
 });

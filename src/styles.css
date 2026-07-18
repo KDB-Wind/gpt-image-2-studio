@@ -801,6 +801,31 @@ img {
   gap: 14px;
 }
 
+.provider-profile-toolbar {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.provider-profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.profile-status {
+  color: var(--accent-strong);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.profile-response-mode-field {
+  max-width: 32rem;
+}
+
 .reference-section {
   display: grid;
   gap: 14px;
@@ -1937,8 +1962,13 @@ img {
   .app-header,
   .field-grid,
   .stats-grid,
-  .range-field {
+  .range-field,
+  .provider-profile-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .provider-profile-actions {
+    justify-content: flex-start;
   }
 
   .app-header {

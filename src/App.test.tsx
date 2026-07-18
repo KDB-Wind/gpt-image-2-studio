@@ -7,6 +7,7 @@ import staticVersionManifest from "../static-versions/manifest.json";
 import * as apiClient from "./core/apiClient";
 import { DEFAULT_CONFIG, mergeConfig } from "./core/config";
 import type { ImageRecord } from "./core/history";
+import type { ProviderProfile } from "./core/providerProfiles";
 import { getTranslations } from "./i18n/translations";
 import * as runtimeModule from "./runtime";
 import type { RuntimeAdapter, SaveImageResult } from "./runtime/types";
@@ -968,6 +969,133 @@ describe("App batch workspace", () => {
 
     const savedConfig = JSON.parse(window.localStorage.getItem("chat-to-image.config.v1") ?? "{}");
     expect(savedConfig.imageResponseMode).toBe("force-base64");
+    expect(savedConfig.providerProfiles[0].imageResponseMode).toBe("force-base64");
+  });
+
+  it("creates, edits, switches, and saves an isolated provider profile", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([]);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+    clickButton(copy.tabs.settings);
+    clickButton(copy.actions.createProviderProfile);
+
+    const profileSelect = container.querySelector<HTMLSelectElement>('[data-testid="settings-provider-profile"]');
+    const profileNameInput = getField<HTMLInputElement>(copy.fields.providerProfileName, "input");
+    expect(profileSelect?.options).toHaveLength(2);
+    expect(profileSelect?.value).toMatch(/^provider-[a-z0-9-]+$/);
+    const createdProfileId = profileSelect?.value ?? "";
+
+    setFieldValue(profileNameInput, "Studio profile");
+    setFieldValue(getField<HTMLInputElement>(copy.fields.baseUrl, "input"), "https://profile.example/v1");
+    setFieldValue(getField<HTMLInputElement>(copy.fields.apiKey, 'input[type="password"]'), "profile-secret-value");
+    setFieldValue(getField<HTMLInputElement>(copy.fields.textModel, "input"), "text-model-a");
+    setFieldValue(getField<HTMLInputElement>(copy.fields.imageModel, "input"), "image-model-a");
+    setSelectValue(getField<HTMLSelectElement>(copy.fields.imageResponseMode, "select"), "force-base64");
+
+    expect(container.textContent).not.toContain("profile-secret-value");
+    expect(profileSelect?.options[1].textContent).toBe("Studio profile");
+
+    setSelectValue(profileSelect ?? undefined, "provider-default");
+    await flushEffects();
+    expect(getField<HTMLInputElement>(copy.fields.providerProfileName, "input").value)
+      .toBe(DEFAULT_CONFIG.providerProfiles[0].name);
+    expect(getField<HTMLInputElement>(copy.fields.textModel, "input").value).not.toBe("text-model-a");
+
+    setSelectValue(profileSelect ?? undefined, createdProfileId);
+    await flushEffects();
+    expect(getField<HTMLInputElement>(copy.fields.providerProfileName, "input").value).toBe("Studio profile");
+    expect(getField<HTMLSelectElement>(copy.fields.imageResponseMode, "select").value).toBe("force-base64");
+
+    clickButton(copy.actions.save);
+    await flushEffects();
+
+    expect(runtime.saveConfig).toHaveBeenLastCalledWith(expect.objectContaining({
+      activeProviderProfileId: createdProfileId,
+      baseUrl: "https://profile.example/v1",
+      textModel: "text-model-a",
+      imageModel: "image-model-a",
+      imageResponseMode: "force-base64",
+      providerProfiles: expect.arrayContaining([
+        expect.objectContaining({ id: "provider-default", name: DEFAULT_CONFIG.providerProfiles[0].name }),
+        expect.objectContaining({
+          id: createdProfileId,
+          name: "Studio profile",
+          baseUrl: "https://profile.example/v1",
+          apiKey: "profile-secret-value",
+          textModel: "text-model-a",
+          imageModel: "image-model-a",
+          imageResponseMode: "force-base64",
+        }),
+      ]),
+    }));
+  });
+
+  it("deletes the active provider profile and selects the remaining profile", async () => {
+    const copy = getTranslations("en-US");
+    const profiles = [
+      createProviderProfile({ id: "provider-a", name: "Profile A" }),
+      createProviderProfile({ id: "provider-b", name: "Profile B", imageResponseMode: "force-base64" }),
+    ];
+    const runtime = createPreviewRuntime([]);
+    runtime.loadConfig = vi.fn().mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      ...profiles[1],
+      providerProfiles: profiles,
+      activeProviderProfileId: "provider-b",
+      uiLanguage: "en-US",
+      hasDismissedWelcome: true,
+    });
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+    clickButton(copy.tabs.settings);
+    clickButton(copy.actions.deleteProviderProfile);
+
+    const profileSelect = container.querySelector<HTMLSelectElement>('[data-testid="settings-provider-profile"]');
+    expect(profileSelect?.options).toHaveLength(1);
+    expect(profileSelect?.value).toBe("provider-a");
+    expect(getField<HTMLInputElement>(copy.fields.providerProfileName, "input").value).toBe("Profile A");
+    expect(getField<HTMLSelectElement>(copy.fields.imageResponseMode, "select").value).toBe("official");
+  });
+
+  it("hydrates only the selected desktop profile API key on demand", async () => {
+    const copy = getTranslations("en-US");
+    const profiles = [
+      createProviderProfile({ id: "provider-a", name: "Profile A", apiKey: "active-key" }),
+      createProviderProfile({ id: "provider-b", name: "Profile B", apiKey: "" }),
+    ];
+    const runtime = createPreviewRuntime([]);
+    runtime.mode = "desktop";
+    runtime.loadConfig = vi.fn().mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      ...profiles[0],
+      providerProfiles: profiles,
+      activeProviderProfileId: "provider-a",
+      uiLanguage: "en-US",
+      hasDismissedWelcome: true,
+    });
+    runtime.loadProviderApiKey = vi.fn().mockResolvedValue("hydrated-profile-key");
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+    clickButton(copy.tabs.settings);
+    setSelectValue(
+      container.querySelector<HTMLSelectElement>('[data-testid="settings-provider-profile"]') ?? undefined,
+      "provider-b",
+    );
+    await flushEffects();
+
+    expect(runtime.loadProviderApiKey).toHaveBeenCalledTimes(1);
+    expect(runtime.loadProviderApiKey).toHaveBeenCalledWith("provider-b");
+    const keyInput = getField<HTMLInputElement>(copy.fields.apiKey, 'input[type="password"]');
+    expect(keyInput.value).toBe("hydrated-profile-key");
+    expect(container.textContent).not.toContain("hydrated-profile-key");
+    expect(runtime.saveConfig).toHaveBeenLastCalledWith(expect.objectContaining({
+      activeProviderProfileId: "provider-b",
+      apiKey: "hydrated-profile-key",
+    }));
   });
 
   it("migrates an unknown stored image response mode back to official", () => {
@@ -1173,6 +1301,20 @@ function createSaveImageResult(previewUrl: string): SaveImageResult {
     saveMode: "browser-download",
     historyDurability: "persistent",
     record: createHistoryRecord({ id: previewUrl, outputPath: `${previewUrl}.png` }),
+  };
+}
+
+function createProviderProfile(overrides: Partial<ProviderProfile>): ProviderProfile {
+  return {
+    id: "provider-profile",
+    name: "Profile",
+    baseUrl: "https://profile.example/v1",
+    apiKey: "test-key",
+    textModel: "text-model",
+    imageModel: "image-model",
+    imageResponseMode: "official",
+    rememberApiKey: false,
+    ...overrides,
   };
 }
 

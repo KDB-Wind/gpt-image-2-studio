@@ -161,6 +161,8 @@ type TranslationBundle = {
     editFromImage: string;
     save: string;
     saveBusy: string;
+    createProviderProfile: string;
+    deleteProviderProfile: string;
     testOutputDirectory: string;
     testOutputDirectoryBusy: string;
     testText: string;
@@ -210,6 +212,7 @@ type TranslationBundle = {
     optimizedPromptPlaceholder: string;
     baseUrl: string;
     apiKey: string;
+    providerProfileName: string;
     rememberApiKey: string;
     textModel: string;
     imageModel: string;
@@ -274,6 +277,7 @@ type TranslationBundle = {
   };
   sections: {
     connection: string;
+    providerProfiles: string;
     defaults: string;
     output: string;
     version: string;
@@ -293,6 +297,7 @@ type TranslationBundle = {
     editFromImageTitle: string;
   };
   labels: {
+    activeProfile: string;
     imageModel: string;
     outputDirectory: string;
     timeout: string;
@@ -377,6 +382,7 @@ type TranslationBundle = {
     compressionHint: string;
     compressionUnavailable: string;
     imageResponseModeHint: string;
+    providerProfileLimit: string;
     apiKeyStorageHint: string;
     apiKeySessionOnlyHint: string;
     apiKeyMemoryOnlyHint: string;
@@ -410,6 +416,7 @@ type TranslationBundle = {
     settingsSaved: string;
     settingsSavedWithIssues: (details: string) => string;
     settingsSaveFailed: (detail: string) => string;
+    providerProfileNameRequired: string;
     outputSelected: (directory: string) => string;
     chooseDirectoryUnavailableWeb: string;
     chooseDirectoryCancelled: string;
@@ -624,6 +631,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       editFromImage: "基于此图修改",
       save: "保存配置",
       saveBusy: "正在保存...",
+      createProviderProfile: "新建档案",
+      deleteProviderProfile: "删除档案",
       testOutputDirectory: "测试保存目录",
       testOutputDirectoryBusy: "测试中...",
       testText: "测试文字模型",
@@ -673,6 +682,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       optimizedPromptPlaceholder: "可选；你也可以手动修改这里的内容后再生成。",
       baseUrl: "Base URL",
       apiKey: "API key",
+      providerProfileName: "档案名称",
       rememberApiKey: "在此设备上记住 API key",
       textModel: "文字模型",
       imageModel: "生图模型",
@@ -712,8 +722,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       formatWebp: "WebP",
       enabled: "开启",
       disabled: "关闭",
-      imageResponseModeOfficial: "官方 GPT Image 模式",
-      imageResponseModeForceBase64: "中转站强制 base64",
+      imageResponseModeOfficial: "官方 URL 模式",
+      imageResponseModeForceBase64: "强制 base64",
     },
     quickOptions: {
       title: "图片参数",
@@ -737,6 +747,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
     },
     sections: {
       connection: "连接配置",
+      providerProfiles: "供应商档案",
       defaults: "生成默认值",
       output: "输出目录",
       version: "版本与更新",
@@ -757,6 +768,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       editFromImageTitle: "基于此图继续修改",
     },
     labels: {
+      activeProfile: "当前档案",
       imageModel: "生图模型",
       outputDirectory: "保存目录",
       timeout: "超时时间",
@@ -849,7 +861,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       apiKeySessionOnlyHint: "API key 可保留到当前浏览器会话结束；其他设置只保留在页面内存中，且无法长期记住 API key。",
       apiKeyMemoryOnlyHint: "浏览器存储当前不可用。配置和 API key 只保留在这个已打开页面的内存中，刷新或关闭页面后即丢失。",
       imageResponseModeHint:
-        "默认遵循 OpenAI 官方 GPT Image 行为，不发送 response_format。仅当中转站或供应商明确要求时，才启用“中转站强制 base64”。",
+        "官方 URL 模式不主动添加 response_format；只有当当前服务明确要求时，才开启强制 base64。",
+      providerProfileLimit: "最多保存 20 个档案；至少保留一个档案。",
     },
     welcome: {
       title: "欢迎来到本地生图工作台",
@@ -884,6 +897,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       settingsSaved: "配置已保存。",
       settingsSavedWithIssues: (details) => `配置已保存。${details}`,
       settingsSaveFailed: (detail) => `保存配置失败。${detail}`,
+      providerProfileNameRequired: "档案名称不能为空。",
       outputSelected: (directory) => `已授权目录：${directory}。浏览器不会暴露完整磁盘路径；历史预览会从这个授权目录中查找图片。`,
       chooseDirectoryUnavailableWeb: "当前浏览器或运行环境不支持目录授权。手动填写保存目录后仍可下载图片，但不能恢复历史预览。",
       chooseDirectoryCancelled: "未选择任何目录。",
@@ -1130,6 +1144,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       editFromImage: "Edit from this image",
       save: "Save settings",
       saveBusy: "Saving...",
+      createProviderProfile: "New profile",
+      deleteProviderProfile: "Delete profile",
       testOutputDirectory: "Test output folder",
       testOutputDirectoryBusy: "Testing folder...",
       testText: "Test text model",
@@ -1179,6 +1195,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       optimizedPromptPlaceholder: "Optional. You can still edit this text before generating.",
       baseUrl: "Base URL",
       apiKey: "API key",
+      providerProfileName: "Profile name",
       rememberApiKey: "Remember API key on this device",
       textModel: "Text model",
       imageModel: "Image model",
@@ -1219,8 +1236,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       formatWebp: "WebP",
       enabled: "Enabled",
       disabled: "Disabled",
-      imageResponseModeOfficial: "Official GPT Image mode",
-      imageResponseModeForceBase64: "Relay/provider force base64",
+      imageResponseModeOfficial: "Official URL mode",
+      imageResponseModeForceBase64: "Force base64",
     },
     quickOptions: {
       title: "Image options",
@@ -1244,6 +1261,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
     },
     sections: {
       connection: "Connection",
+      providerProfiles: "Provider profiles",
       defaults: "Generation defaults",
       output: "Output directory",
       version: "Version and updates",
@@ -1264,6 +1282,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       editFromImageTitle: "Continue editing from this image",
     },
     labels: {
+      activeProfile: "Active profile",
       imageModel: "Image model",
       outputDirectory: "Output directory",
       timeout: "Timeout",
@@ -1354,7 +1373,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       compressionHint: "output_compression only applies to JPEG and WebP. Higher values usually mean higher quality and larger files.",
       compressionUnavailable: "PNG does not use a compression parameter.",
       imageResponseModeHint:
-        "The default follows official OpenAI GPT Image behavior and omits response_format. Enable force-base64 only when a relay or provider explicitly requires it.",
+        "Official URL mode omits response_format. Enable force-base64 only when the current service explicitly requires it.",
+      providerProfileLimit: "Up to 20 profiles can be saved; at least one profile must remain.",
       apiKeyStorageHint: "By default the key lasts only for this browser session. Enable long-term storage only on a trusted personal device.",
       apiKeySessionOnlyHint: "The API key can last for this browser session, while other settings remain page-memory only. Long-term API key storage is unavailable.",
       apiKeyMemoryOnlyHint: "Browser storage is unavailable. Settings and the API key remain in memory only for this open page and are lost on refresh or close.",
@@ -1400,6 +1420,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       settingsSaved: "Settings saved.",
       settingsSavedWithIssues: (details) => `Settings saved. ${details}`,
       settingsSaveFailed: (detail) => `Failed to save settings. ${detail}`,
+      providerProfileNameRequired: "Profile name is required.",
       outputSelected: (directory) =>
         `Folder authorized: ${directory}. Browsers do not expose the full disk path; history previews will search inside this authorized folder.`,
       chooseDirectoryUnavailableWeb:
