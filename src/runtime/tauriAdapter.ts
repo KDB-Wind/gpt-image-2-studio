@@ -124,17 +124,20 @@ export const tauriAdapter: RuntimeAdapter = {
   saveConfig(config: AppConfig) {
     const activeProfile = resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId);
     const providerProfiles: ProviderProfileMetadata[] = config.providerProfiles.map(({ apiKey: _apiKey, ...profile }) => profile);
+    const { apiKey: _apiKey, ...configWithoutApiKey } = config;
     const bridgeConfig = {
-      ...config,
+      ...configWithoutApiKey,
       baseUrl: activeProfile.baseUrl,
-      apiKey: activeProfile.apiKey,
       textModel: activeProfile.textModel,
       imageModel: activeProfile.imageModel,
       imageResponseMode: activeProfile.imageResponseMode,
       rememberApiKey: activeProfile.rememberApiKey,
       providerProfiles,
     };
-    return invoke<void>("save_config", { config: bridgeConfig });
+    return invoke<void>("save_config", {
+      config: bridgeConfig,
+      activeProfileApiKey: activeProfile.apiKey,
+    });
   },
 
   loadHistory() {

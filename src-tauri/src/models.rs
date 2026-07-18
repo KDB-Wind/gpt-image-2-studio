@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     pub base_url: String,
+    #[serde(default)]
     pub api_key: String,
     pub remember_api_key: bool,
     pub text_model: String,
@@ -28,6 +29,14 @@ pub struct AppConfig {
     pub provider_schema_version: u8,
     pub active_provider_profile_id: String,
     pub provider_profiles: Vec<ProviderProfileMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveConfigInput {
+    pub config: AppConfig,
+    #[serde(default)]
+    pub active_profile_api_key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

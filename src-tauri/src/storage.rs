@@ -19,12 +19,13 @@ use tempfile::NamedTempFile;
 
 use crate::models::{
     AppConfig, ImageRecord, OutputDirectoryStateResult, OutputDirectoryTestResult,
-    SaveBatchImageInput, SaveGeneratedImageInput, SaveImageResult,
+    SaveBatchImageInput, SaveConfigInput, SaveGeneratedImageInput, SaveImageResult,
 };
 
 const KEYRING_SERVICE: &str = "chat-to-image";
-const KEYRING_ACCOUNT: &str = "default";
+const LEGACY_KEYRING_ACCOUNT: &str = "default";
 const API_KEY_STORAGE_FIELD: &str = "__apiKeyStorage";
+const API_KEYS_STORAGE_FIELD: &str = "__apiKeys";
 const KEYRING_STORAGE_MODE: &str = "keyring";
 const JSON_FALLBACK_STORAGE_MODE: &str = "json-fallback";
 const OUTPUT_DIRECTORY_TEST_FILE_NAME: &str = ".chat-to-image-output-directory-test";
@@ -255,14 +256,29 @@ pub fn merge_config_value(value: serde_json::Value) -> AppConfig {
     config
 }
 
-fn read_api_key_fallback_value(value: &serde_json::Value) -> String {
-    get_string_field(value, "apiKey").unwrap_or_default()
+fn read_api_key_fallback_value(value: &serde_json::Value, profile_id: &str) -> String {
+    value
+        .get(API_KEYS_STORAGE_FIELD)
+        .and_then(|keys| keys.get(profile_id))
+        .and_then(|key| key.as_str())
+        .filter(|key| !key.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| get_string_field(value, "apiKey").filter(|key| !key.trim().is_empty()))
+        .unwrap_or_default()
 }
 
-fn read_api_key_fallback(path: &Path) -> String {
+fn read_api_key_fallback(path: &Path, profile_id: &str) -> String {
     read_json_value(path)
-        .map(|value| read_api_key_fallback_value(&value))
+        .map(|value| read_api_key_fallback_value(&value, profile_id))
         .unwrap_or_default()
+}
+
+fn has_profile_api_key_fallback(path: &Path, profile_id: &str) -> bool {
+    read_json_value(path)
+        .and_then(|value| value.get(API_KEYS_STORAGE_FIELD).cloned())
+        .and_then(|keys| keys.get(profile_id).cloned())
+        .and_then(|key| key.as_str().map(|key| !key.trim().is_empty()))
+        .unwrap_or(false)
 }
 
 fn read_api_key_storage_mode(path: &Path) -> String {
@@ -271,25 +287,63 @@ fn read_api_key_storage_mode(path: &Path) -> String {
         .unwrap_or_else(|| KEYRING_STORAGE_MODE.to_string())
 }
 
-pub fn load_api_key_with_result(path: &Path, keyring_result: Result<String, String>) -> String {
-    let fallback_value = read_api_key_fallback(path);
+pub fn load_api_key_with_result(
+    path: &Path,
+    profile_id: &str,
+    keyring_result: Result<String, String>,
+    legacy_keyring_result: Result<String, String>,
+) -> String {
+    let fallback_value = read_api_key_fallback(path, profile_id);
 
     if read_api_key_storage_mode(path) == JSON_FALLBACK_STORAGE_MODE {
+        if !has_profile_api_key_fallback(path, profile_id) {
+            if let Some(legacy_key) = read_json_value(path).and_then(|value| get_string_field(&value, "apiKey")) {
+                if !legacy_key.trim().is_empty() {
+                    let _ = persist_api_key_json_fallback(path, profile_id, &legacy_key);
+                    return legacy_key;
+                }
+            }
+            if let Ok(legacy_key) = legacy_keyring_result {
+                if !legacy_key.trim().is_empty() {
+                    let _ = persist_api_key_json_fallback(path, profile_id, &legacy_key);
+                    return legacy_key;
+                }
+            }
+        }
         return fallback_value;
     }
 
     match keyring_result {
         Ok(value) if !value.trim().is_empty() => value,
-        _ => fallback_value,
+        _ => match legacy_keyring_result {
+            Ok(value) if !value.trim().is_empty() => value,
+            _ => fallback_value,
+        },
     }
 }
 
-fn load_api_key(path: &Path) -> String {
-    let keyring_result = Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+fn profile_keyring_account(profile_id: &str) -> String {
+    format!("profile:{profile_id}")
+}
+
+fn load_api_key(path: &Path, profile_id: &str) -> String {
+    let profile_account = profile_keyring_account(profile_id);
+    let keyring_result = Entry::new(KEYRING_SERVICE, &profile_keyring_account(profile_id))
+        .map_err(|error| error.to_string())
+        .and_then(|entry| entry.get_password().map_err(|error| error.to_string()));
+    let legacy_keyring_result = Entry::new(KEYRING_SERVICE, LEGACY_KEYRING_ACCOUNT)
         .map_err(|error| error.to_string())
         .and_then(|entry| entry.get_password().map_err(|error| error.to_string()));
 
-    load_api_key_with_result(path, keyring_result)
+    let should_migrate_legacy = keyring_result.is_err()
+        && read_api_key_storage_mode(path) != JSON_FALLBACK_STORAGE_MODE;
+    let loaded = load_api_key_with_result(path, profile_id, keyring_result, legacy_keyring_result.clone());
+    if should_migrate_legacy && !loaded.is_empty() {
+        if let Ok(entry) = Entry::new(KEYRING_SERVICE, &profile_account) {
+            let _ = entry.set_password(&loaded);
+        }
+    }
+    loaded
 }
 
 pub(crate) fn write_config_file(
@@ -298,9 +352,14 @@ pub(crate) fn write_config_file(
     api_key_storage_mode: &str,
 ) -> Result<(), String> {
     let mut value = serde_json::to_value(config).map_err(|error| error.to_string())?;
-    if api_key_storage_mode == KEYRING_STORAGE_MODE {
-        if let Some(object) = value.as_object_mut() {
-            object.remove("apiKey");
+    if let Some(object) = value.as_object_mut() {
+        object.remove("apiKey");
+        if api_key_storage_mode == JSON_FALLBACK_STORAGE_MODE {
+            if let Some(existing_keys) = read_json_value(path).and_then(|stored| stored.get(API_KEYS_STORAGE_FIELD).cloned()) {
+                object.insert(API_KEYS_STORAGE_FIELD.to_string(), existing_keys);
+            }
+        } else {
+            object.remove(API_KEYS_STORAGE_FIELD);
         }
     }
     value[API_KEY_STORAGE_FIELD] = serde_json::Value::String(api_key_storage_mode.to_string());
@@ -319,24 +378,28 @@ pub fn should_use_keyring_storage(
     matches!(read_back_result, Ok(read_back) if read_back == expected_api_key)
 }
 
-pub fn persist_api_key_json_fallback(path: &Path, api_key: &str) -> Result<(), String> {
-    let current_config = read_json_value(path)
-        .map(merge_config_value)
-        .unwrap_or_else(default_config);
-    let mut value = serde_json::to_value(current_config).map_err(|error| error.to_string())?;
-    value["apiKey"] = serde_json::Value::String(api_key.to_string());
+pub fn persist_api_key_json_fallback(path: &Path, profile_id: &str, api_key: &str) -> Result<(), String> {
+    let mut value = read_json_value(path).unwrap_or_else(|| serde_json::to_value(default_config()).unwrap());
+    if let Some(object) = value.as_object_mut() {
+        object.remove("apiKey");
+        let keys = object.entry(API_KEYS_STORAGE_FIELD).or_insert_with(|| serde_json::json!({}));
+        if let Some(keys) = keys.as_object_mut() {
+            keys.insert(profile_id.to_string(), serde_json::Value::String(api_key.to_string()));
+        }
+    }
     value[API_KEY_STORAGE_FIELD] = serde_json::Value::String(JSON_FALLBACK_STORAGE_MODE.to_string());
     write_json(path, &value)
 }
 
-fn save_api_key(path: &Path, api_key: &str) -> Result<String, String> {
-    let keyring_result = Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+fn save_api_key(path: &Path, profile_id: &str, api_key: &str) -> Result<String, String> {
+    let account = profile_keyring_account(profile_id);
+    let keyring_result = Entry::new(KEYRING_SERVICE, &account)
         .map_err(|error| error.to_string())
         .map(|entry| {
             let write_result = entry
                 .set_password(api_key)
                 .map_err(|error| error.to_string());
-            let read_back_result = Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+            let read_back_result = Entry::new(KEYRING_SERVICE, &account)
                 .map_err(|error| error.to_string())
                 .and_then(|fresh_entry| fresh_entry.get_password().map_err(|error| error.to_string()));
 
@@ -346,11 +409,11 @@ fn save_api_key(path: &Path, api_key: &str) -> Result<String, String> {
     match keyring_result {
         Ok(true) => Ok(KEYRING_STORAGE_MODE.to_string()),
         Err(_) => {
-            persist_api_key_json_fallback(path, api_key)?;
+            persist_api_key_json_fallback(path, profile_id, api_key)?;
             Ok(JSON_FALLBACK_STORAGE_MODE.to_string())
         }
         Ok(false) => {
-            persist_api_key_json_fallback(path, api_key)?;
+            persist_api_key_json_fallback(path, profile_id, api_key)?;
             Ok(JSON_FALLBACK_STORAGE_MODE.to_string())
         }
     }
@@ -766,20 +829,19 @@ pub fn load_history_for_save(path: &Path) -> Result<Vec<ImageRecord>, String> {
 pub fn load_config() -> Result<AppConfig, String> {
     let path = config_path()?;
     let mut config = load_config_from_path(&path)?;
-    config.api_key = load_api_key(&path);
+    config.api_key = load_api_key(&path, &config.active_provider_profile_id);
     Ok(config)
 }
 
 #[tauri::command]
-pub fn save_config(mut config: AppConfig) -> Result<(), String> {
+pub fn save_config(input: SaveConfigInput) -> Result<(), String> {
     let path = config_path()?;
-    let api_key_storage_mode = save_api_key(&path, &config.api_key)?;
-
-    if api_key_storage_mode == KEYRING_STORAGE_MODE {
-        config.api_key.clear();
-    }
-
-    write_config_file(&path, &config, &api_key_storage_mode)
+    let api_key_storage_mode = save_api_key(
+        &path,
+        &input.config.active_provider_profile_id,
+        &input.active_profile_api_key,
+    )?;
+    write_config_file(&path, &input.config, &api_key_storage_mode)
 }
 
 #[tauri::command]

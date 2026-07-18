@@ -126,6 +126,8 @@ fn config_file_round_trip_retains_provider_profiles_without_api_keys() {
     let raw = std::fs::read_to_string(&config_path).unwrap();
     assert!(raw.contains("providerSchemaVersion"));
     assert!(raw.contains("provider-alt"));
+    let stored: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert!(stored.get("apiKey").is_none());
     assert!(!raw.contains("runtime-only-key"));
 
     let loaded = crate::storage::load_config_from_path(&config_path).unwrap();
@@ -302,15 +304,16 @@ fn persists_api_key_in_json_fallback_mode() {
     let config_path = temp_root.join("config.json");
 
     std::fs::create_dir_all(&temp_root).unwrap();
-    crate::storage::persist_api_key_json_fallback(&config_path, "sk-local").unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "provider-default", "sk-local").unwrap();
 
     let stored: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     assert_eq!(stored["__apiKeyStorage"], "json-fallback");
-    assert_eq!(stored["apiKey"], "sk-local");
+    assert_eq!(stored["__apiKeys"]["provider-default"], "sk-local");
+    assert!(stored.get("apiKey").is_none());
 
     let loaded = crate::storage::load_config_from_path(&config_path).unwrap();
-    assert_eq!(loaded.api_key, "sk-local");
+    assert_eq!(loaded.api_key, "");
 
     let _ = std::fs::remove_dir_all(&temp_root);
 }
@@ -324,11 +327,92 @@ fn loads_api_key_from_json_fallback_mode() {
     let config_path = temp_root.join("config.json");
 
     std::fs::create_dir_all(&temp_root).unwrap();
-    crate::storage::persist_api_key_json_fallback(&config_path, "sk-local").unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "provider-default", "sk-local").unwrap();
 
     let loaded =
-        crate::storage::load_api_key_with_result(&config_path, Ok("wrong-keyring".to_string()));
+        crate::storage::load_api_key_with_result(&config_path, "provider-default", Ok("wrong-keyring".to_string()), Err("missing".to_string()));
     assert_eq!(loaded, "sk-local");
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn json_fallback_keys_are_isolated_by_provider_profile() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-api-key-profile-isolation-test-{}",
+        std::process::id()
+    ));
+    let config_path = temp_root.join("config.json");
+
+    std::fs::create_dir_all(&temp_root).unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "provider-a", "key-a").unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "provider-b", "key-b").unwrap();
+
+    assert_eq!(crate::storage::load_api_key_with_result(&config_path, "provider-a", Err("missing".to_string()), Err("missing".to_string())), "key-a");
+    assert_eq!(crate::storage::load_api_key_with_result(&config_path, "provider-b", Err("missing".to_string()), Err("missing".to_string())), "key-b");
+
+    let raw = std::fs::read_to_string(&config_path).unwrap();
+    let stored: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert!(stored.get("apiKey").is_none());
+    assert_eq!(stored["__apiKeys"]["provider-a"], "key-a");
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn keyring_results_are_isolated_by_provider_profile() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-keyring-profile-isolation-test-{}",
+        std::process::id()
+    ));
+    let config_path = temp_root.join("config.json");
+
+    std::fs::create_dir_all(&temp_root).unwrap();
+    assert_eq!(
+        crate::storage::load_api_key_with_result(
+            &config_path,
+            "provider-a",
+            Ok("key-a".to_string()),
+            Err("missing".to_string())
+        ),
+        "key-a"
+    );
+    assert_eq!(
+        crate::storage::load_api_key_with_result(
+            &config_path,
+            "provider-b",
+            Ok("key-b".to_string()),
+            Err("missing".to_string())
+        ),
+        "key-b"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn migrates_legacy_single_json_key_to_active_profile() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-api-key-profile-migration-test-{}",
+        std::process::id()
+    ));
+    let config_path = temp_root.join("config.json");
+
+    std::fs::create_dir_all(&temp_root).unwrap();
+    std::fs::write(&config_path, serde_json::to_string(&serde_json::json!({
+        "activeProviderProfileId": "provider-alt",
+        "providerProfiles": [
+            {"id": "provider-default", "name": "Default", "baseUrl": "https://one", "textModel": "text-one", "imageModel": "image-one", "imageResponseMode": "official", "rememberApiKey": false},
+            {"id": "provider-alt", "name": "Alternate", "baseUrl": "https://two", "textModel": "text-two", "imageModel": "image-two", "imageResponseMode": "force-base64", "rememberApiKey": true}
+        ],
+        "apiKey": "legacy-key",
+        "__apiKeyStorage": "json-fallback"
+    })).unwrap()).unwrap();
+
+    assert_eq!(crate::storage::load_api_key_with_result(&config_path, "provider-alt", Err("missing".to_string()), Err("missing".to_string())), "legacy-key");
+    let stored: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert_eq!(stored["__apiKeys"]["provider-alt"], "legacy-key");
+    assert!(stored.get("apiKey").is_none());
 
     let _ = std::fs::remove_dir_all(&temp_root);
 }

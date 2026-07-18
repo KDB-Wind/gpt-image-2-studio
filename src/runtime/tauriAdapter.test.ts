@@ -213,8 +213,9 @@ describe("tauriAdapter provider profile bridge", () => {
         ],
       }),
     }));
-    const payload = invokeMock.mock.calls[0][1] as { config: Record<string, unknown> };
-    expect(payload.config.apiKey).toBe("desktop-alt-fake-key");
+    const payload = invokeMock.mock.calls[0][1] as { config: Record<string, unknown>; activeProfileApiKey: string };
+    expect(payload.config.apiKey).toBeUndefined();
+    expect(payload.activeProfileApiKey).toBe("desktop-alt-fake-key");
     expect(JSON.stringify(payload.config.providerProfiles)).not.toContain("desktop-alt-fake-key");
   });
 });
