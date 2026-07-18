@@ -25,13 +25,40 @@ export type ProviderProfilesState = {
 type LegacyProviderConfig = Partial<ProviderProfile> & { uiLanguage?: unknown };
 
 export function migrateProviderProfiles(value: unknown): ProviderProfilesState {
-  if (isProviderProfilesState(value)) {
+  if (isValidProviderProfilesState(value)) {
     return value;
   }
 
   const legacy = isRecord(value) ? (value as LegacyProviderConfig) : {};
   const isEnglish = legacy.uiLanguage === "en-US";
-  const profile: ProviderProfileMetadata = {
+  if (isCurrentProviderSchema(value)) {
+    const providerProfiles = normalizeProviderProfileMetadata(value.providerProfiles, isEnglish);
+    const profiles = providerProfiles.length > 0 ? providerProfiles : [createDefaultProfile(isEnglish)];
+    const activeProviderProfileId = profiles.some(({ id }) => id === value.activeProviderProfileId)
+      ? value.activeProviderProfileId as string
+      : profiles[0].id;
+
+    return {
+      providerSchemaVersion: PROVIDER_SCHEMA_VERSION,
+      activeProviderProfileId,
+      providerProfiles: profiles,
+    };
+  }
+
+  const profile = createDefaultProfile(isEnglish, legacy);
+
+  return {
+    providerSchemaVersion: PROVIDER_SCHEMA_VERSION,
+    activeProviderProfileId: profile.id,
+    providerProfiles: [profile],
+  };
+}
+
+function createDefaultProfile(
+  isEnglish: boolean,
+  legacy: LegacyProviderConfig = {},
+): ProviderProfileMetadata {
+  return {
     id: "provider-default",
     name: isEnglish ? "Default provider" : "默认供应商",
     baseUrl: stringOr(legacy.baseUrl, "https://ruoli.dev/v1"),
@@ -40,12 +67,31 @@ export function migrateProviderProfiles(value: unknown): ProviderProfilesState {
     imageResponseMode: isImageResponseMode(legacy.imageResponseMode) ? legacy.imageResponseMode : "official",
     rememberApiKey: typeof legacy.rememberApiKey === "boolean" ? legacy.rememberApiKey : false,
   };
+}
 
-  return {
-    providerSchemaVersion: PROVIDER_SCHEMA_VERSION,
-    activeProviderProfileId: profile.id,
-    providerProfiles: [profile],
-  };
+function normalizeProviderProfileMetadata(value: unknown, isEnglish: boolean): ProviderProfileMetadata[] {
+  if (!Array.isArray(value)) return [];
+
+  const profiles: ProviderProfileMetadata[] = [];
+  const ids = new Set<string>();
+  for (const [index, candidate] of value.entries()) {
+    if (profiles.length >= MAX_PROVIDER_PROFILES) break;
+    if (!isRecord(candidate)) continue;
+
+    const requestedId = stringOr(candidate.id, `provider-${index + 1}`);
+    if (ids.has(requestedId)) continue;
+    ids.add(requestedId);
+    profiles.push({
+      id: requestedId,
+      name: stringOr(candidate.name, isEnglish ? `Provider ${profiles.length + 1}` : `供应商 ${profiles.length + 1}`),
+      baseUrl: stringOr(candidate.baseUrl, "https://ruoli.dev/v1"),
+      textModel: stringOr(candidate.textModel, "gpt-5.4-mini"),
+      imageModel: stringOr(candidate.imageModel, "gpt-image-2"),
+      imageResponseMode: isImageResponseMode(candidate.imageResponseMode) ? candidate.imageResponseMode : "official",
+      rememberApiKey: typeof candidate.rememberApiKey === "boolean" ? candidate.rememberApiKey : false,
+    });
+  }
+  return profiles;
 }
 
 export function resolveActiveProviderProfile(
@@ -96,9 +142,29 @@ function assertProfile(profile: ProviderProfile): void {
   if (!profile.name.trim()) throw new Error("Provider profile name is required.");
 }
 
-function isProviderProfilesState(value: unknown): value is ProviderProfilesState {
-  return isRecord(value) && value.providerSchemaVersion === PROVIDER_SCHEMA_VERSION && Array.isArray(value.providerProfiles)
-    && typeof value.activeProviderProfileId === "string";
+function isValidProviderProfilesState(value: unknown): value is ProviderProfilesState {
+  if (!isCurrentProviderSchema(value)
+    || typeof value.activeProviderProfileId !== "string"
+    || value.providerProfiles.length < 1
+    || value.providerProfiles.length > MAX_PROVIDER_PROFILES) {
+    return false;
+  }
+
+  const ids = new Set<string>();
+  for (const profile of value.providerProfiles) {
+    if (!isRecord(profile)) return false;
+    const id = typeof profile.id === "string" ? profile.id.trim() : "";
+    const name = typeof profile.name === "string" ? profile.name.trim() : "";
+    if (!id || !name || ids.has(id)) return false;
+    ids.add(id);
+  }
+  return ids.has(value.activeProviderProfileId);
+}
+
+function isCurrentProviderSchema(value: unknown): value is Record<string, unknown> & { providerProfiles: unknown[] } {
+  return isRecord(value)
+    && value.providerSchemaVersion === PROVIDER_SCHEMA_VERSION
+    && Array.isArray(value.providerProfiles);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

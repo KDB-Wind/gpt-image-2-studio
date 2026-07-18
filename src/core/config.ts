@@ -136,19 +136,23 @@ export function mergeConfig(value: Partial<AppConfig> | null | undefined): AppCo
     ? merged.batchLastSplitTemplateId
     : DEFAULT_CONFIG.batchLastSplitTemplateId;
 
-  const migrated = migrateProviderProfiles({ ...input, uiLanguage: merged.uiLanguage });
   const inputHasSchema = Array.isArray(input.providerProfiles)
     && (input.providerSchemaVersion === PROVIDER_SCHEMA_VERSION || typeof input.activeProviderProfileId === "string");
-  const profiles = inputHasSchema
-    ? (input.providerProfiles as ProviderProfile[]).map((profile) => ({ ...profile, apiKey: asString(profile.apiKey) }))
-    : migrated.providerProfiles.map((profile: ProviderProfileMetadata) => ({
-        ...profile,
-        baseUrl: normalizeBaseUrl(profile.baseUrl),
-        apiKey: asString(input.apiKey),
-      }));
-  const active = resolveActiveProviderProfile(profiles, inputHasSchema
-    ? asString(input.activeProviderProfileId)
-    : migrated.activeProviderProfileId);
+  const migrationInput = inputHasSchema
+    ? { ...input, providerSchemaVersion: PROVIDER_SCHEMA_VERSION, uiLanguage: merged.uiLanguage }
+    : { ...input, uiLanguage: merged.uiLanguage };
+  const migrated = migrateProviderProfiles(migrationInput);
+  const inputProfiles = Array.isArray(input.providerProfiles) ? input.providerProfiles : [];
+  const profiles = migrated.providerProfiles.map((profile: ProviderProfileMetadata) => {
+    const source = inputProfiles.find((candidate) => isRecord(candidate) && candidate.id === profile.id);
+    const sourceApiKey = isRecord(source) ? asString(source.apiKey) : "";
+    return {
+      ...profile,
+      baseUrl: normalizeBaseUrl(profile.baseUrl),
+      apiKey: inputHasSchema ? sourceApiKey : asString(input.apiKey),
+    };
+  });
+  const active = resolveActiveProviderProfile(profiles, migrated.activeProviderProfileId);
   merged.providerSchemaVersion = PROVIDER_SCHEMA_VERSION;
   merged.providerProfiles = profiles;
   merged.activeProviderProfileId = active.id;
@@ -167,11 +171,10 @@ export function validateConfig(config: AppConfig): ValidationResult {
   const warnings: string[] = [];
   const maybeConfig = config as MaybeConfig;
   const activeProfile = resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId);
-  const usesLegacyDefaultFields = activeProfile.id === "provider-default";
-  const baseUrl = usesLegacyDefaultFields ? asString(maybeConfig.baseUrl) : activeProfile.baseUrl;
-  const apiKey = usesLegacyDefaultFields ? asString(maybeConfig.apiKey) || activeProfile.apiKey : activeProfile.apiKey;
-  const textModel = usesLegacyDefaultFields ? asString(maybeConfig.textModel) : activeProfile.textModel;
-  const imageModel = usesLegacyDefaultFields ? asString(maybeConfig.imageModel) : activeProfile.imageModel;
+  const baseUrl = activeProfile.baseUrl;
+  const apiKey = activeProfile.apiKey;
+  const textModel = activeProfile.textModel;
+  const imageModel = activeProfile.imageModel;
   const outputDirectory = asString(maybeConfig.outputDirectory);
   const timeoutSeconds = asNumber(maybeConfig.timeoutSeconds);
   const defaultCount = asNumber(maybeConfig.defaultCount);
@@ -249,6 +252,10 @@ function asBoolean(value: unknown, fallback: boolean): boolean {
 
 function isUiLanguage(value: unknown): value is UiLanguage {
   return value === "zh-CN" || value === "en-US";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function isImageResponseMode(value: unknown): value is ImageResponseMode {

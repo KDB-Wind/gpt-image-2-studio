@@ -26,6 +26,7 @@ describe("validateConfig", () => {
   const valid: AppConfig = {
     ...DEFAULT_CONFIG,
     apiKey: "sk-local",
+    providerProfiles: [{ ...DEFAULT_CONFIG.providerProfiles[0], apiKey: "test-key-a" }],
   };
 
   it("accepts the default ruoli.dev settings when an API key is present", () => {
@@ -45,7 +46,13 @@ describe("validateConfig", () => {
   });
 
   it("requires an API key before network calls", () => {
-    expect(validateConfig({ ...valid, apiKey: "" }).errors).toContain("API key is required.");
+    expect(
+      validateConfig({
+        ...valid,
+        apiKey: "test-key-a",
+        providerProfiles: [{ ...valid.providerProfiles[0], apiKey: "" }],
+      }).errors,
+    ).toContain("API key is required.");
   });
 
   it("accepts 120 seconds but warns when timeout is below the recommended 180 seconds", () => {
@@ -68,7 +75,12 @@ describe("validateConfig", () => {
   });
 
   it("requires model names", () => {
-    const result = validateConfig({ ...valid, textModel: "", imageModel: "" });
+    const result = validateConfig({
+      ...valid,
+      textModel: "legacy-text",
+      imageModel: "legacy-image",
+      providerProfiles: [{ ...valid.providerProfiles[0], textModel: "", imageModel: "" }],
+    });
     expect(result.errors).toContain("Text model is required.");
     expect(result.errors).toContain("Image model is required.");
   });
@@ -252,5 +264,26 @@ describe("mergeConfig", () => {
 
   it("keeps an explicit disabled AI task count planning setting", () => {
     expect(mergeConfig({ batchAutoPlanTaskCount: false }).batchAutoPlanTaskCount).toBe(false);
+  });
+
+  it("always validates the active default profile instead of legacy top-level fields", () => {
+    const activeProfile = {
+      ...DEFAULT_CONFIG.providerProfiles[0],
+      apiKey: "",
+      textModel: "",
+      imageModel: "",
+    };
+    const result = validateConfig({
+      ...DEFAULT_CONFIG,
+      apiKey: "test-key-a",
+      textModel: "legacy-text",
+      imageModel: "legacy-image",
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: "provider-default",
+    });
+
+    expect(result.errors).toContain("API key is required.");
+    expect(result.errors).toContain("Text model is required.");
+    expect(result.errors).toContain("Image model is required.");
   });
 });
