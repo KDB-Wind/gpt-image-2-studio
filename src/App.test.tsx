@@ -1068,6 +1068,12 @@ describe("App batch workspace", () => {
     expect(profileSelect?.value).toBe("provider-a");
     expect(getField<HTMLInputElement>(copy.fields.providerProfileName, "input").value).toBe("Profile A");
     expect(getField<HTMLSelectElement>(copy.fields.imageResponseMode, "select").value).toBe("official");
+    expect(storedConfig.providerProfiles).toEqual([
+      expect.objectContaining({ id: "provider-a" }),
+    ]);
+    expect(storedConfig.providerProfiles).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "provider-b" }),
+    ]));
 
     setSelectValue(profileSelect ?? undefined, "provider-a");
     await flushEffects();

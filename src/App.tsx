@@ -706,7 +706,7 @@ export default function App() {
   }
 
   async function handleDeleteProviderProfile() {
-    if (config.providerProfiles.length <= 1) {
+    if (!runtime || config.providerProfiles.length <= 1) {
       return;
     }
 
@@ -726,19 +726,29 @@ export default function App() {
     const nextProfiles = removeProviderProfile(config.providerProfiles, deletedProfileId);
     const nextActive = nextProfiles[0];
     const nextConfig = syncActiveProfile(config, nextActive, nextProfiles);
-    setConfig(nextConfig);
-    setPersistedConfig((current) => {
-      const nextPersistedProfiles = current.providerProfiles.filter((profile) => profile.id !== deletedProfileId);
-      if (nextPersistedProfiles.length === 0) {
-        return nextConfig;
-      }
+    const nextPersistedProfiles = persistedConfig.providerProfiles.filter((profile) => profile.id !== deletedProfileId);
+    const nextPersistedActive = resolveActiveProviderProfile(
+      nextPersistedProfiles.length > 0 ? nextPersistedProfiles : nextProfiles,
+      nextConfig.activeProviderProfileId,
+    );
+    const nextPersistedConfig = syncActiveProfile(
+      persistedConfig,
+      nextPersistedActive,
+      nextPersistedProfiles.length > 0 ? nextPersistedProfiles : nextProfiles,
+    );
 
-      const nextPersistedActive = resolveActiveProviderProfile(
-        nextPersistedProfiles,
-        nextConfig.activeProviderProfileId,
-      );
-      return syncActiveProfile(current, nextPersistedActive, nextPersistedProfiles);
-    });
+    try {
+      await runtime.saveConfig(nextPersistedConfig);
+    } catch (error) {
+      setSettingsMessage({
+        tone: "error",
+        text: copy.messages.settingsSaveFailed(getErrorMessage(error)),
+      });
+      return;
+    }
+
+    setConfig(nextConfig);
+    setPersistedConfig(nextPersistedConfig);
     setSettingsMessage({ tone: "neutral", text: "" });
   }
 
