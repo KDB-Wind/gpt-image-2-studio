@@ -380,6 +380,110 @@ fn clearing_json_fallback_key_keeps_other_provider_profiles() {
 }
 
 #[test]
+fn keyring_init_failure_still_clears_json_fallback_and_reports_error() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-api-key-clear-keyring-init-failure-{}",
+        std::process::id()
+    ));
+    let config_path = temp_root.join("config.json");
+
+    std::fs::create_dir_all(&temp_root).unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "provider-a", "key-a").unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "provider-b", "key-b").unwrap();
+
+    let error = crate::storage::clear_api_key_with_keyring_result(
+        &config_path,
+        "provider-a",
+        Err("Failed to initialize simulated keyring".to_string()),
+    )
+    .unwrap_err();
+
+    assert!(error.contains("simulated keyring"));
+    let stored: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert!(stored["__apiKeys"].get("provider-a").is_none());
+    assert_eq!(stored["__apiKeys"]["provider-b"], "key-b");
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn migrates_all_fallback_profile_keys_before_switching_to_keyring() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-api-key-transition-a-b-{}",
+        std::process::id()
+    ));
+    let config_path = temp_root.join("config.json");
+
+    std::fs::create_dir_all(&temp_root).unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "provider-a", "old-a").unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "provider-b", "key-b").unwrap();
+
+    let mut writes = Vec::new();
+    let mode = crate::storage::save_api_key_with_keyring_writer(
+        &config_path,
+        "provider-a",
+        "new-a",
+        |profile_id, api_key| {
+            writes.push((profile_id.to_string(), api_key.to_string()));
+            Ok(())
+        },
+    )
+    .unwrap();
+
+    assert_eq!(mode, "keyring");
+    assert_eq!(writes, vec![
+        ("provider-a".to_string(), "new-a".to_string()),
+        ("provider-b".to_string(), "key-b".to_string()),
+    ]);
+
+    let config = crate::storage::default_config();
+    crate::storage::write_config_file(&config_path, &config, &mode).unwrap();
+    let stored: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert_eq!(stored["__apiKeyStorage"], "keyring");
+    assert!(stored.get("__apiKeys").is_none());
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn failed_profile_key_migration_keeps_the_complete_fallback_map() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-api-key-transition-failure-{}",
+        std::process::id()
+    ));
+    let config_path = temp_root.join("config.json");
+
+    std::fs::create_dir_all(&temp_root).unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "provider-a", "old-a").unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "provider-b", "key-b").unwrap();
+
+    let mode = crate::storage::save_api_key_with_keyring_writer(
+        &config_path,
+        "provider-a",
+        "new-a",
+        |profile_id, _api_key| {
+            if profile_id == "provider-b" {
+                Err("provider-b migration failed".to_string())
+            } else {
+                Ok(())
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(mode, "json-fallback");
+    let stored: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert_eq!(stored["__apiKeyStorage"], "json-fallback");
+    assert_eq!(stored["__apiKeys"]["provider-a"], "new-a");
+    assert_eq!(stored["__apiKeys"]["provider-b"], "key-b");
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
 fn accepts_keyring_delete_failure_only_when_absence_is_confirmed() {
     assert!(crate::storage::resolve_keyring_clear_result(
         Err("delete failed".to_string()),

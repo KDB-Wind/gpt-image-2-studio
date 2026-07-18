@@ -725,6 +725,18 @@ export default function App() {
       nextPersistedProfiles.length > 0 ? nextPersistedProfiles : nextProfiles,
     );
 
+    if (runtime.clearProviderApiKey) {
+      try {
+        await runtime.clearProviderApiKey(deletedProfileId);
+      } catch (error) {
+        setSettingsMessage({
+          tone: "error",
+          text: copy.messages.settingsSaveFailed(getErrorMessage(error)),
+        });
+        return;
+      }
+    }
+
     try {
       await runtime.saveConfig(nextPersistedConfig);
     } catch (error) {
@@ -733,29 +745,6 @@ export default function App() {
         text: copy.messages.settingsSaveFailed(getErrorMessage(error)),
       });
       return;
-    }
-
-    if (runtime.clearProviderApiKey) {
-      try {
-        await runtime.clearProviderApiKey(deletedProfileId);
-      } catch (error) {
-        try {
-          await runtime.saveConfig(persistedConfig);
-        } catch (rollbackError) {
-          setSettingsMessage({
-            tone: "error",
-            text: copy.messages.settingsSaveFailed(
-              `${getErrorMessage(error)}; rollback failed: ${getErrorMessage(rollbackError)}`,
-            ),
-          });
-          return;
-        }
-        setSettingsMessage({
-          tone: "error",
-          text: copy.messages.settingsSaveFailed(getErrorMessage(error)),
-        });
-        return;
-      }
     }
 
     setConfig(nextConfig);

@@ -149,11 +149,16 @@ function readStoredValue<T>(key: string, fallback: T, kind: "local" | "session" 
   }
 }
 
-function writeStoredValue(
+type StoredValueWriteStatus = {
+  durability: "persistent" | "memory-only";
+  error?: string;
+};
+
+function writeStoredValueWithStatus(
   key: string,
   value: unknown,
   kind: "local" | "session" = "local",
-): "persistent" | "memory-only" {
+): StoredValueWriteStatus {
   const serializedValue = JSON.stringify(value);
   const storage = getBrowserStorage(kind);
   const memoryStorage = getMemoryStorage(kind);
@@ -162,14 +167,30 @@ function writeStoredValue(
     try {
       storage.setItem(key, serializedValue);
       memoryStorage.delete(key);
-      return "persistent";
-    } catch {
+      return { durability: "persistent" };
+    } catch (error) {
       // Some embedded file:// browsers expose localStorage but deny reads/writes.
+      memoryStorage.set(key, serializedValue);
+      return {
+        durability: "memory-only",
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
   memoryStorage.set(key, serializedValue);
-  return "memory-only";
+  return {
+    durability: "memory-only",
+    error: `${kind} storage is unavailable`,
+  };
+}
+
+function writeStoredValue(
+  key: string,
+  value: unknown,
+  kind: "local" | "session" = "local",
+): "persistent" | "memory-only" {
+  return writeStoredValueWithStatus(key, value, kind).durability;
 }
 
 function removeStoredValue(key: string, kind: "local" | "session" = "local") {
@@ -827,10 +848,22 @@ export const webAdapter: RuntimeAdapter = {
   async clearProviderApiKey(profileId: string) {
     const sessionKeys = readStoredValue<Record<string, string>>(SESSION_API_KEYS, {}, "session");
     const persistentKeys = readStoredValue<Record<string, string>>(PERSISTENT_API_KEYS, {});
+    const previousSessionKeys = { ...sessionKeys };
+    const previousPersistentKeys = { ...persistentKeys };
     delete sessionKeys[profileId];
     delete persistentKeys[profileId];
-    writeStoredValue(SESSION_API_KEYS, sessionKeys, "session");
-    writeStoredValue(PERSISTENT_API_KEYS, persistentKeys);
+    const sessionWrite = writeStoredValueWithStatus(SESSION_API_KEYS, sessionKeys, "session");
+    const persistentWrite = writeStoredValueWithStatus(PERSISTENT_API_KEYS, persistentKeys);
+    const failedWrites = [
+      sessionWrite.durability === "persistent" ? "" : `session: ${sessionWrite.error ?? "write failed"}`,
+      persistentWrite.durability === "persistent" ? "" : `local: ${persistentWrite.error ?? "write failed"}`,
+    ].filter(Boolean);
+
+    if (failedWrites.length > 0) {
+      writeStoredValue(SESSION_API_KEYS, previousSessionKeys, "session");
+      writeStoredValue(PERSISTENT_API_KEYS, previousPersistentKeys);
+      throw new Error(`Provider API key clear was not durable. ${failedWrites.join("; ")}`);
+    }
   },
 
   async saveConfig(config: AppConfig) {

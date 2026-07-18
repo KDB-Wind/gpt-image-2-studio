@@ -1089,6 +1089,26 @@ describe("webAdapter history deletion", () => {
       .toEqual({});
   });
 
+  it.each([
+    ["session", "chat-to-image.api-keys.session.v1", sessionStorage],
+    ["local", "chat-to-image.api-keys.persistent.v1", localStorage],
+  ] as const)("reports %s storage write failure and preserves the fallback key", async (kind, storageKey, storage) => {
+    storage.setItem(storageKey, JSON.stringify({ "provider-alt": "key-to-preserve" }));
+    const originalSetItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+      if (key === storageKey) {
+        throw new DOMException(`${kind} storage write failed`, "QuotaExceededError");
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    await expect(webAdapter.clearProviderApiKey?.("provider-alt"))
+      .rejects.toThrow("Provider API key clear was not durable");
+    expect(JSON.parse(storage.getItem(storageKey) ?? "{}")).toEqual({
+      "provider-alt": "key-to-preserve",
+    });
+  });
+
   it.each(["blob:revoked-image", "data:image/png;base64,invalid", "ftp://provider.example/image.png"])(
     "keeps non-http image URL fetch failures generic: %s",
     async (providerUrl) => {

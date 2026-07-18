@@ -1101,7 +1101,7 @@ describe("App batch workspace", () => {
     expect(container.textContent).not.toContain("Profile B");
   });
 
-  it("does not clear a profile key when durable deletion fails before commit", async () => {
+  it("does not commit profile deletion when key cleanup is not durable", async () => {
     const copy = getTranslations("en-US");
     const profiles = [
       createProviderProfile({ id: "provider-a", name: "Profile A", apiKey: "profile-a-key" }),
@@ -1116,8 +1116,8 @@ describe("App batch workspace", () => {
       uiLanguage: "en-US" as const,
       hasDismissedWelcome: true,
     });
-    runtime.saveConfig = vi.fn().mockRejectedValue(new Error("persist failed"));
-    runtime.clearProviderApiKey = vi.fn().mockResolvedValue(undefined);
+    runtime.saveConfig = vi.fn().mockResolvedValue(undefined);
+    runtime.clearProviderApiKey = vi.fn().mockRejectedValue(new Error("key cleanup was not durable"));
     vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
 
     await renderApp();
@@ -1128,8 +1128,9 @@ describe("App batch workspace", () => {
     const profileSelect = container.querySelector<HTMLSelectElement>('[data-testid="settings-provider-profile"]');
     expect(profileSelect?.options).toHaveLength(2);
     expect(profileSelect?.value).toBe("provider-b");
-    expect(runtime.clearProviderApiKey).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("persist failed");
+    expect(runtime.clearProviderApiKey).toHaveBeenCalledWith("provider-b");
+    expect(runtime.saveConfig).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("key cleanup was not durable");
   });
 
   it("hydrates only the selected profile API key on demand in web runtime", async () => {
