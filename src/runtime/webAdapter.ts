@@ -39,16 +39,25 @@ function toPersistedConfig(
   const { apiKey: _apiKey, providerProfiles = [], ...config } = value;
   return {
     ...config,
-    providerProfiles: providerProfiles.map(({ apiKey: _profileApiKey, ...profile }) => profile),
+    providerProfiles: providerProfiles
+      .filter((profile): profile is Record<string, unknown> => isRecord(profile))
+      .map(({ apiKey: _profileApiKey, ...profile }) => profile),
   } as PersistedRuntimeConfig;
 }
 
-function pruneKeyMap(value: Record<string, string>, profileIds: Set<string>): Record<string, string> {
-  return Object.fromEntries(Object.entries(value).filter(([id, key]) => profileIds.has(id) && typeof key === "string"));
+function pruneKeyMap(value: unknown, profileIds: Set<string>): Record<string, string> {
+  if (!isRecord(value) || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(([id, key]) => profileIds.has(id) && typeof key === "string"),
+  ) as Record<string, string>;
 }
 
-function hasAnyProfileKey(...maps: Record<string, string>[]): boolean {
+function hasAnyProfileKey(...maps: Array<Record<string, string>>): boolean {
   return maps.some((map) => Object.values(map).some(Boolean));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 let directoryHandle: FileSystemDirectoryHandle | null = null;
@@ -655,6 +664,7 @@ export const webAdapter: RuntimeAdapter = {
       ? storedValue as Partial<AppConfig>
       : {};
     const legacyApiKey = typeof storedConfig.apiKey === "string" ? storedConfig.apiKey : "";
+    const rawProviderProfiles = Array.isArray(storedConfig.providerProfiles) ? storedConfig.providerProfiles : [];
     const persistableConfig = toPersistedConfig(storedConfig);
     let configWithoutKeys = mergeConfig({
       ...persistableConfig,
@@ -683,17 +693,32 @@ export const webAdapter: RuntimeAdapter = {
     const profileIds = new Set(configWithoutKeys.providerProfiles.map((profile) => profile.id));
     const cleanedSessionKeys = pruneKeyMap(sessionKeys, profileIds);
     const cleanedPersistentKeys = pruneKeyMap(persistentKeys, profileIds);
+    let migratedProfileKey = false;
+    for (const candidate of rawProviderProfiles) {
+      if (!isRecord(candidate) || typeof candidate.id !== "string" || typeof candidate.apiKey !== "string"
+        || !candidate.apiKey) continue;
+      const profile = configWithoutKeys.providerProfiles.find((item) => item.id === candidate.id);
+      if (!profile) continue;
+      delete cleanedSessionKeys[profile.id];
+      delete cleanedPersistentKeys[profile.id];
+      if (profile.rememberApiKey && storageCapabilities.local) {
+        cleanedPersistentKeys[profile.id] = candidate.apiKey;
+      } else {
+        cleanedSessionKeys[profile.id] = candidate.apiKey;
+      }
+      migratedProfileKey = true;
+    }
 
     if (legacyApiKey) {
-      if (!hasAnyProfileKey(cleanedSessionKeys, cleanedPersistentKeys)) {
+      if (!cleanedSessionKeys["provider-default"] && !cleanedPersistentKeys["provider-default"]) {
         cleanedSessionKeys["provider-default"] = legacyApiKey;
         if (configWithoutKeys.providerProfiles.some((profile) => profile.id === "provider-default"
           && profile.rememberApiKey && storageCapabilities.local)) {
           cleanedPersistentKeys["provider-default"] = legacyApiKey;
         }
       }
-      writeStoredValue(CONFIG_KEY, persistableConfig);
     }
+    if (legacyApiKey || migratedProfileKey) writeStoredValue(CONFIG_KEY, persistableConfig);
 
     const hydratedProfiles = configWithoutKeys.providerProfiles.map((profile) => ({
       ...profile,

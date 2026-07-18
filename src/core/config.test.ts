@@ -179,6 +179,22 @@ describe("mergeConfig", () => {
     expect(mergeConfig({ baseUrl: "https://ruoli.dev" }).baseUrl).toBe("https://ruoli.dev/v1");
   });
 
+  it("does not crash when current provider metadata has invalid field types", () => {
+    expect(() => mergeConfig({
+      providerSchemaVersion: 1,
+      activeProviderProfileId: "broken",
+      providerProfiles: [{
+        id: "broken",
+        name: "Broken provider",
+        baseUrl: 42,
+        textModel: null,
+        imageModel: false,
+        imageResponseMode: "invalid",
+        rememberApiKey: "yes",
+      } as unknown as ProviderProfile],
+    })).not.toThrow();
+  });
+
   it("starts with Chinese UI and an undisposed welcome guide", () => {
     expect(DEFAULT_CONFIG.uiLanguage).toBe("zh-CN");
     expect(DEFAULT_CONFIG.hasDismissedWelcome).toBe(false);

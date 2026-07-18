@@ -57,6 +57,32 @@ describe("provider profile domain", () => {
     expect(migrateProviderProfiles(value)).toBe(value);
   });
 
+  it("normalizes malformed current profile metadata instead of returning unsafe fields", () => {
+    const migrated = migrateProviderProfiles({
+      providerSchemaVersion: 1,
+      activeProviderProfileId: "broken",
+      providerProfiles: [{
+        id: "broken",
+        name: "Broken provider",
+        baseUrl: 42,
+        textModel: null,
+        imageModel: false,
+        imageResponseMode: "invalid",
+        rememberApiKey: "yes",
+      }],
+    });
+
+    expect(migrated.providerProfiles[0]).toEqual({
+      id: "broken",
+      name: "Broken provider",
+      baseUrl: "https://ruoli.dev/v1",
+      textModel: "gpt-5.4-mini",
+      imageModel: "gpt-image-2",
+      imageResponseMode: "official",
+      rememberApiKey: false,
+    });
+  });
+
   it("normalizes duplicate ids, empty names, profile limits, and a missing active id", () => {
     const profiles = Array.from({ length: MAX_PROVIDER_PROFILES + 3 }, (_, index) => ({
       ...profile(index === 1 ? "provider-0" : `provider-${index}`),

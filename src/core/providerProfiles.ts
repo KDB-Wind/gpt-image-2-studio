@@ -155,7 +155,12 @@ function isValidProviderProfilesState(value: unknown): value is ProviderProfiles
     if (!isRecord(profile)) return false;
     const id = typeof profile.id === "string" ? profile.id.trim() : "";
     const name = typeof profile.name === "string" ? profile.name.trim() : "";
-    if (!id || !name || ids.has(id)) return false;
+    if (!id || !name || ids.has(id)
+      || typeof profile.baseUrl !== "string"
+      || typeof profile.textModel !== "string"
+      || typeof profile.imageModel !== "string"
+      || !isImageResponseMode(profile.imageResponseMode)
+      || typeof profile.rememberApiKey !== "boolean") return false;
     ids.add(id);
   }
   return ids.has(value.activeProviderProfileId);
