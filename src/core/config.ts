@@ -15,6 +15,13 @@ import {
   type ImageOutputFormat,
   type ImageQuality,
 } from "./imageOptions";
+import {
+  migrateProviderProfiles,
+  PROVIDER_SCHEMA_VERSION,
+  resolveActiveProviderProfile,
+  type ProviderProfile,
+  type ProviderProfileMetadata,
+} from "./providerProfiles";
 
 export type AppConfig = {
   baseUrl: string;
@@ -39,6 +46,9 @@ export type AppConfig = {
   batchAutoPlanTaskCount: boolean;
   batchCustomSplitSystemPrompt: string;
   batchLastSplitTemplateId: BatchSplitTemplateId;
+  providerSchemaVersion: typeof PROVIDER_SCHEMA_VERSION;
+  activeProviderProfileId: string;
+  providerProfiles: ProviderProfile[];
 };
 
 export type ValidationResult = {
@@ -71,6 +81,18 @@ export const DEFAULT_CONFIG: AppConfig = {
   batchAutoPlanTaskCount: true,
   batchCustomSplitSystemPrompt: "",
   batchLastSplitTemplateId: "basic",
+  providerSchemaVersion: PROVIDER_SCHEMA_VERSION,
+  activeProviderProfileId: "provider-default",
+  providerProfiles: [{
+    id: "provider-default",
+    name: "默认供应商",
+    baseUrl: "https://ruoli.dev/v1",
+    apiKey: "",
+    textModel: "gpt-5.4-mini",
+    imageModel: "gpt-image-2",
+    imageResponseMode: "official",
+    rememberApiKey: false,
+  }],
 };
 
 export function normalizeBaseUrl(value: string): string {
@@ -83,6 +105,7 @@ export function normalizeBaseUrl(value: string): string {
 }
 
 export function mergeConfig(value: Partial<AppConfig> | null | undefined): AppConfig {
+  const input = (value ?? {}) as Record<string, unknown>;
   const merged: AppConfig = {
     ...DEFAULT_CONFIG,
     ...(Object.fromEntries(
@@ -113,6 +136,29 @@ export function mergeConfig(value: Partial<AppConfig> | null | undefined): AppCo
     ? merged.batchLastSplitTemplateId
     : DEFAULT_CONFIG.batchLastSplitTemplateId;
 
+  const migrated = migrateProviderProfiles({ ...input, uiLanguage: merged.uiLanguage });
+  const inputHasSchema = Array.isArray(input.providerProfiles)
+    && (input.providerSchemaVersion === PROVIDER_SCHEMA_VERSION || typeof input.activeProviderProfileId === "string");
+  const profiles = inputHasSchema
+    ? (input.providerProfiles as ProviderProfile[]).map((profile) => ({ ...profile, apiKey: asString(profile.apiKey) }))
+    : migrated.providerProfiles.map((profile: ProviderProfileMetadata) => ({
+        ...profile,
+        baseUrl: normalizeBaseUrl(profile.baseUrl),
+        apiKey: asString(input.apiKey),
+      }));
+  const active = resolveActiveProviderProfile(profiles, inputHasSchema
+    ? asString(input.activeProviderProfileId)
+    : migrated.activeProviderProfileId);
+  merged.providerSchemaVersion = PROVIDER_SCHEMA_VERSION;
+  merged.providerProfiles = profiles;
+  merged.activeProviderProfileId = active.id;
+  merged.baseUrl = active.baseUrl;
+  merged.apiKey = active.apiKey;
+  merged.textModel = active.textModel;
+  merged.imageModel = active.imageModel;
+  merged.imageResponseMode = active.imageResponseMode;
+  merged.rememberApiKey = active.rememberApiKey;
+
   return merged;
 }
 
@@ -120,10 +166,12 @@ export function validateConfig(config: AppConfig): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   const maybeConfig = config as MaybeConfig;
-  const baseUrl = asString(maybeConfig.baseUrl);
-  const apiKey = asString(maybeConfig.apiKey);
-  const textModel = asString(maybeConfig.textModel);
-  const imageModel = asString(maybeConfig.imageModel);
+  const activeProfile = resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId);
+  const usesLegacyDefaultFields = activeProfile.id === "provider-default";
+  const baseUrl = usesLegacyDefaultFields ? asString(maybeConfig.baseUrl) : activeProfile.baseUrl;
+  const apiKey = usesLegacyDefaultFields ? asString(maybeConfig.apiKey) || activeProfile.apiKey : activeProfile.apiKey;
+  const textModel = usesLegacyDefaultFields ? asString(maybeConfig.textModel) : activeProfile.textModel;
+  const imageModel = usesLegacyDefaultFields ? asString(maybeConfig.imageModel) : activeProfile.imageModel;
   const outputDirectory = asString(maybeConfig.outputDirectory);
   const timeoutSeconds = asNumber(maybeConfig.timeoutSeconds);
   const defaultCount = asNumber(maybeConfig.defaultCount);

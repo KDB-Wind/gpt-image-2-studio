@@ -6,6 +6,7 @@ import {
   validateConfig,
   type AppConfig,
 } from "./config";
+import { MAX_PROVIDER_PROFILES, type ProviderProfile } from "./providerProfiles";
 
 describe("normalizeBaseUrl", () => {
   it("adds /v1 when the user enters the host only", () => {
@@ -106,6 +107,58 @@ describe("validateConfig", () => {
 });
 
 describe("mergeConfig", () => {
+  it("migrates legacy provider fields into the active provider profile", () => {
+    const merged = mergeConfig({
+      baseUrl: "https://legacy.example/v1",
+      apiKey: "test-key-a",
+      textModel: "legacy-text",
+      imageModel: "legacy-image",
+      imageResponseMode: "force-base64",
+      rememberApiKey: true,
+    });
+
+    expect(merged.providerSchemaVersion).toBe(1);
+    expect(merged.activeProviderProfileId).toBe("provider-default");
+    expect(merged.providerProfiles).toEqual([
+      expect.objectContaining({
+        id: "provider-default",
+        name: "默认供应商",
+        baseUrl: "https://legacy.example/v1",
+        apiKey: "test-key-a",
+        textModel: "legacy-text",
+        imageModel: "legacy-image",
+        imageResponseMode: "force-base64",
+        rememberApiKey: true,
+      }),
+    ]);
+  });
+
+  it("validates the active provider profile rather than stale legacy fields", () => {
+    const profile: ProviderProfile = {
+      id: "provider-a",
+      name: "Provider A",
+      baseUrl: "https://provider.example/v1",
+      apiKey: "test-key-a",
+      textModel: "text-a",
+      imageModel: "image-a",
+      imageResponseMode: "official",
+      rememberApiKey: false,
+    };
+    const config = mergeConfig({
+      apiKey: "",
+      providerProfiles: [profile],
+      activeProviderProfileId: profile.id,
+    });
+
+    expect(validateConfig(config).errors).not.toContain("API key is required.");
+    expect(validateConfig({ ...config, providerProfiles: [{ ...profile, apiKey: "" }] }).errors).toContain(
+      "API key is required.",
+    );
+  });
+
+  it("retains the profile limit in the merged config", () => {
+    expect(MAX_PROVIDER_PROFILES).toBe(20);
+  });
   it("normalizes legacy multi-image defaults to one image per task", () => {
     expect(mergeConfig({ defaultCount: 4 }).defaultCount).toBe(1);
   });
