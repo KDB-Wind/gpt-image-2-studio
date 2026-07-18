@@ -218,4 +218,12 @@ describe("tauriAdapter provider profile bridge", () => {
     expect(payload.activeProfileApiKey).toBe("desktop-alt-fake-key");
     expect(JSON.stringify(payload.config.providerProfiles)).not.toContain("desktop-alt-fake-key");
   });
+
+  it("clears only the requested provider profile key through the native command", async () => {
+    invokeMock.mockResolvedValue(undefined);
+
+    await tauriAdapter.clearProviderApiKey?.("provider-alt");
+
+    expect(invokeMock).toHaveBeenCalledWith("clear_provider_api_key", { profileId: "provider-alt" });
+  });
 });

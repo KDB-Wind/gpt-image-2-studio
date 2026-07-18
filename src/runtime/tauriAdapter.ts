@@ -125,6 +125,10 @@ export const tauriAdapter: RuntimeAdapter = {
     return invoke<string>("load_provider_api_key", { profileId });
   },
 
+  clearProviderApiKey(profileId: string) {
+    return invoke<void>("clear_provider_api_key", { profileId });
+  },
+
   async saveConfig(config: AppConfig) {
     const activeProfile = resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId);
     const activeProfileApiKey = activeProfile.apiKey || await invoke<string>("load_provider_api_key", {

@@ -1047,12 +1047,15 @@ describe("App batch workspace", () => {
       uiLanguage: "en-US",
       hasDismissedWelcome: true,
     });
+    runtime.clearProviderApiKey = vi.fn().mockResolvedValue(undefined);
     vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
 
     await renderApp();
     clickButton(copy.tabs.settings);
     clickButton(copy.actions.deleteProviderProfile);
+    await flushEffects();
 
+    expect(runtime.clearProviderApiKey).toHaveBeenCalledWith("provider-b");
     const profileSelect = container.querySelector<HTMLSelectElement>('[data-testid="settings-provider-profile"]');
     expect(profileSelect?.options).toHaveLength(1);
     expect(profileSelect?.value).toBe("provider-a");
@@ -1060,14 +1063,13 @@ describe("App batch workspace", () => {
     expect(getField<HTMLSelectElement>(copy.fields.imageResponseMode, "select").value).toBe("official");
   });
 
-  it("hydrates only the selected desktop profile API key on demand", async () => {
+  it("hydrates only the selected profile API key on demand in web runtime", async () => {
     const copy = getTranslations("en-US");
     const profiles = [
       createProviderProfile({ id: "provider-a", name: "Profile A", apiKey: "active-key" }),
       createProviderProfile({ id: "provider-b", name: "Profile B", apiKey: "" }),
     ];
     const runtime = createPreviewRuntime([]);
-    runtime.mode = "desktop";
     runtime.loadConfig = vi.fn().mockResolvedValue({
       ...DEFAULT_CONFIG,
       ...profiles[0],

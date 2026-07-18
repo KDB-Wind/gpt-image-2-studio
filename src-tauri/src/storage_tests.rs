@@ -360,6 +360,26 @@ fn json_fallback_keys_are_isolated_by_provider_profile() {
 }
 
 #[test]
+fn clearing_json_fallback_key_keeps_other_provider_profiles() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-api-key-clear-test-{}",
+        std::process::id()
+    ));
+    let config_path = temp_root.join("config.json");
+
+    std::fs::create_dir_all(&temp_root).unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "provider-a", "key-a").unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "provider-b", "key-b").unwrap();
+    crate::storage::clear_api_key_json_fallback(&config_path, "provider-a").unwrap();
+
+    let stored: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert!(stored["__apiKeys"].get("provider-a").is_none());
+    assert_eq!(stored["__apiKeys"]["provider-b"], "key-b");
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
 fn keyring_results_are_isolated_by_provider_profile() {
     let temp_root = std::env::temp_dir().join(format!(
         "chat-to-image-keyring-profile-isolation-test-{}",

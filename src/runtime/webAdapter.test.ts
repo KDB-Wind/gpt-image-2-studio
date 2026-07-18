@@ -138,6 +138,11 @@ describe("webAdapter history deletion", () => {
       ],
     };
 
+    await webAdapter.saveConfig({
+      ...DEFAULT_CONFIG,
+      apiKey: defaultKey,
+      rememberApiKey: true,
+    });
     await webAdapter.saveConfig(config);
 
     const storedConfig = JSON.parse(localStorage.getItem("chat-to-image.config.v1") ?? "{}");
@@ -150,6 +155,12 @@ describe("webAdapter history deletion", () => {
       .toEqual({ "provider-default": defaultKey });
     expect(JSON.parse(sessionStorage.getItem("chat-to-image.api-keys.session.v1") ?? "{}"))
       .toEqual({ "provider-alt": alternateKey });
+
+    const hydratedConfig = await webAdapter.loadConfig();
+    expect(hydratedConfig.providerProfiles).toEqual([
+      expect.objectContaining({ id: "provider-default", apiKey: "" }),
+      expect.objectContaining({ id: "provider-alt", apiKey: alternateKey }),
+    ]);
 
     await webAdapter.saveConfig({
       ...config,
@@ -1049,6 +1060,33 @@ describe("webAdapter history deletion", () => {
     ).rejects.toMatchObject({ code: "image-download-failed" });
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("loads and clears one profile key without touching another profile", async () => {
+    const defaultKey = "load-default-profile-key";
+    const alternateKey = "load-alternate-profile-key";
+    await webAdapter.saveConfig({ ...DEFAULT_CONFIG, apiKey: defaultKey, rememberApiKey: true });
+    await webAdapter.saveConfig({
+      ...DEFAULT_CONFIG,
+      activeProviderProfileId: "provider-alt",
+      apiKey: alternateKey,
+      rememberApiKey: false,
+      providerProfiles: [
+        { ...DEFAULT_CONFIG.providerProfiles[0] },
+        { ...DEFAULT_CONFIG.providerProfiles[0], id: "provider-alt", name: "Alternate" },
+      ],
+    });
+
+    await expect(webAdapter.loadProviderApiKey?.("provider-default")).resolves.toBe(defaultKey);
+    await expect(webAdapter.loadProviderApiKey?.("provider-alt")).resolves.toBe(alternateKey);
+    await webAdapter.clearProviderApiKey?.("provider-alt");
+
+    await expect(webAdapter.loadProviderApiKey?.("provider-default")).resolves.toBe(defaultKey);
+    await expect(webAdapter.loadProviderApiKey?.("provider-alt")).resolves.toBe("");
+    expect(JSON.parse(localStorage.getItem("chat-to-image.api-keys.persistent.v1") ?? "{}"))
+      .toEqual({ "provider-default": defaultKey });
+    expect(JSON.parse(sessionStorage.getItem("chat-to-image.api-keys.session.v1") ?? "{}"))
+      .toEqual({});
   });
 
   it.each(["blob:revoked-image", "data:image/png;base64,invalid", "ftp://provider.example/image.png"])(

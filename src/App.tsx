@@ -705,12 +705,25 @@ export default function App() {
     setSettingsMessage({ tone: "neutral", text: "" });
   }
 
-  function handleDeleteProviderProfile() {
+  async function handleDeleteProviderProfile() {
     if (config.providerProfiles.length <= 1) {
       return;
     }
 
-    const nextProfiles = removeProviderProfile(config.providerProfiles, config.activeProviderProfileId);
+    const deletedProfileId = config.activeProviderProfileId;
+    if (runtime?.clearProviderApiKey) {
+      try {
+        await runtime.clearProviderApiKey(deletedProfileId);
+      } catch (error) {
+        setSettingsMessage({
+          tone: "error",
+          text: copy.messages.settingsSaveFailed(getErrorMessage(error)),
+        });
+        return;
+      }
+    }
+
+    const nextProfiles = removeProviderProfile(config.providerProfiles, deletedProfileId);
     const nextActive = nextProfiles[0];
     setConfig(syncActiveProfile(config, nextActive, nextProfiles));
     setSettingsMessage({ tone: "neutral", text: "" });
@@ -755,7 +768,7 @@ export default function App() {
     }
 
     let hydratedApiKey = targetProfile.apiKey;
-    if (runtime?.mode === "desktop" && runtime.loadProviderApiKey && !hydratedApiKey) {
+    if (runtime?.loadProviderApiKey && !hydratedApiKey) {
       try {
         hydratedApiKey = await runtime.loadProviderApiKey(profileId);
       } catch {

@@ -334,6 +334,14 @@ fn profile_keyring_account(profile_id: &str) -> String {
     format!("profile:{profile_id}")
 }
 
+fn validate_profile_id(profile_id: &str) -> Result<&str, String> {
+    let profile_id = profile_id.trim();
+    if profile_id.is_empty() || profile_id.len() > 128 || profile_id.contains(['/', '\\']) {
+        return Err("Invalid provider profile id".to_string());
+    }
+    Ok(profile_id)
+}
+
 fn load_api_key(path: &Path, profile_id: &str, allow_legacy_migration: bool) -> String {
     let profile_account = profile_keyring_account(profile_id);
     let keyring_result = Entry::new(KEYRING_SERVICE, &profile_keyring_account(profile_id))
@@ -412,6 +420,29 @@ pub fn persist_api_key_json_fallback(path: &Path, profile_id: &str, api_key: &st
     }
     value[API_KEY_STORAGE_FIELD] = serde_json::Value::String(JSON_FALLBACK_STORAGE_MODE.to_string());
     write_json(path, &value)
+}
+
+pub fn clear_api_key_json_fallback(path: &Path, profile_id: &str) -> Result<(), String> {
+    let Some(mut value) = read_json_value(path) else {
+        return Ok(());
+    };
+    if let Some(object) = value.as_object_mut() {
+        if let Some(keys) = object.get_mut(API_KEYS_STORAGE_FIELD).and_then(|keys| keys.as_object_mut()) {
+            keys.remove(profile_id);
+            if keys.is_empty() {
+                object.remove(API_KEYS_STORAGE_FIELD);
+            }
+        }
+    }
+    write_json(path, &value)
+}
+
+fn clear_api_key(path: &Path, profile_id: &str) -> Result<(), String> {
+    let account = profile_keyring_account(profile_id);
+    if let Ok(entry) = Entry::new(KEYRING_SERVICE, &account) {
+        let _ = entry.delete_credential();
+    }
+    clear_api_key_json_fallback(path, profile_id)
 }
 
 fn save_api_key(path: &Path, profile_id: &str, api_key: &str) -> Result<String, String> {
@@ -890,12 +921,15 @@ pub fn load_config() -> Result<AppConfig, String> {
 
 #[tauri::command]
 pub fn load_provider_api_key(profile_id: String) -> Result<String, String> {
-    let profile_id = profile_id.trim();
-    if profile_id.is_empty() || profile_id.len() > 128 || profile_id.contains(['/', '\\']) {
-        return Err("Invalid provider profile id".to_string());
-    }
+    let profile_id = validate_profile_id(&profile_id)?;
     let path = config_path()?;
     Ok(load_api_key(&path, profile_id, false))
+}
+
+#[tauri::command]
+pub fn clear_provider_api_key(profile_id: String) -> Result<(), String> {
+    let profile_id = validate_profile_id(&profile_id)?;
+    clear_api_key(&config_path()?, profile_id)
 }
 
 #[tauri::command]
