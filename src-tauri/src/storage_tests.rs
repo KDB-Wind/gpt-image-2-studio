@@ -330,7 +330,7 @@ fn loads_api_key_from_json_fallback_mode() {
     crate::storage::persist_api_key_json_fallback(&config_path, "provider-default", "sk-local").unwrap();
 
     let loaded =
-        crate::storage::load_api_key_with_result(&config_path, "provider-default", Ok("wrong-keyring".to_string()), Err("missing".to_string()));
+        crate::storage::load_api_key_with_result(&config_path, "provider-default", Ok("wrong-keyring".to_string()), Err("missing".to_string()), false);
     assert_eq!(loaded, "sk-local");
 
     let _ = std::fs::remove_dir_all(&temp_root);
@@ -348,8 +348,8 @@ fn json_fallback_keys_are_isolated_by_provider_profile() {
     crate::storage::persist_api_key_json_fallback(&config_path, "provider-a", "key-a").unwrap();
     crate::storage::persist_api_key_json_fallback(&config_path, "provider-b", "key-b").unwrap();
 
-    assert_eq!(crate::storage::load_api_key_with_result(&config_path, "provider-a", Err("missing".to_string()), Err("missing".to_string())), "key-a");
-    assert_eq!(crate::storage::load_api_key_with_result(&config_path, "provider-b", Err("missing".to_string()), Err("missing".to_string())), "key-b");
+    assert_eq!(crate::storage::load_api_key_with_result(&config_path, "provider-a", Err("missing".to_string()), Err("missing".to_string()), false), "key-a");
+    assert_eq!(crate::storage::load_api_key_with_result(&config_path, "provider-b", Err("missing".to_string()), Err("missing".to_string()), false), "key-b");
 
     let raw = std::fs::read_to_string(&config_path).unwrap();
     let stored: serde_json::Value = serde_json::from_str(&raw).unwrap();
@@ -373,7 +373,8 @@ fn keyring_results_are_isolated_by_provider_profile() {
             &config_path,
             "provider-a",
             Ok("key-a".to_string()),
-            Err("missing".to_string())
+            Err("missing".to_string()),
+            false
         ),
         "key-a"
     );
@@ -382,7 +383,8 @@ fn keyring_results_are_isolated_by_provider_profile() {
             &config_path,
             "provider-b",
             Ok("key-b".to_string()),
-            Err("missing".to_string())
+            Err("missing".to_string()),
+            false
         ),
         "key-b"
     );
@@ -409,10 +411,43 @@ fn migrates_legacy_single_json_key_to_active_profile() {
         "__apiKeyStorage": "json-fallback"
     })).unwrap()).unwrap();
 
-    assert_eq!(crate::storage::load_api_key_with_result(&config_path, "provider-alt", Err("missing".to_string()), Err("missing".to_string())), "legacy-key");
+    assert_eq!(crate::storage::load_api_key_with_result(&config_path, "provider-alt", Err("missing".to_string()), Err("missing".to_string()), true), "legacy-key");
     let stored: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     assert_eq!(stored["__apiKeys"]["provider-alt"], "legacy-key");
     assert!(stored.get("apiKey").is_none());
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn profile_b_does_not_inherit_profile_a_legacy_key() {
+    let temp_root = std::env::temp_dir().join(format!("chat-to-image-legacy-profile-boundary-{}", std::process::id()));
+    let config_path = temp_root.join("config.json");
+    std::fs::create_dir_all(&temp_root).unwrap();
+    std::fs::write(&config_path, serde_json::json!({"apiKey": "legacy-a", "__apiKeyStorage": "keyring"}).to_string()).unwrap();
+
+    assert_eq!(crate::storage::load_api_key_with_result(&config_path, "provider-b", Err("missing".into()), Ok("legacy-a".into()), false), "");
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn load_config_migrates_and_removes_legacy_json_key_immediately() {
+    let temp_root = std::env::temp_dir().join(format!("chat-to-image-load-config-migration-{}", std::process::id()));
+    let config_path = temp_root.join("config.json");
+    std::fs::create_dir_all(&temp_root).unwrap();
+    std::fs::write(&config_path, serde_json::json!({
+        "activeProviderProfileId": "provider-default",
+        "providerProfiles": [{"id": "provider-default", "name": "Default", "baseUrl": "https://one", "textModel": "text", "imageModel": "image", "imageResponseMode": "official", "rememberApiKey": false}],
+        "apiKey": "legacy-key",
+        "__apiKeyStorage": "json-fallback"
+    }).to_string()).unwrap();
+
+    let config = crate::storage::load_config_at(&config_path).unwrap();
+    assert_eq!(config.api_key, "legacy-key");
+    let stored: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert!(stored.get("apiKey").is_none());
+    assert_eq!(stored["__apiKeys"]["provider-default"], "legacy-key");
 
     let _ = std::fs::remove_dir_all(&temp_root);
 }

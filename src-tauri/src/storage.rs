@@ -263,7 +263,6 @@ fn read_api_key_fallback_value(value: &serde_json::Value, profile_id: &str) -> S
         .and_then(|key| key.as_str())
         .filter(|key| !key.trim().is_empty())
         .map(ToOwned::to_owned)
-        .or_else(|| get_string_field(value, "apiKey").filter(|key| !key.trim().is_empty()))
         .unwrap_or_default()
 }
 
@@ -281,6 +280,13 @@ fn has_profile_api_key_fallback(path: &Path, profile_id: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn read_legacy_api_key_fallback(path: &Path) -> String {
+    read_json_value(path)
+        .and_then(|value| get_string_field(&value, "apiKey"))
+        .filter(|key| !key.trim().is_empty())
+        .unwrap_or_default()
+}
+
 fn read_api_key_storage_mode(path: &Path) -> String {
     read_json_value(path)
         .and_then(|value| get_string_field(&value, API_KEY_STORAGE_FIELD))
@@ -292,16 +298,16 @@ pub fn load_api_key_with_result(
     profile_id: &str,
     keyring_result: Result<String, String>,
     legacy_keyring_result: Result<String, String>,
+    allow_legacy_migration: bool,
 ) -> String {
     let fallback_value = read_api_key_fallback(path, profile_id);
+    let legacy_fallback = read_legacy_api_key_fallback(path);
 
     if read_api_key_storage_mode(path) == JSON_FALLBACK_STORAGE_MODE {
-        if !has_profile_api_key_fallback(path, profile_id) {
-            if let Some(legacy_key) = read_json_value(path).and_then(|value| get_string_field(&value, "apiKey")) {
-                if !legacy_key.trim().is_empty() {
-                    let _ = persist_api_key_json_fallback(path, profile_id, &legacy_key);
-                    return legacy_key;
-                }
+        if allow_legacy_migration && !has_profile_api_key_fallback(path, profile_id) {
+            if !legacy_fallback.is_empty() {
+                let _ = persist_api_key_json_fallback(path, profile_id, &legacy_fallback);
+                return legacy_fallback;
             }
             if let Ok(legacy_key) = legacy_keyring_result {
                 if !legacy_key.trim().is_empty() {
@@ -315,10 +321,12 @@ pub fn load_api_key_with_result(
 
     match keyring_result {
         Ok(value) if !value.trim().is_empty() => value,
-        _ => match legacy_keyring_result {
+        _ if allow_legacy_migration => match legacy_keyring_result {
             Ok(value) if !value.trim().is_empty() => value,
+            _ if !legacy_fallback.is_empty() => legacy_fallback,
             _ => fallback_value,
         },
+        _ => fallback_value,
     }
 }
 
@@ -326,7 +334,7 @@ fn profile_keyring_account(profile_id: &str) -> String {
     format!("profile:{profile_id}")
 }
 
-fn load_api_key(path: &Path, profile_id: &str) -> String {
+fn load_api_key(path: &Path, profile_id: &str, allow_legacy_migration: bool) -> String {
     let profile_account = profile_keyring_account(profile_id);
     let keyring_result = Entry::new(KEYRING_SERVICE, &profile_keyring_account(profile_id))
         .map_err(|error| error.to_string())
@@ -335,12 +343,18 @@ fn load_api_key(path: &Path, profile_id: &str) -> String {
         .map_err(|error| error.to_string())
         .and_then(|entry| entry.get_password().map_err(|error| error.to_string()));
 
-    let should_migrate_legacy = keyring_result.is_err()
+    let legacy_key = legacy_keyring_result.clone().ok().filter(|key| !key.trim().is_empty());
+    let should_migrate_legacy = allow_legacy_migration
+        && keyring_result.is_err()
+        && legacy_key.is_some()
         && read_api_key_storage_mode(path) != JSON_FALLBACK_STORAGE_MODE;
-    let loaded = load_api_key_with_result(path, profile_id, keyring_result, legacy_keyring_result.clone());
-    if should_migrate_legacy && !loaded.is_empty() {
+    let loaded = load_api_key_with_result(path, profile_id, keyring_result, legacy_keyring_result, allow_legacy_migration);
+    if should_migrate_legacy {
         if let Ok(entry) = Entry::new(KEYRING_SERVICE, &profile_account) {
-            let _ = entry.set_password(&loaded);
+            let _ = entry.set_password(legacy_key.as_deref().unwrap_or_default());
+        }
+        if let Ok(entry) = Entry::new(KEYRING_SERVICE, LEGACY_KEYRING_ACCOUNT) {
+            let _ = entry.delete_credential();
         }
     }
     loaded
@@ -825,12 +839,29 @@ pub fn load_history_for_save(path: &Path) -> Result<Vec<ImageRecord>, String> {
     }
 }
 
+pub(crate) fn load_config_at(path: &Path) -> Result<AppConfig, String> {
+    let raw = read_json_value(path);
+    let has_legacy_api_key = raw.as_ref().and_then(|value| get_string_field(value, "apiKey"))
+        .map(|key| !key.trim().is_empty()).unwrap_or(false);
+    let allow_legacy_migration = raw.as_ref().map(|value| {
+        let profiles = value.get("providerProfiles").and_then(|profiles| profiles.as_array());
+        profiles.map(|profiles| profiles.is_empty()).unwrap_or(true)
+            || (has_legacy_api_key && profiles.map(|profiles| profiles.iter().any(|profile| {
+                profile.get("id").and_then(|id| id.as_str()) == value.get("activeProviderProfileId").and_then(|id| id.as_str())
+            })).unwrap_or(false))
+    }).unwrap_or(true);
+    let mut config = load_config_from_path(path)?;
+    config.api_key = load_api_key(path, &config.active_provider_profile_id, allow_legacy_migration);
+    if has_legacy_api_key {
+        let mode = save_api_key(path, &config.active_provider_profile_id, &config.api_key)?;
+        write_config_file(path, &config, &mode)?;
+    }
+    Ok(config)
+}
+
 #[tauri::command]
 pub fn load_config() -> Result<AppConfig, String> {
-    let path = config_path()?;
-    let mut config = load_config_from_path(&path)?;
-    config.api_key = load_api_key(&path, &config.active_provider_profile_id);
-    Ok(config)
+    load_config_at(&config_path()?)
 }
 
 #[tauri::command]
