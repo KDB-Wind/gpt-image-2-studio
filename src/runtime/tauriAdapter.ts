@@ -94,6 +94,7 @@ async function createBatchImagePayload(input: BatchImageSaveInput) {
     batchId: input.batchId,
     batchTitle: input.batchTitle,
     batchCreatedAt: input.batchCreatedAt,
+    totalTasks: input.totalTasks,
     task: {
       id: input.task.id,
       index: input.task.index,

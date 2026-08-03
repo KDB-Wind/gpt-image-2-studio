@@ -165,4 +165,30 @@ describe("groupHistoryRecordsForDisplay", () => {
       },
     ]);
   });
+
+  it("keeps the declared batch total when only successful records are present", () => {
+    const successfulRecord = createRecord({
+      id: "batch-success-only",
+      batch: {
+        id: "batch-partial",
+        title: "Partial batch",
+        createdAt: "2026-05-02T07:59:00.000Z",
+        taskId: "task-1",
+        taskIndex: 0,
+        taskTitle: "First task",
+        totalTasks: 3,
+      },
+    });
+
+    expect(groupHistoryRecordsForDisplay([successfulRecord])).toEqual([
+      {
+        type: "batch",
+        id: "batch-partial",
+        title: "Partial batch",
+        createdAt: "2026-05-02T07:59:00.000Z",
+        records: [successfulRecord],
+        totalTasks: 3,
+      },
+    ]);
+  });
 });

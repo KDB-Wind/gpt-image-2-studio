@@ -1064,6 +1064,7 @@ export function BatchPanel({
         batchId,
         batchTitle: batchDisplayTitle,
         batchCreatedAt,
+        batchTotalTasks: targetTasks.length,
         config: requestConfig,
         tasks: targetTasks,
         executionConfig,
@@ -1170,26 +1171,62 @@ export function BatchPanel({
 
     try {
       const requestConfig = getRequestConfig?.() ?? config;
-      const retried = await retrySingleBatchTask({
-        batchId,
-        batchTitle: batchDisplayTitle,
-        batchCreatedAt,
-        config: requestConfig,
-        task: latestTask,
-        referenceImages: getReferenceImagesForTask(latestTask),
-        saveBatchImage: runtime.saveBatchImage.bind(runtime),
-      });
+      let retried: BatchTask;
+
+      try {
+        retried = await retrySingleBatchTask({
+          batchId,
+          batchTitle: batchDisplayTitle,
+          batchCreatedAt,
+          batchTotalTasks: latestTasksRef.current.length,
+          config: requestConfig,
+          task: latestTask,
+          referenceImages: getReferenceImagesForTask(latestTask),
+          saveBatchImage: runtime.saveBatchImage.bind(runtime),
+        });
+      } catch (error) {
+        if (isMountedRef.current) {
+          const message = safeErrorMessage(error);
+          commitTasks((current) =>
+            current.map((item) =>
+              item.id === task.id
+                ? {
+                    ...item,
+                    status: "failed",
+                    errorMessage: message,
+                    failureCategory: "unknown",
+                    suggestedAction: undefined,
+                    completedAt: new Date().toISOString(),
+                  }
+                : item,
+            ),
+          );
+          setStatus("paused");
+          setPauseMessage(message);
+        }
+        return;
+      }
+
       if (!isMountedRef.current) {
         revokeTaskPreviewUrlsOnce([retried.previewUrl]);
         return;
       }
+
       const finalTasks = mergeRetriedBatchTask(latestTasksRef.current, retried);
       commitTasks(finalTasks);
-      await persistManifest("completed", finalTasks, nextStartedAt, requestConfig);
-      if (!isMountedRef.current) {
-        return;
+
+      try {
+        await persistManifest("completed", finalTasks, nextStartedAt, requestConfig);
+        if (!isMountedRef.current) {
+          return;
+        }
+        await onHistoryChanged();
+      } catch (error) {
+        if (isMountedRef.current) {
+          setStatus("paused");
+          setPauseMessage(safeErrorMessage(error));
+        }
       }
-      await onHistoryChanged();
     } finally {
       releaseTaskRetry(task.id);
     }

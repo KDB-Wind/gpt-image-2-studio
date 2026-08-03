@@ -263,6 +263,43 @@ describe("App batch workspace", () => {
     expect(revokeObjectUrl).toHaveBeenCalledWith("blob:history-late-preview");
   });
 
+  it("keeps the latest selected history preview when an older request resolves later", async () => {
+    const copy = getTranslations("en-US");
+    const firstRecord = createHistoryRecord({
+      id: "history-first-request",
+      createdAt: "2026-05-24T00:01:00.000Z",
+    });
+    const secondRecord = createHistoryRecord({
+      id: "history-second-request",
+      createdAt: "2026-05-24T00:02:00.000Z",
+    });
+    const firstPreview = createDeferred<string | null>();
+    const secondPreview = createDeferred<string | null>();
+    const runtime = createPreviewRuntime([], [firstRecord, secondRecord]);
+    runtime.prepareHistoryPreview = vi.fn().mockImplementation((record: ImageRecord) =>
+      record.id === firstRecord.id ? firstPreview.promise : secondPreview.promise,
+    );
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+    clickButton(copy.tabs.history);
+    const inspectButtons = Array.from(container.querySelectorAll<HTMLButtonElement>(".history-item .history-actions button"))
+      .filter((button) => button.textContent?.trim() === copy.actions.inspect);
+    expect(inspectButtons).toHaveLength(2);
+
+    act(() => {
+      inspectButtons[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      inspectButtons[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    firstPreview.resolve("blob:first-history-preview");
+    await flushPromises();
+    secondPreview.resolve("blob:second-history-preview");
+    await flushPromises();
+
+    expect(container.querySelector('.preview-success img[src="blob:first-history-preview"]')).not.toBeNull();
+    expect(container.querySelector('.preview-success img[src="blob:second-history-preview"]')).toBeNull();
+  });
+
   it("releases a history batch preview when preparation resolves after unmount", async () => {
     const copy = getTranslations("en-US");
     const preparedPreview = createDeferred<string | null>();

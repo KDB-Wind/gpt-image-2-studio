@@ -18,7 +18,7 @@ use serde::Serialize;
 use tempfile::NamedTempFile;
 
 use crate::models::{
-    AppConfig, ImageRecord, OutputDirectoryStateResult, OutputDirectoryTestResult,
+    AppConfig, BatchImageRecordMetadata, ImageRecord, OutputDirectoryStateResult, OutputDirectoryTestResult,
     SaveBatchImageInput, SaveConfigInput, SaveGeneratedImageInput, SaveImageResult,
 };
 
@@ -949,6 +949,7 @@ fn create_record(input: SaveGeneratedImageInput, output_path: &Path) -> ImageRec
         duration_ms: input.duration_ms,
         provider_profile_snapshot: input.provider_profile_snapshot,
         error_message: None,
+        batch: None,
     }
 }
 
@@ -1179,6 +1180,15 @@ pub fn save_batch_image_at(
         duration_ms: input.duration_ms,
         provider_profile_snapshot: input.provider_profile_snapshot,
         error_message: None,
+        batch: Some(BatchImageRecordMetadata {
+            id: input.batch_id,
+            title: input.batch_title,
+            created_at: input.batch_created_at,
+            task_id: input.task.id,
+            task_index: input.task.index,
+            task_title: input.task.title,
+            total_tasks: input.total_tasks,
+        }),
     };
     commit_history_record(history_file, record.clone(), &output_path)?;
 

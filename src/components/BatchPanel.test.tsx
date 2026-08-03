@@ -1431,6 +1431,36 @@ describe("BatchPanel", () => {
     });
   });
 
+  it("does not leave a task running when a single-task retry rejects", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createRuntime();
+    runBatchTasksMock.mockResolvedValue({ status: "completed", tasks: createFailedTasks(), pauseReason: null });
+    retrySingleBatchTaskMock.mockRejectedValue(new Error("Retry failed."));
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 2 }}
+          runtime={runtime}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+
+    await createAndRunTwoTaskBatch(copy);
+    clickButton(copy.batch.actions.retryTask);
+    await flushPromises();
+
+    expect(container.querySelectorAll(".batch-task-card .status-pill.running")).toHaveLength(0);
+    expect(container.querySelectorAll(".batch-task-card .status-pill.failed")).toHaveLength(2);
+    expect(container.textContent).toContain("Retry failed.");
+  });
+
   it("shows the active provider mode and locks quick switching while a batch is running", async () => {
     const copy = getTranslations("en-US");
     const runtime = createRuntime();

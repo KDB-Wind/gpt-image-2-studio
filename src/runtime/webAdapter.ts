@@ -1175,7 +1175,7 @@ export const webAdapter: RuntimeAdapter = {
           taskId: input.task.id,
           taskIndex: input.task.index,
           taskTitle: input.task.title,
-          totalTasks: undefined,
+          totalTasks: input.totalTasks,
         },
       };
 

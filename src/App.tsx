@@ -427,6 +427,7 @@ export default function App() {
   const isMountedRef = useRef(true);
   const outputDirectoryStateRequestRef = useRef(0);
   const providerSwitchRequestRef = useRef(0);
+  const historyPreviewRequestRef = useRef(0);
   const configRef = useRef<AppConfig>(DEFAULT_CONFIG);
   const setBatchPreviewStateWithCleanup = useCallback((nextPreview: BatchPreviewState | null) => {
     batchPreviewStateRef.current = nextPreview;
@@ -1694,6 +1695,7 @@ export default function App() {
   }
 
   async function handleInspectHistory(record: ImageRecord) {
+    const requestId = ++historyPreviewRequestRef.current;
     setSelectedHistoryId(record.id);
     setHistoryBatchPreviewWithCleanup(null);
     setActiveTab("history");
@@ -1705,7 +1707,7 @@ export default function App() {
     try {
       const imageUrl = await runtime.prepareHistoryPreview(record);
 
-      if (!isMountedRef.current) {
+      if (!isMountedRef.current || requestId !== historyPreviewRequestRef.current) {
         revokePreviewUrl(imageUrl ?? undefined);
         return;
       }
@@ -1781,6 +1783,7 @@ export default function App() {
   }
 
   async function handleInspectHistoryBatch(item: Extract<HistoryDisplayItem, { type: "batch" }>) {
+    const requestId = ++historyPreviewRequestRef.current;
     setSelectedHistoryId(item.records[0]?.id ?? null);
     setActiveTab("history");
 
@@ -1794,7 +1797,7 @@ export default function App() {
       for (const [index, record] of item.records.entries()) {
         const previewUrl = await runtime.prepareHistoryPreview(record);
 
-        if (!isMountedRef.current) {
+        if (!isMountedRef.current || requestId !== historyPreviewRequestRef.current) {
           revokeBatchPreviewUrls([...restoredImages, ...(previewUrl ? [{ previewUrl }] : [])]);
           return;
         }
@@ -1817,9 +1820,14 @@ export default function App() {
       }
     } catch {
       releaseBatchPreviewUrls(restoredImages);
-      if (isMountedRef.current) {
+      if (isMountedRef.current && requestId === historyPreviewRequestRef.current) {
         setHistoryBatchPreviewWithCleanup(null);
       }
+      return;
+    }
+
+    if (!isMountedRef.current || requestId !== historyPreviewRequestRef.current) {
+      releaseBatchPreviewUrls(restoredImages);
       return;
     }
 

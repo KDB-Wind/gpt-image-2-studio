@@ -111,6 +111,73 @@ describe("tauriAdapter output directory state", () => {
     });
   });
 
+  it("passes the batch total to the native image save command", async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "save_batch_image") {
+        return {
+          record: {
+            id: "record-1",
+            status: "success",
+            createdAt: "2026-07-12T10:31:00.000Z",
+            prompt: "Create a poster",
+            optimizedPrompt: "",
+            model: "image-model",
+            size: "1024x1024",
+            outputPath: "outputs/batch/001-poster.png",
+            durationMs: 100,
+            providerProfileSnapshot: undefined,
+            errorMessage: undefined,
+            batch: {
+              id: "batch-1",
+              title: "Posters",
+              createdAt: "2026-07-12T10:30:00.000Z",
+              taskId: "task-1",
+              taskIndex: 0,
+              taskTitle: "Poster",
+              totalTasks: 3,
+            },
+          },
+          previewUrl: "outputs/batch/001-poster.png",
+          saveMode: "authorized-directory",
+          historyDurability: "persistent",
+          historyWarning: null,
+        };
+      }
+
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    await tauriAdapter.saveBatchImage({
+      batchId: "batch-1",
+      batchTitle: "Posters",
+      batchCreatedAt: "2026-07-12T10:30:00.000Z",
+      totalTasks: 3,
+      task: {
+        id: "task-1",
+        index: 0,
+        title: "Poster",
+        prompt: "Create a poster",
+        status: "pending",
+        attemptCount: 0,
+        errorMessage: "",
+        failureCategory: null,
+        outputPath: "",
+        previewUrl: "",
+        durationMs: 0,
+        startedAt: "",
+        completedAt: "",
+      },
+      image: { base64: "aGVsbG8=" },
+      config,
+      generatedAt: new Date("2026-07-12T10:31:00.000Z"),
+      durationMs: 100,
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("save_batch_image", {
+      input: expect.objectContaining({ totalTasks: 3 }),
+    });
+  });
+
   it("sanitizes batch manifest errors before crossing the native persistence boundary", async () => {
     const secret = ["sk", "abcdefghijklmnopqrstuvwx"].join("-");
     const manifest: BatchManifest = {

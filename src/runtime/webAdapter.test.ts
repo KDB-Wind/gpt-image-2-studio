@@ -1763,6 +1763,7 @@ describe("webAdapter history deletion", () => {
       batchId: "batch-20260524",
       batchTitle: "World Cup posters",
       batchCreatedAt: "2026-05-24T00:00:00.000Z",
+      totalTasks: 3,
       task,
       image: { base64: ONE_PIXEL_PNG },
       config: { ...DEFAULT_CONFIG, defaultFormat: "png" },
@@ -1777,7 +1778,7 @@ describe("webAdapter history deletion", () => {
       taskId: "task-2",
       taskIndex: 1,
       taskTitle: "Japan poster",
-      totalTasks: undefined,
+      totalTasks: 3,
     });
     await expect(webAdapter.loadHistory()).resolves.toEqual([expect.objectContaining({ batch: result.record.batch })]);
   });

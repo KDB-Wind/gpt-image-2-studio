@@ -21,6 +21,7 @@ export type RunBatchTasksInput = {
   batchId: string;
   batchTitle: string;
   batchCreatedAt: string;
+  batchTotalTasks?: number;
   config: AppConfig;
   tasks: BatchTask[];
   executionConfig: BatchExecutionConfig;
@@ -163,6 +164,7 @@ async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<B
         batchId: input.batchId,
         batchTitle: input.batchTitle,
         batchCreatedAt: input.batchCreatedAt,
+        totalTasks: input.batchTotalTasks ?? input.tasks.length,
         task: runningTask,
         image,
         config: singleImageConfig,

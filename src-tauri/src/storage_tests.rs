@@ -656,6 +656,48 @@ fn save_rolls_back_new_image_when_history_is_malformed() {
 }
 
 #[test]
+fn saves_batch_history_metadata_with_total_task_count() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-batch-history-test-{}",
+        std::process::id()
+    ));
+    let history_path = temp_root.join("history.json");
+    std::fs::create_dir_all(&temp_root).unwrap();
+    let mut config = crate::storage::default_config();
+    config.output_directory = "outputs".to_string();
+    let input = crate::models::SaveBatchImageInput {
+        batch_id: "batch-1".to_string(),
+        batch_title: "World Cup posters".to_string(),
+        batch_created_at: "2026-07-12T10:30:00+00:00".to_string(),
+        total_tasks: Some(3),
+        task: crate::models::SaveBatchImageTaskInput {
+            id: "task-2".to_string(),
+            index: 1,
+            title: "Japan poster".to_string(),
+            prompt: "Create a Japan poster".to_string(),
+        },
+        image_base64: "aGVsbG8=".to_string(),
+        config,
+        generated_at: "2026-07-12T10:31:00+00:00".to_string(),
+        duration_ms: 100,
+        provider_profile_snapshot: None,
+    };
+
+    let result = crate::storage::save_batch_image_at(input, &temp_root, &history_path).unwrap();
+
+    let batch = result.record.batch.expect("batch metadata");
+    assert_eq!(batch.id, "batch-1");
+    assert_eq!(batch.task_id, "task-2");
+    assert_eq!(batch.task_index, 1);
+    assert_eq!(batch.total_tasks, Some(3));
+    let history: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&history_path).unwrap()).unwrap();
+    assert_eq!(history[0]["batch"]["totalTasks"], 3);
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
 fn rollback_failure_is_reported_explicitly() {
     let error = crate::storage::format_history_commit_failure(
         "history write denied".to_string(),
