@@ -1,12 +1,14 @@
 {
-  "latestStable": "0.1.7",
+  "latestStable": "0.1.8",
   "versions": [
+    "0.1.8",
     "0.1.7",
     "0.1.6",
     "0.1.5",
     "0.1.4"
   ],
   "sha256": {
+    "0.1.8": "8049a61181363fcb94f44c2e3ae54a0d664ec69046318f26f256d8a25d8c153a",
     "0.1.7": "ebdbe76f4e9f731fca70bdecdc303da635258f3b8cec2b96aaef6c53eb11a9c4",
     "0.1.6": "0e67c34baf4c4289d4864f6cc8e842df84c23b14ce94e34c8c2354eca059aeb3",
     "0.1.5": "50d653fecf24afd86f7fb7c9f082555a987bb1610acabc5aab93e48f74326056",

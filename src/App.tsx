@@ -402,6 +402,7 @@ export default function App() {
   const [isTestingImage, setIsTestingImage] = useState(false);
   const [isTestingImageEdit, setIsTestingImageEdit] = useState(false);
   const [isTestingOutputDirectory, setIsTestingOutputDirectory] = useState(false);
+  const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
   const [isUpdateOpen, setIsUpdateOpen] = useState(false);
   const [editFromImageDraft, setEditFromImageDraft] = useState<EditFromImageDraft | null>(null);
   const [editInstructions, setEditInstructions] = useState("");
@@ -415,6 +416,7 @@ export default function App() {
   const promptRef = useRef(prompt);
   const optimizeRequestIdRef = useRef(0);
   const referenceInputRef = useRef<HTMLInputElement | null>(null);
+  const apiKeyInputRef = useRef<HTMLInputElement | null>(null);
   const dragDepthRef = useRef(0);
   const referenceImagesRef = useRef<ReferenceImageItem[]>([]);
   const previewStateRef = useRef<PreviewState>({ status: "idle" });
@@ -454,6 +456,12 @@ export default function App() {
   useEffect(() => {
     configRef.current = config;
   }, [config]);
+  useEffect(() => {
+    const input = apiKeyInputRef.current;
+    if (input) {
+      input.scrollLeft = input.scrollWidth;
+    }
+  }, [activeProviderProfile.id, activeProviderProfile.apiKey, isApiKeyVisible]);
   const validation = useMemo(() => validateConfig(config), [config]);
   const sizeValidation = useMemo(() => validateImageSize(config.defaultSize), [config.defaultSize]);
   const translatedValidationErrors = useMemo(
@@ -826,6 +834,8 @@ export default function App() {
     if (!targetProfile) {
       return;
     }
+
+    setIsApiKeyVisible(false);
 
     let hydratedApiKey = targetProfile.apiKey;
     if (runtime?.loadProviderApiKey && !hydratedApiKey) {
@@ -2478,16 +2488,44 @@ export default function App() {
                       />
                     </label>
 
-                    <label className="field">
+                    <label className="field api-key-field">
                       <span>{copy.fields.apiKey}</span>
-                      <input
-                        data-testid="settings-api-key"
-                        value={activeProviderProfile.apiKey}
-                        onChange={(event) => updateProviderProfile("apiKey", event.target.value)}
-                        placeholder="sk-..."
-                        type="password"
-                        autoComplete="off"
-                      />
+                      <div className="api-key-input-wrap">
+                        <input
+                          data-testid="settings-api-key"
+                          ref={apiKeyInputRef}
+                          value={activeProviderProfile.apiKey}
+                          onChange={(event) => updateProviderProfile("apiKey", event.target.value)}
+                          placeholder="sk-..."
+                          type={isApiKeyVisible ? "text" : "password"}
+                          dir="ltr"
+                          autoComplete="off"
+                        />
+                        <button
+                          type="button"
+                          className="api-key-visibility-button"
+                          data-testid="settings-toggle-api-key-visibility"
+                          aria-label={isApiKeyVisible ? copy.actions.hideApiKey : copy.actions.showApiKey}
+                          aria-pressed={isApiKeyVisible}
+                          title={isApiKeyVisible ? copy.actions.hideApiKey : copy.actions.showApiKey}
+                          onClick={() => setIsApiKeyVisible((visible) => !visible)}
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                            {isApiKeyVisible ? (
+                              <>
+                                <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
+                                <circle cx="12" cy="12" r="2.5" />
+                              </>
+                            ) : (
+                              <>
+                                <path d="m3 3 18 18" />
+                                <path d="M10.6 6.2A10.7 10.7 0 0 1 12 6c6.5 0 10 6 10 6a18.5 18.5 0 0 1-3.2 3.7M6.2 6.7C3.5 8.3 2 12 2 12s3.5 6 10 6a10.7 10.7 0 0 0 3.4-.5" />
+                                <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+                              </>
+                            )}
+                          </svg>
+                        </button>
+                      </div>
                     </label>
                   </div>
                   {runtime?.mode === "web" ? (

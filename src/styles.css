@@ -595,6 +595,56 @@ img {
   gap: 8px;
 }
 
+.api-key-field {
+  grid-column: 1 / -1;
+}
+
+.api-key-input-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.api-key-input-wrap input {
+  width: 100%;
+  padding-right: 3.5rem;
+  overflow-x: auto;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+.api-key-visibility-button {
+  position: absolute;
+  top: 50%;
+  right: 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--bg-strong);
+  color: var(--text-muted);
+  transform: translateY(-50%);
+  z-index: 1;
+}
+
+.api-key-visibility-button:hover {
+  background: rgba(216, 117, 67, 0.1);
+  color: var(--accent-strong);
+}
+
+.api-key-visibility-button:focus-visible {
+  outline: 2px solid rgba(216, 117, 67, 0.42);
+  outline-offset: 2px;
+}
+
+.api-key-visibility-button svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
 .field span,
 .section-heading p,
 .inline-note {

@@ -179,8 +179,10 @@ type TranslationBundle = {
     goToSettings: string;
     startUsing: string;
     setUpLater: string;
-    close: string;
-    enlarge: string;
+      close: string;
+      showApiKey: string;
+      hideApiKey: string;
+      enlarge: string;
     openRecommended: string;
     openGithubProject: string;
     inspect: string;
@@ -654,6 +656,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       startUsing: "开始使用",
       setUpLater: "稍后设置",
       close: "关闭",
+      showApiKey: "显示 API key",
+      hideApiKey: "隐藏 API key",
       enlarge: "点击放大",
       openRecommended: "前往推荐中转站",
       openGithubProject: "在 GitHub 查看",
@@ -1173,6 +1177,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       startUsing: "Start using",
       setUpLater: "Set up later",
       close: "Close",
+      showApiKey: "Show API key",
+      hideApiKey: "Hide API key",
       enlarge: "Click to enlarge",
       openRecommended: "Open recommended relay",
       openGithubProject: "View on GitHub",

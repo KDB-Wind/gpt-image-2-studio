@@ -1436,6 +1436,40 @@ describe("App batch workspace", () => {
       .toEqual({ "provider-default": REMEMBERED_UI_API_KEY });
   });
 
+  it("toggles API key visibility without changing the entered value", async () => {
+    const copy = getTranslations("en-US");
+
+    await renderApp();
+    clickButton(copy.tabs.settings);
+
+    const apiKeyInput = getField<HTMLInputElement>(copy.fields.apiKey, '[data-testid="settings-api-key"]');
+    const visibilityButton = container.querySelector<HTMLButtonElement>(
+      '[data-testid="settings-toggle-api-key-visibility"]',
+    );
+    if (!visibilityButton) {
+      throw new Error("API key visibility button not found");
+    }
+
+    Object.defineProperty(apiKeyInput, "scrollWidth", { configurable: true, value: 480 });
+    setFieldValue(apiKeyInput, "local-test-provider-key");
+    expect(apiKeyInput.type).toBe("password");
+    expect(apiKeyInput.scrollLeft).toBe(480);
+    expect(visibilityButton.getAttribute("aria-label")).toBe(copy.actions.showApiKey);
+
+    act(() => {
+      visibilityButton.click();
+    });
+    expect(apiKeyInput.type).toBe("text");
+    expect(apiKeyInput.value).toBe("local-test-provider-key");
+    expect(visibilityButton.getAttribute("aria-label")).toBe(copy.actions.hideApiKey);
+
+    act(() => {
+      visibilityButton.click();
+    });
+    expect(apiKeyInput.type).toBe("password");
+    expect(apiKeyInput.value).toBe("local-test-provider-key");
+  });
+
   it("shows memory-only storage truthfully and disables long-term API key storage", async () => {
     const copy = getTranslations("en-US");
     const runtime = createPreviewRuntime([]) as RuntimeAdapter & {
