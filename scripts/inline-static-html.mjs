@@ -85,6 +85,8 @@ export function inlineStaticHtml({ rootDir = defaultRootDir, distDir = join(root
   );
 
   html = html.replace(/\r\n?/g, "\n");
+  // Keep the generated release bytes stable when source HTML line endings differ.
+  html = html.replace(/\n+  <\/body>/, "\n\n  </body>");
 
   writeFileSync(htmlPath, html, "utf8");
   writeFileSync(releaseHtmlPath, html, "utf8");

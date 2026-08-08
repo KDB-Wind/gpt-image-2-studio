@@ -108,16 +108,6 @@ jobs:
       - name: Run release HTML file-mode E2E
         run: npm run e2e:static:file:run
 
-      - name: Upload temporary Pages build diagnostic
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pages-build-diagnostic-${{ github.run_id }}
-          path: |
-            dist-static/index.html
-            dist-static/gpt-image-2-studio-lite.html
-          if-no-files-found: error
-
       - name: Check static site output
         run: npm run site:check
 

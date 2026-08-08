@@ -268,6 +268,7 @@ describe("static version archives", () => {
     const attributes = readFileSync(".gitattributes", "utf8");
 
     expect(attributes).toMatch(/^\/static-versions\/versions\/\*\*\/index\.html binary$/m);
+    expect(attributes).toMatch(/^\/dist-static\/versions\/\*\*\/index\.html binary$/m);
     expect(attributes).toMatch(/^\/dist-static\/index\.html -text$/m);
     expect(attributes).toMatch(/^\/dist-static\/gpt-image-2-studio-lite\.html -text$/m);
     expect(attributes).toMatch(/^\/src\/assets\/app-logo\.svg text eol=lf$/m);
@@ -315,6 +316,28 @@ describe("static version archives", () => {
     const html = readFileSync(join(distDir, "index.html"), "utf8");
     expect(html).toBe("<div>root</div>\n\n<span>next</span>\n");
     expect(html).not.toMatch(/[ \t\r]+$/m);
+  });
+
+  it("keeps the body closing spacing stable across source line endings", () => {
+    const rootDir = createTempRoot();
+    const distDir = join(rootDir, "dist-static");
+    writeJson(join(rootDir, "static-versions", "manifest.json"), {
+      latestStable: "1.0.0",
+      versions: ["1.0.0"],
+    });
+    writeSourceArchive(rootDir, "1.0.0", "<html>archive</html>\n");
+    mkdirSync(distDir, { recursive: true });
+    writeFileSync(
+      join(distDir, "index.static.html"),
+      "<body>\r\n  <div id=\"root\"></div>\r\n  </body>\r\n",
+      "utf8",
+    );
+
+    inlineStaticHtml({ rootDir, distDir });
+
+    expect(readFileSync(join(distDir, "index.html"), "utf8")).toBe(
+      "<body>\n  <div id=\"root\"></div>\n\n  </body>\n",
+    );
   });
 
   it("runs the static build through the current Node and npm CLI paths", () => {
