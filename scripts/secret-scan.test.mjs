@@ -285,6 +285,32 @@ describe("secret scan", () => {
     ]);
   });
 
+  it("accepts a Git worktree root when Windows reports an equivalent short path", () => {
+    if (process.platform !== "win32") {
+      return;
+    }
+
+    const root = mkdtempSync(join(tmpdir(), "canonical-root-secret-scan-"));
+    temporaryDirectories.push(root);
+    execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+    const secret = ["sk", "live", "K".repeat(32)].join("-");
+    writeFileSync(join(root, "provider.credentials"), secret, "utf8");
+
+    const shortRoot = execFileSync(
+      "cmd.exe",
+      ["/d", "/c", `for %A in (${root}) do @echo %~sA`],
+      { encoding: "utf8", windowsHide: true },
+    ).trim();
+    if (!shortRoot || shortRoot.toLowerCase() === root.toLowerCase()) {
+      return;
+    }
+
+    expect(scanRepositorySecrets(shortRoot)).toContainEqual({
+      path: "provider.credentials",
+      rule: "openai-like-key",
+    });
+  });
+
   it("fails closed when normally ignored sensitive test paths are force-added to git", () => {
     const root = mkdtempSync(join(tmpdir(), "tracked-sensitive-path-scan-"));
     temporaryDirectories.push(root);

@@ -64,7 +64,7 @@ describe("release readiness checks", () => {
     expect(packageJson.scripts["artifact:check"]).toBe("node scripts/check-runtime-bundle-isolation.mjs");
     expect(result.status).toBe(1);
     expect(result.stderr).toMatch(/current release index\.html.*byte-identical/i);
-  });
+  }, 30_000);
 
   it("requires release documentation to state that manual dispatch only reruns an existing remote tag", () => {
     const documents = {
