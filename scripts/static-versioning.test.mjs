@@ -267,7 +267,9 @@ describe("static version archives", () => {
     expect(existsSync(".gitattributes")).toBe(true);
     const attributes = readFileSync(".gitattributes", "utf8");
 
+    expect(attributes).toMatch(/^\/static-versions\/manifest\.json -text$/m);
     expect(attributes).toMatch(/^\/static-versions\/versions\/\*\*\/index\.html binary$/m);
+    expect(attributes).toMatch(/^\/dist-static\/versions\/manifest\.json -text$/m);
     expect(attributes).toMatch(/^\/dist-static\/versions\/\*\*\/index\.html binary$/m);
     expect(attributes).toMatch(/^\/dist-static\/index\.html -text$/m);
     expect(attributes).toMatch(/^\/dist-static\/gpt-image-2-studio-lite\.html -text$/m);

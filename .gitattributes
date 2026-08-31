@@ -1,5 +1,7 @@
 *.html text eol=lf
+/static-versions/manifest.json -text
 /static-versions/versions/**/index.html binary
+/dist-static/versions/manifest.json -text
 /dist-static/versions/**/index.html binary
 /dist-static/index.html -text
 /dist-static/gpt-image-2-studio-lite.html -text
