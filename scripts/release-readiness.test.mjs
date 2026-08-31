@@ -268,7 +268,7 @@ jobs:
   });
 
   it("requires a final strict parity gate after desktop packaging and immediately before checksums", () => {
-    const workflow = readFileSync(".github/workflows/release.yml", "utf8");
+    const workflow = readFileSync(".github/workflows/release.yml", "utf8").replace(/\r\n?/g, "\n");
     const finalStrictStep = `      - name: Final strict release parity\n        env:\n          RELEASE_VERSION: \${{ steps.release_metadata.outputs.version }}\n        run: node scripts/release-archive-parity.mjs --strict\n\n`;
     const validWorkflow = workflow;
 
