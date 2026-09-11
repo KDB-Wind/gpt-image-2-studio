@@ -55,7 +55,7 @@
     "semver": "^7.8.5",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
-    "vite": "^8.0.10",
+    "vite": "^8.3.0",
     "vitest": "^4.1.11"
   },
   "description": "一个轻量的 `gpt-image-2` 生图工具台。打开网页，填入自己的 `API key` 和 `Base URL`，就可以做单图、图生图和批量生图。",
