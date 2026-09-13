@@ -417,6 +417,95 @@ test("static batch records authorized-directory saves in its summary and manifes
   expect(manifest.tasks[1].saveFallbackReason).toBeUndefined();
 });
 
+test("static single image-to-image sends one multipart edit request and previews the result", async ({ page }) => {
+  const requests: CapturedMultipartRequest[] = [];
+  await page.route("**/images/edits", async (route) => {
+    requests.push(await readMultipartRequest(route.request()));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: [{ b64_json: ONE_PIXEL_PNG_BASE64 }] }),
+    });
+  });
+  await openCleanStaticPage(page);
+
+  await page.getByRole("tab", { name: "单图" }).click();
+  await page.getByRole("tab", { name: "图生图" }).click();
+  await page.getByTestId("single-reference-input").setInputFiles({
+    name: "single-reference.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(ONE_PIXEL_PNG_BASE64, "base64"),
+  });
+  await page.getByTestId("single-prompt").fill("把参考图变成蓝色调的海报");
+  await page.getByTestId("single-generate").click();
+
+  await expect(page.locator(".preview-panel img").first()).toBeVisible({ timeout: 30_000 });
+  await expectHistoryContains(page, "蓝色调的海报");
+  expect(requests).toHaveLength(1);
+  expect(requests[0].files).toEqual([
+    expect.objectContaining({ fieldName: "image", fileName: "single-reference.png" }),
+  ]);
+  expect(requests[0].fields.prompt).toEqual(["把参考图变成蓝色调的海报"]);
+  expect(requests[0].fields.n).toEqual(["1"]);
+});
+
+test("static single save falls back to browser download with a sanitized reason", async ({ page }) => {
+  await installMockOutputDirectory(page, {
+    failImageWrites: true,
+    writeError: "permission denied https://provider.example/image.png?token=private-token",
+  });
+  await mockImageGeneration(page);
+  await openCleanStaticPage(page);
+
+  await page.getByRole("tab", { name: "设置" }).click();
+  await page.getByRole("button", { name: "选择并授权目录" }).click();
+  await page.getByRole("tab", { name: "单图" }).click();
+  await page.getByTestId("single-prompt").fill("生成一张验证下载回退的紫色圆点图标");
+  await page.getByTestId("single-generate").click();
+
+  await expect(page.locator(".preview-panel img").first()).toBeVisible({ timeout: 30_000 });
+  const fallbackMessage = page.getByText(/授权目录保存失败，已回退为浏览器下载/);
+  await expect(fallbackMessage).toBeVisible();
+  await expect(fallbackMessage).not.toContainText("private-token");
+});
+
+test("static batch cancel keeps finished results and marks remaining tasks skipped", async ({ page }) => {
+  let providerCalls = 0;
+  let releaseFirstResponse!: () => void;
+  const firstResponseBarrier = new Promise<void>((resolve) => {
+    releaseFirstResponse = resolve;
+  });
+  await page.route("**/images/generations", async (route) => {
+    providerCalls += 1;
+    if (providerCalls === 1) {
+      await firstResponseBarrier;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: [{ b64_json: ONE_PIXEL_PNG_BASE64 }] }),
+    });
+  });
+  await openCleanStaticPage(page, { batchDefaultTaskCount: 3 });
+
+  await page.getByRole("tab", { name: "批量" }).click();
+  await page.getByTestId("batch-source-custom-prompts").click();
+  await page.getByTestId("batch-custom-prompt-0").fill("生成取消测试的第一张图");
+  await page.getByTestId("batch-custom-prompt-1").fill("生成取消测试的第二张图");
+  await page.getByTestId("batch-custom-prompt-2").fill("生成取消测试的第三张图");
+  await page.getByTestId("batch-create-tasks").click();
+  await page.getByTestId("batch-start").click();
+
+  await expect(page.locator(".batch-task-list .status-pill.running")).toHaveCount(1);
+  await page.getByRole("button", { name: "取消剩余任务" }).click();
+  releaseFirstResponse();
+
+  await expect(page.locator(".batch-task-list .status-pill.succeeded")).toHaveCount(1, { timeout: 30_000 });
+  await expect(page.locator(".batch-task-list .status-pill.skipped")).toHaveCount(2);
+  expect(providerCalls).toBe(1);
+  await expect(page.getByTestId("batch-start")).toBeEnabled();
+});
+
 test("static page verifies an authorized output folder and restores history preview after reauthorization", async ({
   page,
 }) => {

@@ -19,4 +19,6 @@
   - 基线:`npm run test:run` → 35 文件 / 569 测试全通过(24.7s)。
   - mock e2e:首次失败 `error: unknown command 'test'`——根因 node_modules 缺 @playwright/test(且 PATH 中 Python playwright 抢占);`npm install` 修复后 `npm run e2e:static:mock` → 12 passed / 2 skipped(@mobile 桌面跳过,移动项目已跑)/ exit 0。
   - 环境修复(npm install)不改仓库文件;package-lock.json 无变化。
-- [进行中] T1:已读 imageDownloadError/errorClassifier/errorSanitizer/blobUrl/providerErrors/apiClient/config/history/providerProfiles。初步发现:apiClient 非 JSON 200 响应被包装为 network 类(parse 类缺失)——候选 P2。
+- [完成] T1(commit 808e19d):docs/audit-20260914.md 落盘,src/ 100% 覆盖。审计后实测扩大 P1 面:mergeConfig 中 profile 压过顶层(tsx 实证),设置页所有连接字段(baseUrl/textModel/imageModel/responseMode/apiKey)当次会话不生效且重载回退(A-0…A-3)。
+- [完成] T2(本 commit):新增 4 条 mock e2e(单图图生图/单图下载回退脱敏/批量取消/file:// 生图,全绿:page 15p+2s、file 3p)+ i18n validation 键集守卫单测;覆盖矩阵落盘 docs/e2e-coverage-matrix-20260914.md(含 e2e 掩盖点分析);全量 vitest 570 全绿。
+- [待办] T3:StepFun 实连(先查官方文档核对 base 与接口形态);T4:修复 A 簇(先红后绿);T5:门禁+三件套。

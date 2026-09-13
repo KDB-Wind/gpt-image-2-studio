@@ -146,4 +146,20 @@ describe("getTranslations", () => {
     expect(zh.welcome.privacyNote).toContain("Base URL");
     expect(en.welcome.privacyNote).toContain("Base URL");
   });
+
+  it("keeps the untyped validation key sets identical across languages", () => {
+    const zhValidation = getTranslations("zh-CN").validation;
+    const enValidation = getTranslations("en-US").validation;
+    const zhKeys = Object.keys(zhValidation).sort();
+    const enKeys = Object.keys(enValidation).sort();
+
+    expect(zhKeys.length).toBeGreaterThan(0);
+    expect(enKeys).toEqual(zhKeys);
+    for (const key of zhKeys) {
+      expect(typeof zhValidation[key]).toBe("string");
+      expect(zhValidation[key].length).toBeGreaterThan(0);
+      expect(typeof enValidation[key]).toBe("string");
+      expect(enValidation[key].length).toBeGreaterThan(0);
+    }
+  });
 });
