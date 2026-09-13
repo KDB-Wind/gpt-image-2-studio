@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import staticVersionManifest from "../static-versions/manifest.json";
 import * as apiClient from "./core/apiClient";
-import { DEFAULT_CONFIG, mergeConfig } from "./core/config";
+import { DEFAULT_CONFIG, mergeConfig, type AppConfig } from "./core/config";
 import type { ImageRecord } from "./core/history";
 import { getTranslations } from "./i18n/translations";
 import * as runtimeModule from "./runtime";
@@ -1032,6 +1032,70 @@ describe("App batch workspace", () => {
     expect(container.textContent).toContain("memory only for this open page");
     expect(container.textContent).not.toContain("browser session");
     expect(container.textContent).not.toContain("long-term storage");
+  });
+
+  it("applies settings edits to the active provider profile for same-session generation", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([createSaveImageResult("blob:edited-settings")]);
+    runtime.loadConfig = vi.fn().mockResolvedValue(mergeConfig({
+      ...DEFAULT_CONFIG,
+      apiKey: "",
+      providerProfiles: [{ ...DEFAULT_CONFIG.providerProfiles[0], apiKey: "" }],
+      uiLanguage: "en-US",
+      hasDismissedWelcome: true,
+    }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: "edited-session-image" }],
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderApp();
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Edited settings poster.");
+    clickButton(copy.tabs.settings);
+    setFieldValue(getField<HTMLInputElement>(copy.fields.apiKey, 'input[type="password"]'), "fresh-session-key");
+    setFieldValue(getField<HTMLInputElement>(copy.fields.baseUrl, "input"), "https://edited-session.example/v1");
+    clickButton(copy.tabs.generate);
+    await clickButtonAsync(copy.actions.generate);
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(requestUrl.origin).toBe("https://edited-session.example");
+    expect(requestUrl.pathname).toBe("/v1/images/generations");
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect((requestInit.headers as Record<string, string>).Authorization).toBe("Bearer fresh-session-key");
+  });
+
+  it("persists settings edits into the active provider profile on save", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([createSaveImageResult("blob:persisted-settings")]);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+    clickButton(copy.tabs.settings);
+    setFieldValue(getField<HTMLInputElement>(copy.fields.apiKey, 'input[type="password"]'), "edited-persist-key");
+    setFieldValue(getField<HTMLInputElement>(copy.fields.baseUrl, "input"), "https://persist.example/v1");
+    setFieldValue(getField<HTMLInputElement>(copy.fields.textModel, "input"), "persist-text-model");
+    setFieldValue(getField<HTMLInputElement>(copy.fields.imageModel, "input"), "persist-image-model");
+    await clickButtonAsync(copy.actions.save);
+    await flushPromises();
+
+    expect(runtime.saveConfig).toHaveBeenCalled();
+    const saveConfigCalls = (runtime.saveConfig as ReturnType<typeof vi.fn>).mock.calls;
+    const savedConfig = saveConfigCalls[saveConfigCalls.length - 1][0] as AppConfig;
+    const activeProfile = savedConfig.providerProfiles.find(
+      (profile) => profile.id === savedConfig.activeProviderProfileId,
+    );
+    expect(activeProfile).toMatchObject({
+      baseUrl: "https://persist.example/v1",
+      apiKey: "edited-persist-key",
+      textModel: "persist-text-model",
+      imageModel: "persist-image-model",
+    });
   });
 
   function clickButton(label: string) {

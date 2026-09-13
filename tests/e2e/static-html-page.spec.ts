@@ -506,6 +506,38 @@ test("static batch cancel keeps finished results and marks remaining tasks skipp
   await expect(page.getByTestId("batch-start")).toBeEnabled();
 });
 
+test("static settings edits reach outbound requests and survive reload", async ({ page }) => {
+  const requestedUrls: string[] = [];
+  await page.route("https://edited-provider.example/**", async (route) => {
+    requestedUrls.push(route.request().url());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: [{ b64_json: ONE_PIXEL_PNG_BASE64 }] }),
+    });
+  });
+  await openCleanStaticPage(page, { uiLanguage: "en-US" });
+
+  await page.getByRole("tab", { name: "Settings" }).click();
+  await page.getByTestId("settings-base-url").fill("https://edited-provider.example/v1");
+  await page.getByTestId("settings-text-model").fill("edited-text-model");
+  await page.getByTestId("settings-save").click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
+
+  await page.getByRole("tab", { name: "Single image" }).click();
+  await page.getByTestId("single-prompt").fill("Edited provider request probe");
+  await page.getByTestId("single-generate").click();
+
+  await expect(page.locator(".preview-panel img").first()).toBeVisible({ timeout: 30_000 });
+  expect(requestedUrls).toHaveLength(1);
+  expect(requestedUrls[0]).toContain("https://edited-provider.example/v1/images/generations");
+
+  await page.reload();
+  await page.getByRole("tab", { name: "Settings" }).click();
+  await expect(page.getByTestId("settings-base-url")).toHaveValue("https://edited-provider.example/v1");
+  await expect(page.getByTestId("settings-text-model")).toHaveValue("edited-text-model");
+});
+
 test("static page verifies an authorized output folder and restores history preview after reauthorization", async ({
   page,
 }) => {

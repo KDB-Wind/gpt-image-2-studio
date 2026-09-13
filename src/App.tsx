@@ -14,6 +14,7 @@ import type { BatchPreviewImage, BatchPreviewState } from "./core/batchPreview";
 import { DEFAULT_CONFIG, mergeConfig, type AppConfig, validateConfig } from "./core/config";
 import { safeErrorMessage } from "./core/errorSanitizer";
 import { MAX_BATCH_TASK_COUNT, clampBatchTaskCount, type ImageSaveMode } from "./core/batchTypes";
+import type { ProviderProfile } from "./core/providerProfiles";
 import {
   groupHistoryByDate,
   groupHistoryRecordsForDisplay,
@@ -152,6 +153,19 @@ type DialogProps = {
 
 function getErrorMessage(error: unknown): string {
   return safeErrorMessage(error);
+}
+
+const PROVIDER_PROFILE_FIELDS = new Set<keyof ProviderProfile>([
+  "baseUrl",
+  "apiKey",
+  "textModel",
+  "imageModel",
+  "imageResponseMode",
+  "rememberApiKey",
+]);
+
+function isProviderProfileField(key: keyof AppConfig): boolean {
+  return PROVIDER_PROFILE_FIELDS.has(key as keyof ProviderProfile);
 }
 
 function formatDuration(durationMs: number): string {
@@ -627,7 +641,21 @@ export default function App() {
   }
 
   function updateConfig<K extends keyof AppConfig>(key: K, value: AppConfig[K]) {
-    setConfig((current) => ({ ...current, [key]: value }));
+    setConfig((current) => {
+      if (!isProviderProfileField(key)) {
+        return { ...current, [key]: value };
+      }
+
+      return {
+        ...current,
+        [key]: value,
+        providerProfiles: current.providerProfiles.map((profile): ProviderProfile =>
+          profile.id === current.activeProviderProfileId
+            ? { ...profile, [key]: value }
+            : profile,
+        ),
+      };
+    });
   }
 
   function clearReferenceInput() {

@@ -27,4 +27,9 @@
   - 探测:/responses 原生 200、/chat/completions 200、/models 200、CORS *;多参考图 edits 200(未文档化);2048x2048 → 400 size_invalid(白名单 5 档);输入图最小 64px。
   - 契约矩阵:docs/stepfun-contract-20260914.md;台账:docs/e2e-usage-ledger-20260914.md(图 5/30、文 3/60)。
   - **重大用户裁定项**:官方公告 step-image-edit-2 与 /images/edits 将于 2026-10-10 下线。
-- [待办] T4:修复 A 簇(先红后绿);T5:门禁+三件套。
+- [完成] T4:
+  - 红(01:03:14 / 01:03:55 落档):App.test.tsx 两条新测试分别失败于「fetch 0 次」(会话内 key 不生效)与「profile 收到 test-key/ruoli.dev/gpt-image-2 旧值」(持久化脱同步)。
+  - 修:App.updateConfig 对 baseUrl/apiKey/textModel/imageModel/imageResponseMode/rememberApiKey 六字段同步写入 active profile(+ ProviderProfile 类型导入与 isProviderProfileField 守卫)。
+  - 绿:vitest 572/572;npm run build ✓;mock e2e 16 passed+2 skipped(含新回归 #17 settings edits reach outbound requests and survive reload)。
+  - 残留未修(待用户裁定):桌面清除 key 被 keyring 复活(需 Rust);P2 12 项未修(按纪律不修,已记录)。
+- [待办] T5:门禁+三件套。
