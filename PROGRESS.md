@@ -21,4 +21,10 @@
   - 环境修复(npm install)不改仓库文件;package-lock.json 无变化。
 - [完成] T1(commit 808e19d):docs/audit-20260914.md 落盘,src/ 100% 覆盖。审计后实测扩大 P1 面:mergeConfig 中 profile 压过顶层(tsx 实证),设置页所有连接字段(baseUrl/textModel/imageModel/responseMode/apiKey)当次会话不生效且重载回退(A-0…A-3)。
 - [完成] T2(本 commit):新增 4 条 mock e2e(单图图生图/单图下载回退脱敏/批量取消/file:// 生图,全绿:page 15p+2s、file 3p)+ i18n validation 键集守卫单测;覆盖矩阵落盘 docs/e2e-coverage-matrix-20260914.md(含 e2e 掩盖点分析);全量 vitest 570 全绿。
-- [待办] T3:StepFun 实连(先查官方文档核对 base 与接口形态);T4:修复 A 簇(先红后绿);T5:门禁+三件套。
+- [完成] T3(commit 见 git log):
+  - 前置修复:openCleanStaticPage 种子补写 provider profile(harness 脱同步会让实连打到 ruoli.dev)→ commit e9eee89(含 2 条零成本错误路径用例;期间发现 secret:scan 对 ≥20 字符假 key 报 sensitive-assignment,已缩短假 key 并 amend,扫描通过)。
+  - 实连:`npm run e2e:static:real` **6/6 全过**(错误 key/错误模型分类 ✓、t2i ✓、img2img ✓、批量 ✓、AI 规划 3→4 ✓)。
+  - 探测:/responses 原生 200、/chat/completions 200、/models 200、CORS *;多参考图 edits 200(未文档化);2048x2048 → 400 size_invalid(白名单 5 档);输入图最小 64px。
+  - 契约矩阵:docs/stepfun-contract-20260914.md;台账:docs/e2e-usage-ledger-20260914.md(图 5/30、文 3/60)。
+  - **重大用户裁定项**:官方公告 step-image-edit-2 与 /images/edits 将于 2026-10-10 下线。
+- [待办] T4:修复 A 簇(先红后绿);T5:门禁+三件套。
