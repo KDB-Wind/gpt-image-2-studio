@@ -25,3 +25,4 @@ test-results/
 .codex-review-artifacts/
 .release-smoke-*/
 platform-outputs/
+.video_agent/
