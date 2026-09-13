@@ -57,6 +57,42 @@ async function openRealProviderPage(page: Parameters<typeof openCleanStaticPage>
 test.describe("real provider static page smoke", () => {
   test.skip(!runRealProvider, "Set E2E_REAL_PROVIDER=1 to run real provider page smoke.");
 
+  test("real wrong api key surfaces an auth-classified failure", async ({ page }) => {
+    await openCleanStaticPage(page, {
+      baseUrl: requireE2eEnv("E2E_BASE_URL"),
+      apiKey: "wrong-key-e2e",
+      textModel: requireE2eEnv("E2E_TEXT_MODEL"),
+      imageModel: requireE2eEnv("E2E_IMAGE_MODEL"),
+      imageResponseMode: "force-base64",
+    });
+
+    await page.getByRole("tab", { name: "单图" }).click();
+    await page.getByTestId("single-prompt").fill("验证错误密钥路径的极简图标");
+    await page.getByTestId("single-generate").click();
+
+    const errorCopy = page.locator(".preview-panel .error-copy");
+    await expect(errorCopy).toBeVisible({ timeout: 60_000 });
+    await expect(errorCopy).toContainText(/401|认证|鉴权|key|api/i);
+  });
+
+  test("real wrong image model surfaces a provider-classified failure", async ({ page }) => {
+    await openCleanStaticPage(page, {
+      baseUrl: requireE2eEnv("E2E_BASE_URL"),
+      apiKey: requireE2eEnv("E2E_API_KEY"),
+      textModel: requireE2eEnv("E2E_TEXT_MODEL"),
+      imageModel: "step-e2e-nonexistent-model",
+      imageResponseMode: "force-base64",
+    });
+
+    await page.getByRole("tab", { name: "单图" }).click();
+    await page.getByTestId("single-prompt").fill("验证错误模型路径的极简图标");
+    await page.getByTestId("single-generate").click();
+
+    const errorCopy = page.locator(".preview-panel .error-copy");
+    await expect(errorCopy).toBeVisible({ timeout: 60_000 });
+    await expect(errorCopy).toContainText(/400|404|model|模型/i);
+  });
+
   test("real text-to-image page flow creates preview and history", async ({ page }) => {
     await openRealProviderPage(page);
 

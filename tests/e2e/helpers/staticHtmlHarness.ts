@@ -104,6 +104,18 @@ export async function openCleanStaticPage(page: Page, config?: Partial<AppConfig
         batchDefaultIntervalSeconds: 0,
         batchDefaultMaxRetries: 0,
         ...config,
+        // The app resolves every outbound request from the active provider
+        // profile, so the seed must keep the profile in sync with the
+        // top-level connection fields or requests silently target the
+        // DEFAULT_CONFIG profile instead of the intended provider.
+        providerProfiles: [{
+          ...DEFAULT_CONFIG.providerProfiles[0],
+          baseUrl: config?.baseUrl ?? "https://example.test/v1",
+          apiKey: config?.apiKey ?? "test-api-key",
+          textModel: config?.textModel ?? "test-text-model",
+          imageModel: config?.imageModel ?? "test-image-model",
+          imageResponseMode: config?.imageResponseMode ?? DEFAULT_CONFIG.providerProfiles[0].imageResponseMode,
+        }],
       },
     },
   );
