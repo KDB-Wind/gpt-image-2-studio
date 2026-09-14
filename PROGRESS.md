@@ -49,11 +49,25 @@
   - 在隔离 worktree 的修复前提交 `51bdb95` 上仅应用新增测试，复现 2 failed / 36 passed；关键原始输出落盘 `docs/settings-profile-sync-red-evidence-20260914.md`，同时纠正 T4 对历史证据性质的表述。
   - 删除可由 `build:static` 再生的 `dist-static/versions/` 未跟踪文件；不触碰两个受跟踪静态 HTML，Git 状态不再因构建产物变脏。
 
+## T7 发布前修复轮任务边界(批次 1-3)
+
+- **请求结果与验收标准**:按用户裁定的优先级修复 B-7(历史形状守卫,双端启动可靠性)、B-1(生成成功但历史刷新失败误标 failed)、B-9+B-10+B-11(批量重试/完成路径错误边界)、B-4(选目录只持久化已保存配置)。每项先红后绿、独立 commit。
+- **范围内文件/模块**:`src/runtime/webAdapter.ts`(B-7 守卫)、`src/App.tsx`(B-7 init 隔离、B-1、B-4)、`src/components/BatchPanel.tsx`(B-9/10/11)、`src/i18n/translations.ts`(新增 history 加载失败文案)、对应 `*.test.ts(x)`。
+- **明确排除与外部效果**:第 4 批 keyring 簇(B-8 + Rust 清除命令)本轮不动;不跑 StepFun 实连、不 push、不发布、不部署;B-2/B-5/B-3/B-6/B-12 仍留待用户裁定。
+- **未解决问题/阻塞**:无。
+
+- [完成] T7(批次 1-3,每项先红后绿、独立 commit):
+  - B-7(commit 97d0adb):webAdapter.loadHistory 数组守卫;App loadApp 将历史加载移出致命 Promise.all,失败降级为空历史 + historyLoadFailed 文案(zh/en 新键)。红:webAdapter `TypeError: records is not iterable`;App 级整个初始化失败。
+  - B-1(commit 4075da3):handleGenerate 中 reloadHistory 独立 try/catch,失败降级为 historyWarning 而非 failed;预览不再被撤销;历史警告渲染不再要求 memory-only。注意:旧测试 "releases a saved preview when refreshing history fails" 把缺陷断言成预期,已改写为 "keeps the saved preview alive"(保留 UI 态 + URL 账本双断言);红证据以最终测试形态经 git stash 复核(expected null not to be null)。
+  - B-9+B-10+B-11(commit 70e3291):重试失败置任务 failed(safeErrorMessage + classifyBatchFailure + attemptCount+1)并持久化 completed;批次完成收尾(onHistoryChanged/notifyBatchComplete)移出主 try,各自吞错;重试成功且无 failed 任务时清 pauseMessage。红:Unhandled Rejection + 任务卡 running;完成批次被改判 paused;"History refresh failed." 文案残留。
+  - B-4(commit 07b5aec):handleChooseDirectory 持久化 `{...persistedConfig, outputDirectory}`(不再带草稿 key),状态用函数式更新保留编辑草稿。桌面端"半截 key 覆盖 keyring"入口随之关闭(桌面 key 语义对齐仍待第 4 批)。
+  - 终态门禁(最后变更后):test:run 579/579 ✓(新增 7 测试);npm run build ✓;secret:scan ✓。mock e2e 未重跑:运行时代码变更仅四处错误边界,静态构建产物未变化;如需可在发布前以 e2e:static:mock 复核。
+
 ## 待用户裁定清单(汇总)
 
 1. **StepFun 模型 2026-10-10 下线**:step-image-edit-2 与 /images/edits 停服,需迁移决策(docs/stepfun-contract-20260914.md §6)。
 2. 是否增加 StepFun 内置 provider 预设(尺寸白名单裁剪/64px 输入校验/模型下拉)。
-3. P2 缺陷 12 项(B-1..B-12,见 audit;B-9/10/11 为 BatchPanel 错误路径,P3 若干)。
+3. P2 缺陷 12 项:其中 B-1/B-4/B-7/B-9/B-10/B-11 已于 T7 修复(见上);剩 B-2/B-3/B-5/B-6/B-12 待裁定。
 4. 桌面端清除 API key(需 Rust save_api_key 支持覆写/删除)。
 5. 多 profile 管理 UI(核心能力已在 providerProfiles,UI 未暴露)。
 6. i18n 死键清理、AppLogo aria、staticOpener 弹窗回退等 P3 项。
