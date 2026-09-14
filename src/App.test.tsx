@@ -131,6 +131,28 @@ describe("App batch workspace", () => {
     expect(container.textContent).toContain("History could not be loaded");
   });
 
+  it("persists only previously saved settings when choosing an output directory", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([]);
+    runtime.chooseOutputDirectory = vi.fn().mockResolvedValue("Chosen Output");
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+
+    await clickButtonAsync(copy.tabs.settings);
+    const apiKeyInput = container.querySelector<HTMLInputElement>('input[type="password"]');
+    if (!apiKeyInput) {
+      throw new Error("API key field not found");
+    }
+    setFieldValue(apiKeyInput, "draft-key");
+    await clickButtonAsync(copy.actions.chooseDirectory);
+
+    expect(runtime.saveConfig).toHaveBeenCalledTimes(1);
+    const saved = vi.mocked(runtime.saveConfig).mock.calls[0][0] as AppConfig;
+    expect(saved).toMatchObject({ apiKey: "test-key", outputDirectory: "Chosen Output" });
+    expect(container.querySelector<HTMLInputElement>('input[type="password"]')?.value).toBe("draft-key");
+  });
+
   it("releases the old generated preview when a new single-image preview replaces it", async () => {
     const copy = getTranslations("en-US");
     const runtime = createPreviewRuntime([

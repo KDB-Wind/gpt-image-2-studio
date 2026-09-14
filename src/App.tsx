@@ -1320,10 +1320,13 @@ export default function App() {
       const selectedDirectory = await runtime.chooseOutputDirectory();
 
       if (selectedDirectory) {
-        const nextConfig = { ...config, outputDirectory: selectedDirectory };
-        setConfig(nextConfig);
-        await runtime.saveConfig(nextConfig);
-        setPersistedConfig(nextConfig);
+        // Directory selection is not a save: persist the last explicitly
+        // saved config plus the new directory, and keep unsaved form edits
+        // in state so an accidental pick cannot leak a draft API key.
+        setConfig((current) => ({ ...current, outputDirectory: selectedDirectory }));
+        const persistedNextConfig = { ...persistedConfig, outputDirectory: selectedDirectory };
+        await runtime.saveConfig(persistedNextConfig);
+        setPersistedConfig(persistedNextConfig);
         await refreshOutputDirectoryState(runtime);
         setSettingsMessage({
           tone: "success",
