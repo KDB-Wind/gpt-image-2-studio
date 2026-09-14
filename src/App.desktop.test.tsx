@@ -39,7 +39,7 @@ describe("App desktop settings", () => {
     vi.restoreAllMocks();
   });
 
-  it("does not show the browser-only API-key retention control", async () => {
+  it("shows the desktop API-key retention control and storage disclosure", async () => {
     const copy = getTranslations("en-US");
 
     await act(async () => root.render(<App />));
@@ -52,7 +52,10 @@ describe("App desktop settings", () => {
     }
     act(() => settingsButton.click());
 
-    expect(container.querySelector('[data-testid="settings-remember-api-key"]')).toBeNull();
+    const rememberToggle = container.querySelector<HTMLInputElement>('[data-testid="settings-remember-api-key"]');
+    expect(rememberToggle).not.toBeNull();
+    expect(rememberToggle?.disabled).toBe(false);
+    expect(container.textContent).toContain(copy.notes.apiKeyDesktopStorageHint);
   });
 });
 

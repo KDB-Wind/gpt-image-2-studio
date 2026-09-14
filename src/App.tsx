@@ -591,9 +591,8 @@ export default function App() {
             ? adapter.getStorageCapabilities().catch(() => ({ local: false, session: false }))
             : Promise.resolve({ local: true, session: true })
           : Promise.resolve(null);
-        const [loadedConfig, loadedHistory, loadedOutputDirectoryState, loadedStorageCapabilities] = await Promise.all([
+        const [loadedConfig, loadedOutputDirectoryState, loadedStorageCapabilities] = await Promise.all([
           adapter.loadConfig(),
-          adapter.loadHistory(),
           adapter.getOutputDirectoryState().catch(() => null),
           storageCapabilitiesPromise,
         ]);
@@ -607,6 +606,16 @@ export default function App() {
         const nextLanguage = resolveLanguage(mergedConfig.uiLanguage);
         const nextCopy = getTranslations(nextLanguage);
         const customSizeDraft = getCustomSizeDraft(mergedConfig.defaultSize);
+
+        // History is degradable: a failed read must not take down the whole
+        // workspace, so it loads outside the fatal Promise.all above.
+        let loadedHistory: ImageRecord[] = [];
+        let historyLoadFailure: string | null = null;
+        try {
+          loadedHistory = await adapter.loadHistory();
+        } catch (error) {
+          historyLoadFailure = nextCopy.messages.historyLoadFailed(getErrorMessage(error));
+        }
 
         if (!isMounted) {
           return;
@@ -623,10 +632,14 @@ export default function App() {
         setSizeMode(getImageSizePresetValue(mergedConfig.defaultSize) === "custom" ? "custom" : "preset");
         setCustomWidthInput(customSizeDraft.width);
         setCustomHeightInput(customSizeDraft.height);
-        setSettingsMessage({
-          tone: "neutral",
-          text: nextCopy.messages.runtimeLoaded(formatMode(adapter.mode, nextLanguage)),
-        });
+        setSettingsMessage(
+          historyLoadFailure
+            ? { tone: "error", text: historyLoadFailure }
+            : {
+                tone: "neutral",
+                text: nextCopy.messages.runtimeLoaded(formatMode(adapter.mode, nextLanguage)),
+              },
+        );
       } catch (error) {
         if (!isMounted) {
           return;
@@ -1479,7 +1492,14 @@ export default function App() {
         return;
       }
       adoptPreviewUrl(savedPreviewUrl);
-      await reloadHistory(runtime);
+      // The image is already saved at this point; a failed history refresh
+      // must not relabel the generation itself as failed.
+      let historyReloadWarning: string | null = null;
+      try {
+        await reloadHistory(runtime);
+      } catch (error) {
+        historyReloadWarning = copy.messages.historyLoadFailed(getErrorMessage(error));
+      }
       if (!isMountedRef.current) {
         return;
       }
@@ -1495,7 +1515,7 @@ export default function App() {
         saveMode: savedResult.saveMode,
         saveFallbackReason: savedResult.saveFallbackReason,
         historyDurability: savedResult.historyDurability,
-        historyWarning: savedResult.historyWarning,
+        historyWarning: savedResult.historyWarning ?? historyReloadWarning ?? undefined,
       });
     } catch (error) {
       if (!isMountedRef.current) {
@@ -1584,11 +1604,15 @@ export default function App() {
       const selectedDirectory = await runtime.chooseOutputDirectory();
 
       if (selectedDirectory) {
-        const nextConfig = { ...config, outputDirectory: selectedDirectory };
+        // Directory selection is not a save: persist the last explicitly
+        // saved config plus the new directory, and keep unsaved form edits
+        // in state so an accidental pick cannot leak a draft API key.
+        const nextConfig = { ...configRef.current, outputDirectory: selectedDirectory };
         configRef.current = nextConfig;
         setConfig(nextConfig);
-        await runtime.saveConfig(nextConfig);
-        setPersistedConfig(nextConfig);
+        const persistedNextConfig = { ...persistedConfig, outputDirectory: selectedDirectory };
+        await runtime.saveConfig(persistedNextConfig);
+        setPersistedConfig(persistedNextConfig);
         await refreshOutputDirectoryState(runtime);
         setSettingsMessage({
           tone: "success",
@@ -2528,20 +2552,22 @@ export default function App() {
                       </div>
                     </label>
                   </div>
-                  {runtime?.mode === "web" ? (
+                  {runtime ? (
                     <>
                       <label className="toggle-row">
                         <input
                           data-testid="settings-remember-api-key"
                           type="checkbox"
                           checked={activeProviderProfile.rememberApiKey}
-                          disabled={!canRememberWebApiKey}
+                          disabled={runtime.mode === "web" && !canRememberWebApiKey}
                           onChange={(event) => updateProviderProfile("rememberApiKey", event.currentTarget.checked)}
                         />
                         <span>{copy.fields.rememberApiKey}</span>
                       </label>
                       <p className="inline-note">
-                        {isMemoryOnlyWebRuntime
+                        {runtime.mode === "desktop"
+                          ? copy.notes.apiKeyDesktopStorageHint
+                          : isMemoryOnlyWebRuntime
                           ? copy.notes.apiKeyMemoryOnlyHint
                           : storageCapabilities?.local === false
                             ? copy.notes.apiKeySessionOnlyHint
@@ -3227,7 +3253,7 @@ export default function App() {
                         {copy.messages.saveFallbackToBrowserDownload(previewState.saveFallbackReason)}
                       </div>
                     ) : null}
-                    {previewState.historyDurability === "memory-only" && previewState.historyWarning ? (
+                    {previewState.historyWarning ? (
                       <div className="message-card warning inline-message" data-testid="single-history-durability-warning">
                         {previewState.historyWarning}
                       </div>

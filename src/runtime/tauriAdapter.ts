@@ -114,11 +114,14 @@ export const tauriAdapter: RuntimeAdapter = {
 
   loadConfig() {
     return invoke<AppConfig>("load_config").then((config) => {
+      const activeProfile = config.providerProfiles.find((profile) => profile.id === config.activeProviderProfileId);
+      const rememberApiKey = activeProfile?.rememberApiKey ?? config.rememberApiKey;
+      const apiKey = rememberApiKey ? config.apiKey : "";
       const providerProfiles = config.providerProfiles.map((profile) => ({
         ...profile,
-        apiKey: profile.id === config.activeProviderProfileId ? config.apiKey : "",
+        apiKey: profile.id === config.activeProviderProfileId ? apiKey : "",
       }));
-      return mergeConfig({ ...config, providerProfiles });
+      return mergeConfig({ ...config, apiKey, rememberApiKey, providerProfiles });
     });
   },
 
@@ -132,9 +135,7 @@ export const tauriAdapter: RuntimeAdapter = {
 
   async saveConfig(config: AppConfig) {
     const activeProfile = resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId);
-    const activeProfileApiKey = activeProfile.apiKey || await invoke<string>("load_provider_api_key", {
-      profileId: activeProfile.id,
-    }).catch(() => "");
+    const activeProfileApiKey = activeProfile.rememberApiKey ? activeProfile.apiKey : "";
     const providerProfiles: ProviderProfileMetadata[] = config.providerProfiles.map(({ apiKey: _apiKey, ...profile }) => profile);
     const { apiKey: _apiKey, ...configWithoutApiKey } = config;
     const bridgeConfig = {

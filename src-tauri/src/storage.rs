@@ -427,6 +427,7 @@ pub fn clear_api_key_json_fallback(path: &Path, profile_id: &str) -> Result<(), 
         return Ok(());
     };
     if let Some(object) = value.as_object_mut() {
+        object.remove("apiKey");
         if let Some(keys) = object.get_mut(API_KEYS_STORAGE_FIELD).and_then(|keys| keys.as_object_mut()) {
             keys.remove(profile_id);
             if keys.is_empty() {
@@ -729,6 +730,11 @@ fn output_base_dir() -> Result<PathBuf, String> {
 
 #[cfg(test)]
 pub fn save_config_for_test(path: &Path, profile_id: &str, api_key: &str) -> Result<String, String> {
+    if api_key.trim().is_empty() {
+        let storage_mode = read_api_key_storage_mode(path);
+        clear_api_key_with_keyring_result(path, profile_id, Ok(()))?;
+        return Ok(storage_mode);
+    }
     save_api_key(path, profile_id, api_key)
 }
 
@@ -1006,10 +1012,20 @@ pub(crate) fn load_config_at(path: &Path) -> Result<AppConfig, String> {
             })).unwrap_or(false))
     }).unwrap_or(true);
     let mut config = load_config_from_path(path)?;
-    config.api_key = load_api_key(path, &config.active_provider_profile_id, allow_legacy_migration);
-    if has_legacy_api_key {
-        let mode = save_api_key(path, &config.active_provider_profile_id, &config.api_key)?;
-        write_config_file(path, &config, &mode)?;
+    let remember_api_key = config.provider_profiles.iter()
+        .find(|profile| profile.id == config.active_provider_profile_id)
+        .map(|profile| profile.remember_api_key)
+        .unwrap_or(config.remember_api_key);
+    config.remember_api_key = remember_api_key;
+    if remember_api_key {
+        config.api_key = load_api_key(path, &config.active_provider_profile_id, allow_legacy_migration);
+        if has_legacy_api_key {
+            let mode = save_api_key(path, &config.active_provider_profile_id, &config.api_key)?;
+            write_config_file(path, &config, &mode)?;
+        }
+    } else {
+        config.api_key.clear();
+        let _ = clear_api_key(path, &config.active_provider_profile_id);
     }
     Ok(config)
 }
@@ -1035,12 +1051,24 @@ pub fn clear_provider_api_key(profile_id: String) -> Result<(), String> {
 #[tauri::command]
 pub fn save_config(input: SaveConfigInput) -> Result<(), String> {
     let path = config_path()?;
-    let api_key_storage_mode = save_api_key(
-        &path,
-        &input.config.active_provider_profile_id,
-        &input.active_profile_api_key,
-    )?;
-    write_config_file(&path, &input.config, &api_key_storage_mode)
+    save_config_at(&path, input)
+}
+
+pub(crate) fn save_config_at(path: &Path, input: SaveConfigInput) -> Result<(), String> {
+    let mut config = input.config;
+    let remember_api_key = config.provider_profiles.iter()
+        .find(|profile| profile.id == config.active_provider_profile_id)
+        .map(|profile| profile.remember_api_key)
+        .unwrap_or(config.remember_api_key);
+    config.remember_api_key = remember_api_key;
+    let api_key_storage_mode = if remember_api_key && !input.active_profile_api_key.trim().is_empty() {
+        save_api_key(path, &config.active_provider_profile_id, &input.active_profile_api_key)?
+    } else {
+        let storage_mode = read_api_key_storage_mode(path);
+        clear_api_key(path, &config.active_provider_profile_id)?;
+        storage_mode
+    };
+    write_config_file(path, &config, &api_key_storage_mode)
 }
 
 #[tauri::command]

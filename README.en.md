@@ -88,6 +88,12 @@ History stores local generation records so you can review images and reuse promp
 
 Settings stores model configuration, default image options, batch defaults, and output folder settings. In the web version, restoring old image previews requires browser folder authorization; typing a `C:\...` path manually does not grant file access.
 
+API-key retention depends on the runtime:
+
+- Web mode keeps the key only for the current browser session by default. Enable Remember API key only on a trusted personal device.
+- In desktop mode, disabling Remember API key keeps the key only in the current app process. Saving after clearing the key or disabling retention removes the active provider's system credential and local fallback copy.
+- When desktop retention is enabled, the system credential store is preferred. If it is unavailable, the app falls back to its configuration file, so enable retention only on a trusted device.
+
 ## Notes
 
 - Static pages can call your provider only if the provider allows browser CORS requests.

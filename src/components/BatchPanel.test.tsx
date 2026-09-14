@@ -1695,6 +1695,217 @@ describe("BatchPanel", () => {
     });
   });
 
+  it("marks a retried task failed instead of leaving it running when the retry fails", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createRuntime();
+    runtime.loadBatchWorkspace.mockResolvedValue(createSavedBatchWorkspace());
+    retrySingleBatchTaskMock.mockRejectedValue(new Error("Retry provider unreachable."));
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 2 }}
+          runtime={runtime}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+    await flushPromises();
+
+    await clickButtonAsync(copy.batch.actions.retryTask);
+
+    expect(container.querySelectorAll(".batch-task-list .status-pill.failed")).toHaveLength(1);
+    expect(container.querySelectorAll(".batch-task-list .status-pill.running")).toHaveLength(0);
+    expect(container.textContent).toContain("Retry provider unreachable.");
+  });
+
+  it("keeps a successful retry succeeded when the manifest save fails", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createRuntime();
+    runtime.loadBatchWorkspace.mockResolvedValue(createSavedBatchWorkspace());
+    vi.mocked(runtime.saveBatchManifest).mockRejectedValue(new Error("Manifest write failed."));
+    retrySingleBatchTaskMock.mockResolvedValue(
+      createTestTask({
+        id: "task-restored-2",
+        index: 1,
+        status: "succeeded",
+        errorMessage: "",
+        failureCategory: null,
+        previewUrl: "blob:retry-manifest-failure",
+      }),
+    );
+    const setAppMessage = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 2 }}
+          runtime={runtime}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={setAppMessage}
+        />,
+      );
+    });
+    await flushPromises();
+
+    await clickButtonAsync(copy.batch.actions.retryTask);
+
+    expect(container.querySelectorAll(".batch-task-list .status-pill.succeeded")).toHaveLength(2);
+    expect(container.querySelectorAll(".batch-task-list .status-pill.failed")).toHaveLength(0);
+    expect(setAppMessage).toHaveBeenCalledWith("Manifest write failed.");
+  });
+
+  it("keeps a successful retry succeeded when the history refresh fails", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createRuntime();
+    runtime.loadBatchWorkspace.mockResolvedValue(createSavedBatchWorkspace());
+    retrySingleBatchTaskMock.mockResolvedValue(
+      createTestTask({
+        id: "task-restored-2",
+        index: 1,
+        status: "succeeded",
+        errorMessage: "",
+        failureCategory: null,
+        previewUrl: "blob:retry-history-failure",
+      }),
+    );
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 2 }}
+          runtime={runtime}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockRejectedValue(new Error("History refresh failed."))}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+    await flushPromises();
+
+    await clickButtonAsync(copy.batch.actions.retryTask);
+
+    expect(container.querySelectorAll(".batch-task-list .status-pill.succeeded")).toHaveLength(2);
+    expect(container.querySelectorAll(".batch-task-list .status-pill.failed")).toHaveLength(0);
+  });
+
+  it("keeps a completed batch completed when the post-completion history refresh fails", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createRuntime();
+    runBatchTasksMock.mockResolvedValue({
+      status: "completed",
+      tasks: [createTestTask({ id: "task-1", status: "succeeded", previewUrl: "blob:b10-done" })],
+      pauseReason: null,
+    });
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 2 }}
+          runtime={runtime}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockRejectedValue(new Error("History refresh failed."))}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+
+    clickButton(copy.batch.sources.customPrompts);
+    const prompts = getDraftPromptTextareas();
+    setFieldValue(prompts[0], "Create a blue bird icon");
+    setFieldValue(prompts[1], "Create a green leaf icon");
+    clickButton(copy.batch.actions.createTasks);
+
+    await act(async () => {
+      clickButton(copy.batch.actions.start);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).not.toContain("History refresh failed.");
+    expect(container.querySelector(".message-card.warning")).toBeNull();
+  });
+
+  it("clears the stale pause message after a successful retry", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createRuntime();
+    runBatchTasksMock.mockResolvedValue({
+      status: "paused",
+      tasks: [
+        createTestTask({
+          id: "task-1",
+          status: "failed",
+          errorMessage: "Auth rejected.",
+          failureCategory: "auth",
+        }),
+      ],
+      pauseReason: { taskId: "task-1", failureCategory: "auth", message: "Auth rejected." },
+    });
+    retrySingleBatchTaskMock.mockResolvedValue(
+      createTestTask({
+        id: "task-1",
+        status: "succeeded",
+        errorMessage: "",
+        failureCategory: null,
+        previewUrl: "blob:b11-retried",
+      }),
+    );
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 2 }}
+          runtime={runtime}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+
+    clickButton(copy.batch.sources.customPrompts);
+    const prompts = getDraftPromptTextareas();
+    setFieldValue(prompts[0], "Create a red fox icon");
+    setFieldValue(prompts[1], "Create a grey wolf icon");
+    clickButton(copy.batch.actions.createTasks);
+
+    await act(async () => {
+      clickButton(copy.batch.actions.start);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector(".message-card.warning")?.textContent).toContain(
+      copy.batch.messages.authPaused,
+    );
+
+    await clickButtonAsync(copy.batch.actions.retryTask);
+
+    expect(container.querySelector(".message-card.warning")).toBeNull();
+  });
+
   function getDraftPromptTextareas(): HTMLTextAreaElement[] {
     return Array.from(container.querySelectorAll(".custom-prompt-draft textarea"));
   }

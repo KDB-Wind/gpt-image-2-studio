@@ -924,6 +924,24 @@ describe("webAdapter history deletion", () => {
     await expect(webAdapter.loadHistory()).resolves.toEqual([oldRecord]);
   });
 
+  it("degrades malformed stored history to an empty list instead of throwing", async () => {
+    localStorage.setItem("chat-to-image.history.v1", JSON.stringify({ records: ["not-an-array"] }));
+
+    await expect(webAdapter.loadHistory()).resolves.toEqual([]);
+  });
+
+  it("filters malformed history entries while keeping valid records", async () => {
+    const validRecord = createHistoryRecord({ id: "valid-history-1", prompt: "Valid record" });
+    localStorage.setItem(
+      "chat-to-image.history.v1",
+      JSON.stringify([validRecord, null, { id: "half-baked" }, "junk-entry"]),
+    );
+
+    await expect(webAdapter.loadHistory()).resolves.toEqual([
+      expect.objectContaining({ id: "valid-history-1", prompt: "Valid record" }),
+    ]);
+  });
+
   it("clears a memory history overlay after a later persistent update succeeds", async () => {
     const oldRecord = createHistoryRecord({
       id: "persisted-old",
@@ -1108,6 +1126,28 @@ describe("webAdapter history deletion", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it.each(["blob:revoked-image", "data:image/png;base64,invalid", "ftp://provider.example/image.png"])(
+    "keeps non-http image URL fetch failures generic: %s",
+    async (providerUrl) => {
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValueOnce(new TypeError("Failed to fetch")));
+
+      await expect(
+        webAdapter.saveImage({
+          image: { url: providerUrl },
+          prompt: "A non-provider image URL.",
+          optimizedPrompt: "",
+          customName: "",
+          config: DEFAULT_CONFIG,
+          generatedAt: new Date("2026-07-05T10:00:00.000Z"),
+          durationMs: 1200,
+        }),
+      ).rejects.toMatchObject({
+        code: "image-download-failed",
+        message: "Failed to download generated image.",
+      });
+    },
+  );
 
   it("migrates legacy provider metadata before applying the current provider schema", async () => {
     localStorage.setItem("chat-to-image.config.v1", JSON.stringify({

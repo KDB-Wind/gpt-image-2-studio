@@ -15,7 +15,7 @@ import {
   normalizeBatchSplitPlan,
   splitPromptWithTextModel,
 } from "../core/batchPromptSplitter";
-import { retrySingleBatchTask, runBatchTasks } from "../core/batchRunner";
+import { classifyBatchFailure, retrySingleBatchTask, runBatchTasks } from "../core/batchRunner";
 import { safeErrorMessage } from "../core/errorSanitizer";
 import {
   buildBatchPromptRecipe,
@@ -1099,10 +1099,8 @@ export function BatchPanel({
       if (!isMountedRef.current) {
         return;
       }
-      await onHistoryChanged();
-      if (!isMountedRef.current) {
-        return;
-      }
+      // The terminal manifest is durable. Refresh and notification failures
+      // are best-effort and must not change a completed batch to paused.
       const nextSummary = summarizeBatchTasks(result.tasks);
       const message = copy.batch.messages.batchComplete(
         nextSummary.succeeded,
@@ -1110,7 +1108,16 @@ export function BatchPanel({
         nextSummary.skipped,
       );
       setAppMessage(message);
-      await notifyBatchComplete(copy.batch.title, message);
+      try {
+        await onHistoryChanged();
+      } catch {
+        // Best-effort refresh after the terminal manifest write.
+      }
+      try {
+        await notifyBatchComplete(copy.batch.title, message);
+      } catch {
+        // Notification permission rejections are non-fatal.
+      }
     } catch (error) {
       if (isMountedRef.current) {
         setStatus("paused");
@@ -1171,10 +1178,7 @@ export function BatchPanel({
 
     try {
       const requestConfig = getRequestConfig?.() ?? config;
-      let retried: BatchTask;
-
-      try {
-        retried = await retrySingleBatchTask({
+      const retried = await retrySingleBatchTask({
           batchId,
           batchTitle: batchDisplayTitle,
           batchCreatedAt,
@@ -1184,28 +1188,6 @@ export function BatchPanel({
           referenceImages: getReferenceImagesForTask(latestTask),
           saveBatchImage: runtime.saveBatchImage.bind(runtime),
         });
-      } catch (error) {
-        if (isMountedRef.current) {
-          const message = safeErrorMessage(error);
-          commitTasks((current) =>
-            current.map((item) =>
-              item.id === task.id
-                ? {
-                    ...item,
-                    status: "failed",
-                    errorMessage: message,
-                    failureCategory: "unknown",
-                    suggestedAction: undefined,
-                    completedAt: new Date().toISOString(),
-                  }
-                : item,
-            ),
-          );
-          setStatus("paused");
-          setPauseMessage(message);
-        }
-        return;
-      }
 
       if (!isMountedRef.current) {
         revokeTaskPreviewUrlsOnce([retried.previewUrl]);
@@ -1217,15 +1199,40 @@ export function BatchPanel({
 
       try {
         await persistManifest("completed", finalTasks, nextStartedAt, requestConfig);
-        if (!isMountedRef.current) {
-          return;
-        }
-        await onHistoryChanged();
       } catch (error) {
         if (isMountedRef.current) {
-          setStatus("paused");
-          setPauseMessage(safeErrorMessage(error));
+          setAppMessage(safeErrorMessage(error));
         }
+      }
+      if (!isMountedRef.current) {
+        return;
+      }
+      try {
+        await onHistoryChanged();
+      } catch {
+        // Best-effort refresh after a successful retry.
+      }
+      if (!hasFailedBatchTasks(finalTasks)) {
+        setPauseMessage("");
+      }
+    } catch (error) {
+      // Only retrySingleBatchTask rejections reach here: the generated task
+      // failed, so it returns to failed instead of remaining stuck running.
+      if (isMountedRef.current) {
+        const failedTasks = latestTasksRef.current.map((item): BatchTask =>
+          item.id === task.id
+            ? {
+                ...item,
+                status: "failed",
+                attemptCount: item.attemptCount + 1,
+                errorMessage: safeErrorMessage(error),
+                failureCategory: classifyBatchFailure(error),
+                completedAt: new Date().toISOString(),
+              }
+            : item,
+        );
+        commitTasks(failedTasks);
+        await persistManifest("completed", failedTasks, nextStartedAt).catch(() => undefined);
       }
     } finally {
       releaseTaskRetry(task.id);

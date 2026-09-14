@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import staticVersionManifest from "../static-versions/manifest.json";
 import * as apiClient from "./core/apiClient";
-import { DEFAULT_CONFIG, mergeConfig } from "./core/config";
+import { DEFAULT_CONFIG, mergeConfig, type AppConfig } from "./core/config";
 import type { ImageRecord } from "./core/history";
 import { ImageDownloadError } from "./core/imageDownloadError";
 import type { ProviderProfile } from "./core/providerProfiles";
@@ -100,6 +100,61 @@ describe("App batch workspace", () => {
     expect(container.textContent).toContain("History is available only in this open app instance.");
   });
 
+  it("still loads the workspace when stored history cannot be read", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([]);
+    runtime.loadHistory = vi.fn().mockRejectedValue(new Error("history storage unavailable"));
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+
+    expect(container.textContent).not.toContain("Failed to load local state");
+    expect(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea")).toBeTruthy();
+
+    await clickButtonAsync(copy.tabs.settings);
+    expect(container.querySelector(".message-card.inline-message.error")?.textContent).toContain(
+      "History could not be loaded",
+    );
+  });
+
+  it("keeps a successful generation when the history refresh after saving fails", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([createSaveImageResult("blob:saved-but-history-refresh-failed")]);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.spyOn(apiClient, "generateImages").mockResolvedValue([{ base64: "image" }]);
+
+    await renderApp();
+    vi.mocked(runtime.loadHistory).mockRejectedValueOnce(new Error("history refresh unavailable"));
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create a saved poster.");
+    await clickButtonAsync(copy.actions.generate);
+
+    expect(container.querySelector('.preview-success img[src="blob:saved-but-history-refresh-failed"]')).not.toBeNull();
+    expect(container.querySelector(".preview-placeholder.failed")).toBeNull();
+    expect(container.textContent).toContain("History could not be loaded");
+  });
+
+  it("persists only previously saved settings when choosing an output directory", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([]);
+    runtime.chooseOutputDirectory = vi.fn().mockResolvedValue("Chosen Output");
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+
+    await clickButtonAsync(copy.tabs.settings);
+    const apiKeyInput = container.querySelector<HTMLInputElement>('input[type="password"]');
+    if (!apiKeyInput) {
+      throw new Error("API key field not found");
+    }
+    setFieldValue(apiKeyInput, "draft-key");
+    await clickButtonAsync(copy.actions.chooseDirectory);
+
+    expect(runtime.saveConfig).toHaveBeenCalledTimes(1);
+    const saved = vi.mocked(runtime.saveConfig).mock.calls[0][0] as AppConfig;
+    expect(saved).toMatchObject({ apiKey: "test-key", outputDirectory: "Chosen Output" });
+    expect(container.querySelector<HTMLInputElement>('input[type="password"]')?.value).toBe("draft-key");
+  });
+
   it("releases the old generated preview when a new single-image preview replaces it", async () => {
     const copy = getTranslations("en-US");
     const runtime = createPreviewRuntime([
@@ -143,7 +198,7 @@ describe("App batch workspace", () => {
     expect(revokeObjectUrl).toHaveBeenCalledWith("blob:single-failed");
   });
 
-  it("releases a saved preview when refreshing history fails", async () => {
+  it("keeps the saved preview alive when refreshing history fails", async () => {
     const copy = getTranslations("en-US");
     const runtime = createPreviewRuntime([createSaveImageResult("blob:single-history-failure")]);
     const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
@@ -155,8 +210,8 @@ describe("App batch workspace", () => {
     setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create a poster.");
     await clickButtonAsync(copy.actions.generate);
 
-    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
-    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:single-history-failure");
+    expect(container.querySelector('.preview-success img[src="blob:single-history-failure"]')).not.toBeNull();
+    expect(revokeObjectUrl).not.toHaveBeenCalledWith("blob:single-history-failure");
   });
 
   it("releases its generated preview on unmount", async () => {
@@ -1436,6 +1491,20 @@ describe("App batch workspace", () => {
       .toEqual({ "provider-default": REMEMBERED_UI_API_KEY });
   });
 
+  it("exposes remember-key control for the desktop runtime", async () => {
+    const copy = getTranslations("en-US");
+    const runtime: RuntimeAdapter = { ...createPreviewRuntime([]), mode: "desktop" };
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+    clickButton(copy.tabs.settings);
+
+    const rememberToggle = container.querySelector<HTMLInputElement>('[data-testid="settings-remember-api-key"]');
+    expect(rememberToggle).not.toBeNull();
+    expect(rememberToggle?.disabled).toBe(false);
+    expect(rememberToggle?.checked).toBe(false);
+  });
+
   it("toggles API key visibility without changing the entered value", async () => {
     const copy = getTranslations("en-US");
 
@@ -1497,6 +1566,91 @@ describe("App batch workspace", () => {
     expect(container.textContent).toContain("memory only for this open page");
     expect(container.textContent).not.toContain("browser session");
     expect(container.textContent).not.toContain("long-term storage");
+  });
+
+  it("applies settings edits to the active provider profile for same-session generation", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([createSaveImageResult("blob:edited-settings")]);
+    runtime.loadConfig = vi.fn().mockResolvedValue(mergeConfig({
+      ...DEFAULT_CONFIG,
+      apiKey: "",
+      providerProfiles: [{ ...DEFAULT_CONFIG.providerProfiles[0], apiKey: "" }],
+      uiLanguage: "en-US",
+      hasDismissedWelcome: true,
+    }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: "edited-session-image" }],
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderApp();
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Edited settings poster.");
+    clickButton(copy.tabs.settings);
+    setFieldValue(getField<HTMLInputElement>(copy.fields.apiKey, 'input[type="password"]'), "fresh-session-key");
+    setFieldValue(getField<HTMLInputElement>(copy.fields.baseUrl, "input"), "https://edited-session.example/v1");
+    clickButton(copy.tabs.generate);
+    await clickButtonAsync(copy.actions.generate);
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(requestUrl.origin).toBe("https://edited-session.example");
+    expect(requestUrl.pathname).toBe("/v1/images/generations");
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect((requestInit.headers as Record<string, string>).Authorization).toBe("Bearer fresh-session-key");
+  });
+
+  it("persists settings edits into the active provider profile on save", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([createSaveImageResult("blob:persisted-settings")]);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+    clickButton(copy.tabs.settings);
+    setFieldValue(getField<HTMLInputElement>(copy.fields.apiKey, 'input[type="password"]'), "edited-persist-key");
+    setFieldValue(getField<HTMLInputElement>(copy.fields.baseUrl, "input"), "https://persist.example/v1");
+    setFieldValue(getField<HTMLInputElement>(copy.fields.textModel, "input"), "persist-text-model");
+    setFieldValue(getField<HTMLInputElement>(copy.fields.imageModel, "input"), "persist-image-model");
+    setSelectValue(
+      getField<HTMLSelectElement>(copy.fields.imageResponseMode, "select"),
+      "force-base64",
+    );
+    const rememberToggle = container.querySelector<HTMLInputElement>('[data-testid="settings-remember-api-key"]');
+    if (!rememberToggle) {
+      throw new Error(`Field not found: ${copy.fields.rememberApiKey}`);
+    }
+    act(() => {
+      rememberToggle.click();
+    });
+    await clickButtonAsync(copy.actions.save);
+    await flushPromises();
+
+    expect(runtime.saveConfig).toHaveBeenCalled();
+    const saveConfigCalls = (runtime.saveConfig as ReturnType<typeof vi.fn>).mock.calls;
+    const savedConfig = saveConfigCalls[saveConfigCalls.length - 1][0] as AppConfig;
+    const activeProfile = savedConfig.providerProfiles.find(
+      (profile) => profile.id === savedConfig.activeProviderProfileId,
+    );
+    expect(activeProfile).toMatchObject({
+      baseUrl: "https://persist.example/v1",
+      apiKey: "edited-persist-key",
+      textModel: "persist-text-model",
+      imageModel: "persist-image-model",
+      imageResponseMode: "force-base64",
+      rememberApiKey: true,
+    });
+    expect(savedConfig).toMatchObject({
+      baseUrl: "https://persist.example/v1",
+      apiKey: "edited-persist-key",
+      textModel: "persist-text-model",
+      imageModel: "persist-image-model",
+      imageResponseMode: "force-base64",
+      rememberApiKey: true,
+    });
   });
 
   function clickButton(label: string) {
