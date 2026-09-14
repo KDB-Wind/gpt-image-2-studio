@@ -15,7 +15,7 @@ import {
   normalizeBatchSplitPlan,
   splitPromptWithTextModel,
 } from "../core/batchPromptSplitter";
-import { retrySingleBatchTask, runBatchTasks } from "../core/batchRunner";
+import { classifyBatchFailure, retrySingleBatchTask, runBatchTasks } from "../core/batchRunner";
 import { safeErrorMessage } from "../core/errorSanitizer";
 import {
   buildBatchPromptRecipe,
@@ -1076,10 +1076,8 @@ export function BatchPanel({
       if (!isMountedRef.current) {
         return;
       }
-      await onHistoryChanged();
-      if (!isMountedRef.current) {
-        return;
-      }
+      // The manifest is persisted, so the batch has reached its terminal
+      // state; history/notification failures must not flip it back to paused.
       const nextSummary = summarizeBatchTasks(result.tasks);
       const message = copy.batch.messages.batchComplete(
         nextSummary.succeeded,
@@ -1087,7 +1085,16 @@ export function BatchPanel({
         nextSummary.skipped,
       );
       setAppMessage(message);
-      await notifyBatchComplete(copy.batch.title, message);
+      try {
+        await onHistoryChanged();
+      } catch {
+        // Best-effort refresh after the terminal manifest write.
+      }
+      try {
+        await notifyBatchComplete(copy.batch.title, message);
+      } catch {
+        // Notification permission rejections are non-fatal.
+      }
     } catch (error) {
       if (isMountedRef.current) {
         setStatus("paused");
@@ -1167,6 +1174,26 @@ export function BatchPanel({
         return;
       }
       await onHistoryChanged();
+      if (!hasFailedBatchTasks(finalTasks)) {
+        setPauseMessage("");
+      }
+    } catch (error) {
+      if (isMountedRef.current) {
+        const failedTasks = latestTasksRef.current.map((item): BatchTask =>
+          item.id === task.id
+            ? {
+                ...item,
+                status: "failed",
+                attemptCount: item.attemptCount + 1,
+                errorMessage: safeErrorMessage(error),
+                failureCategory: classifyBatchFailure(error),
+                completedAt: new Date().toISOString(),
+              }
+            : item,
+        );
+        commitTasks(failedTasks);
+        await persistManifest("completed", failedTasks, nextStartedAt).catch(() => undefined);
+      }
     } finally {
       releaseTaskRetry(task.id);
     }
