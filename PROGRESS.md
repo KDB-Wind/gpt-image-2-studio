@@ -62,11 +62,12 @@
   - B-9+B-10+B-11(commit 70e3291):重试失败置任务 failed(safeErrorMessage + classifyBatchFailure + attemptCount+1)并持久化 completed;批次完成收尾(onHistoryChanged/notifyBatchComplete)移出主 try,各自吞错;重试成功且无 failed 任务时清 pauseMessage。红:Unhandled Rejection + 任务卡 running;完成批次被改判 paused;"History refresh failed." 文案残留。
   - B-4(commit 07b5aec):handleChooseDirectory 持久化 `{...persistedConfig, outputDirectory}`(不再带草稿 key),状态用函数式更新保留编辑草稿。桌面端"半截 key 覆盖 keyring"入口随之关闭(桌面 key 语义对齐仍待第 4 批)。
   - 终态门禁(最后变更后):test:run 579/579 ✓(新增 7 测试);npm run build ✓;secret:scan ✓。mock e2e 未重跑:运行时代码变更仅四处错误边界,静态构建产物未变化;如需可在发布前以 e2e:static:mock 复核。
+  - **T7 审核整改(GPT5.6 复审后追加)**:①重试路径 catch 边界收窄——persistManifest 失败降级为 setAppMessage 警告、onHistoryChanged 吞错,仅 retrySingleBatchTask 本身失败才置任务 failed(修复"成功重试被后处理失败改判");②B-7 补齐元素级过滤——loadHistory 逐项 normalizeImageRecord,null/残缺记录被过滤,不再于历史分组崩溃。红证据:重试成功+manifest 失败 → succeeded 1/2;重试成功+历史刷新失败 → succeeded 1/2;`[null, {}, "junk"]` → `TypeError: Cannot read properties of null`(与审核者复现一致)。
 
 ## 待用户裁定清单(汇总)
 
-1. **StepFun 模型 2026-10-10 下线**:step-image-edit-2 与 /images/edits 停服,需迁移决策(docs/stepfun-contract-20260914.md §6)。
-2. 是否增加 StepFun 内置 provider 预设(尺寸白名单裁剪/64px 输入校验/模型下拉)。
+1. **StepFun 实连测试供应商到期(2026-10-10,非产品风险)**:产品代码零 StepFun 依赖(src/ 与 src-tauri/ 均无引用);不影响发布与推送;到期前仅需替换实连测试供应商或停用对应实连套件(.env.e2e.local / e2e:static:real)。契约细节见 docs/stepfun-contract-20260914.md。
+2. ~~是否增加 StepFun 内置 provider 预设~~ 已裁定(2026-09-14):**不增加**——StepFun 仅作临时实连测试供应商,不进入产品配置面。
 3. P2 缺陷 12 项:其中 B-1/B-4/B-7/B-9/B-10/B-11 已于 T7 修复(见上);剩 B-2/B-3/B-5/B-6/B-12 待裁定。
 4. 桌面端清除 API key(需 Rust save_api_key 支持覆写/删除)。
 5. 多 profile 管理 UI(核心能力已在 providerProfiles,UI 未暴露)。
