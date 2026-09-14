@@ -872,6 +872,18 @@ describe("webAdapter history deletion", () => {
     await expect(webAdapter.loadHistory()).resolves.toEqual([]);
   });
 
+  it("filters malformed history entries while keeping valid records", async () => {
+    const validRecord = createHistoryRecord({ id: "valid-history-1", prompt: "Valid record" });
+    localStorage.setItem(
+      "chat-to-image.history.v1",
+      JSON.stringify([validRecord, null, { id: "half-baked" }, "junk-entry"]),
+    );
+
+    await expect(webAdapter.loadHistory()).resolves.toEqual([
+      expect.objectContaining({ id: "valid-history-1", prompt: "Valid record" }),
+    ]);
+  });
+
   it("clears a memory history overlay after a later persistent update succeeds", async () => {
     const oldRecord = createHistoryRecord({
       id: "persisted-old",

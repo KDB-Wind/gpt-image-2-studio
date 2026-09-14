@@ -4,7 +4,7 @@ import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest, BatchWor
 import { sanitizeBatchWorkspace } from "../core/batchWorkspace";
 import { buildImageFileName, formatDateFolder } from "../core/fileNames";
 import { safeErrorMessage } from "../core/errorSanitizer";
-import { sortHistoryNewestFirst, type ImageRecord } from "../core/history";
+import { normalizeImageRecord, sortHistoryNewestFirst, type ImageRecord } from "../core/history";
 import {
   classifyImageDownloadFailure,
 } from "../core/imageDownloadError";
@@ -835,11 +835,14 @@ export const webAdapter: RuntimeAdapter = {
   },
 
   async loadHistory() {
-    const storedHistory = readStoredValue<ImageRecord[]>(HISTORY_KEY, []);
+    const storedHistory = readStoredValue<unknown[]>(HISTORY_KEY, []);
     if (!Array.isArray(storedHistory)) {
       return [];
     }
-    return sortHistoryNewestFirst(storedHistory);
+    const records = storedHistory
+      .map((entry) => normalizeImageRecord(entry))
+      .filter((record): record is ImageRecord => record !== null);
+    return sortHistoryNewestFirst(records);
   },
 
   async deleteHistoryRecords(recordIds: string[]) {
