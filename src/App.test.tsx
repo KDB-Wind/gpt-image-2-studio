@@ -1060,6 +1060,20 @@ describe("App batch workspace", () => {
       .toEqual({ "provider-default": REMEMBERED_UI_API_KEY });
   });
 
+  it("exposes remember-key control for the desktop runtime", async () => {
+    const copy = getTranslations("en-US");
+    const runtime: RuntimeAdapter = { ...createPreviewRuntime([]), mode: "desktop" };
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+    clickButton(copy.tabs.settings);
+
+    const rememberToggle = container.querySelector<HTMLInputElement>('[data-testid="settings-remember-api-key"]');
+    expect(rememberToggle).not.toBeNull();
+    expect(rememberToggle?.disabled).toBe(false);
+    expect(rememberToggle?.checked).toBe(false);
+  });
+
   it("shows memory-only storage truthfully and disables long-term API key storage", async () => {
     const copy = getTranslations("en-US");
     const runtime = createPreviewRuntime([]) as RuntimeAdapter & {

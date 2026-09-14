@@ -12,6 +12,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             storage::load_config,
             storage::load_provider_api_key,
+            storage::clear_provider_api_key,
             storage::save_config,
             storage::load_history,
             storage::delete_history_records,

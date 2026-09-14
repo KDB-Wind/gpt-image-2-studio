@@ -2175,20 +2175,22 @@ export default function App() {
                       />
                     </label>
                   </div>
-                  {runtime?.mode === "web" ? (
+                  {runtime ? (
                     <>
                       <label className="toggle-row">
                         <input
                           data-testid="settings-remember-api-key"
                           type="checkbox"
                           checked={config.rememberApiKey}
-                          disabled={!canRememberWebApiKey}
+                          disabled={runtime.mode === "web" && !canRememberWebApiKey}
                           onChange={(event) => updateConfig("rememberApiKey", event.currentTarget.checked)}
                         />
                         <span>{copy.fields.rememberApiKey}</span>
                       </label>
                       <p className="inline-note">
-                        {isMemoryOnlyWebRuntime
+                        {runtime.mode === "desktop"
+                          ? copy.notes.apiKeyDesktopStorageHint
+                          : isMemoryOnlyWebRuntime
                           ? copy.notes.apiKeyMemoryOnlyHint
                           : storageCapabilities?.local === false
                             ? copy.notes.apiKeySessionOnlyHint

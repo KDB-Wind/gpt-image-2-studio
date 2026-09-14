@@ -174,7 +174,15 @@ describe("tauriAdapter provider profile bridge", () => {
   beforeEach(() => invokeMock.mockReset());
 
   it("hydrates the default provider profile from the legacy native config", async () => {
-    invokeMock.mockResolvedValue({ ...DEFAULT_CONFIG, apiKey: "desktop-fake-key" });
+    invokeMock.mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      apiKey: "desktop-fake-key",
+      rememberApiKey: true,
+      providerProfiles: [{
+        ...DEFAULT_CONFIG.providerProfiles[0],
+        rememberApiKey: true,
+      }],
+    });
 
     await expect(tauriAdapter.loadConfig()).resolves.toMatchObject({
       activeProviderProfileId: "provider-default",
@@ -189,6 +197,7 @@ describe("tauriAdapter provider profile bridge", () => {
       ...DEFAULT_CONFIG,
       activeProviderProfileId: "provider-alt",
       apiKey: "desktop-alt-fake-key",
+      rememberApiKey: true,
       providerProfiles: [
         { ...DEFAULT_CONFIG.providerProfiles[0], apiKey: "desktop-default-fake-key" },
         {
@@ -197,6 +206,7 @@ describe("tauriAdapter provider profile bridge", () => {
           name: "Alternate provider",
           baseUrl: "https://alternate.example/v1",
           apiKey: "desktop-alt-fake-key",
+          rememberApiKey: true,
         },
       ],
     };
@@ -217,5 +227,45 @@ describe("tauriAdapter provider profile bridge", () => {
     expect(payload.config.apiKey).toBeUndefined();
     expect(payload.activeProfileApiKey).toBe("desktop-alt-fake-key");
     expect(JSON.stringify(payload.config.providerProfiles)).not.toContain("desktop-alt-fake-key");
+  });
+
+  it("does not hydrate a native API key when remember-key is disabled", async () => {
+    invokeMock.mockResolvedValue({
+      ...DEFAULT_CONFIG,
+      apiKey: "stale-native-key",
+      rememberApiKey: false,
+      providerProfiles: [{
+        ...DEFAULT_CONFIG.providerProfiles[0],
+        rememberApiKey: false,
+      }],
+    });
+
+    await expect(tauriAdapter.loadConfig()).resolves.toMatchObject({
+      apiKey: "",
+      rememberApiKey: false,
+      providerProfiles: [expect.objectContaining({ apiKey: "", rememberApiKey: false })],
+    });
+  });
+
+  it("sends an explicit empty persistent key without reloading the old key when remember-key is disabled", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    const config = {
+      ...DEFAULT_CONFIG,
+      apiKey: "session-only-key",
+      rememberApiKey: false,
+      providerProfiles: [{
+        ...DEFAULT_CONFIG.providerProfiles[0],
+        apiKey: "session-only-key",
+        rememberApiKey: false,
+      }],
+    };
+
+    await tauriAdapter.saveConfig(config);
+
+    expect(invokeMock).not.toHaveBeenCalledWith("load_provider_api_key", expect.anything());
+    expect(invokeMock).toHaveBeenCalledWith("save_config", expect.objectContaining({
+      activeProfileApiKey: "",
+      config: expect.objectContaining({ rememberApiKey: false }),
+    }));
   });
 });

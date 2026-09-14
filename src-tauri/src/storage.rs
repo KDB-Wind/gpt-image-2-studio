@@ -13,7 +13,7 @@ use std::{
 use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::{DateTime, Local};
 use directories::ProjectDirs;
-use keyring::Entry;
+use keyring::{Entry, Error as KeyringError};
 use serde::Serialize;
 use tempfile::NamedTempFile;
 
@@ -414,15 +414,53 @@ pub fn persist_api_key_json_fallback(path: &Path, profile_id: &str, api_key: &st
     write_json(path, &value)
 }
 
-fn save_api_key(path: &Path, profile_id: &str, api_key: &str) -> Result<String, String> {
-    // A profile switch can reach the native bridge before the UI has
-    // hydrated that profile's secret. Never replace an existing secret with
-    // an empty value; explicit clearing can be added as a separate command.
-    if api_key.trim().is_empty() {
-        let existing = load_api_key(path, profile_id, false);
-        if !existing.trim().is_empty() {
-            return Ok(read_api_key_storage_mode(path));
+fn remove_api_key_json_fallback(path: &Path, profile_id: &str) -> Result<(), String> {
+    let Some(mut value) = read_json_value(path) else {
+        return Ok(());
+    };
+    let mut changed = false;
+    if let Some(object) = value.as_object_mut() {
+        changed |= object.remove("apiKey").is_some();
+        if let Some(keys) = object.get_mut(API_KEYS_STORAGE_FIELD).and_then(|keys| keys.as_object_mut()) {
+            changed |= keys.remove(profile_id).is_some();
+            if keys.is_empty() {
+                object.remove(API_KEYS_STORAGE_FIELD);
+            }
         }
+    }
+    if changed {
+        write_json(path, &value)?;
+    }
+    Ok(())
+}
+
+fn delete_keyring_credential(account: &str) -> Result<(), String> {
+    let entry = Entry::new(KEYRING_SERVICE, account).map_err(|error| error.to_string())?;
+    match entry.delete_credential() {
+        Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn clear_api_key(path: &Path, profile_id: &str) -> Result<String, String> {
+    let storage_mode = read_api_key_storage_mode(path);
+    let profile_account = profile_keyring_account(profile_id);
+    let profile_delete_result = delete_keyring_credential(&profile_account);
+    let legacy_delete_result = delete_keyring_credential(LEGACY_KEYRING_ACCOUNT);
+
+    remove_api_key_json_fallback(path, profile_id)?;
+
+    if storage_mode == KEYRING_STORAGE_MODE {
+        profile_delete_result?;
+        legacy_delete_result?;
+    }
+
+    Ok(storage_mode)
+}
+
+fn save_api_key(path: &Path, profile_id: &str, api_key: &str) -> Result<String, String> {
+    if api_key.trim().is_empty() {
+        return clear_api_key(path, profile_id);
     }
 
     let account = profile_keyring_account(profile_id);
@@ -875,10 +913,20 @@ pub(crate) fn load_config_at(path: &Path) -> Result<AppConfig, String> {
             })).unwrap_or(false))
     }).unwrap_or(true);
     let mut config = load_config_from_path(path)?;
-    config.api_key = load_api_key(path, &config.active_provider_profile_id, allow_legacy_migration);
-    if has_legacy_api_key {
-        let mode = save_api_key(path, &config.active_provider_profile_id, &config.api_key)?;
-        write_config_file(path, &config, &mode)?;
+    let remember_api_key = config.provider_profiles.iter()
+        .find(|profile| profile.id == config.active_provider_profile_id)
+        .map(|profile| profile.remember_api_key)
+        .unwrap_or(config.remember_api_key);
+    config.remember_api_key = remember_api_key;
+    if remember_api_key {
+        config.api_key = load_api_key(path, &config.active_provider_profile_id, allow_legacy_migration);
+        if has_legacy_api_key {
+            let mode = save_api_key(path, &config.active_provider_profile_id, &config.api_key)?;
+            write_config_file(path, &config, &mode)?;
+        }
+    } else {
+        config.api_key.clear();
+        let _ = clear_api_key(path, &config.active_provider_profile_id);
     }
     Ok(config)
 }
@@ -890,23 +938,44 @@ pub fn load_config() -> Result<AppConfig, String> {
 
 #[tauri::command]
 pub fn load_provider_api_key(profile_id: String) -> Result<String, String> {
+    let profile_id = validate_provider_profile_id(&profile_id)?;
+    let path = config_path()?;
+    Ok(load_api_key(&path, profile_id, false))
+}
+
+fn validate_provider_profile_id(profile_id: &str) -> Result<&str, String> {
     let profile_id = profile_id.trim();
     if profile_id.is_empty() || profile_id.len() > 128 || profile_id.contains(['/', '\\']) {
         return Err("Invalid provider profile id".to_string());
     }
-    let path = config_path()?;
-    Ok(load_api_key(&path, profile_id, false))
+    Ok(profile_id)
+}
+
+#[tauri::command]
+pub fn clear_provider_api_key(profile_id: String) -> Result<(), String> {
+    let profile_id = validate_provider_profile_id(&profile_id)?;
+    clear_api_key(&config_path()?, profile_id).map(|_| ())
 }
 
 #[tauri::command]
 pub fn save_config(input: SaveConfigInput) -> Result<(), String> {
     let path = config_path()?;
-    let api_key_storage_mode = save_api_key(
-        &path,
-        &input.config.active_provider_profile_id,
-        &input.active_profile_api_key,
-    )?;
-    write_config_file(&path, &input.config, &api_key_storage_mode)
+    save_config_at(&path, input)
+}
+
+pub(crate) fn save_config_at(path: &Path, input: SaveConfigInput) -> Result<(), String> {
+    let mut config = input.config;
+    let remember_api_key = config.provider_profiles.iter()
+        .find(|profile| profile.id == config.active_provider_profile_id)
+        .map(|profile| profile.remember_api_key)
+        .unwrap_or(config.remember_api_key);
+    config.remember_api_key = remember_api_key;
+    let api_key_storage_mode = if remember_api_key && !input.active_profile_api_key.trim().is_empty() {
+        save_api_key(path, &config.active_provider_profile_id, &input.active_profile_api_key)?
+    } else {
+        clear_api_key(path, &config.active_provider_profile_id)?
+    };
+    write_config_file(path, &config, &api_key_storage_mode)
 }
 
 #[tauri::command]

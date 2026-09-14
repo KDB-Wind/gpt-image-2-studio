@@ -76,6 +76,15 @@
 
 ## 状态
 
+### T9 桌面 keyring 凭证语义修复任务边界
+
+- **请求结果与验收标准**:修复 B-8/keyring 簇：桌面端清空 API key 或关闭“记住 API key”后，保存必须删除 active profile 的 keyring 与 JSON fallback 持久副本；未勾选时密钥仅保留在当前应用进程内，重启不得回灌；勾选时仍可安全持久化。
+- **范围内文件/模块**:`src/runtime/tauriAdapter*`、桌面设置 UI 与 i18n/测试、`src-tauri/src/models.rs`、`storage.rs`、`storage_tests.rs`、Tauri command 注册及本任务记录。
+- **明确排除与外部效果**:不改 Web 端既有 session/localStorage 语义；不处理 B-2/B-3/B-5/B-6/B-12；不调用真实 provider、不 push、不发布。测试只能使用假密钥和临时文件/隔离凭证账户。
+- **未解决问题/阻塞**:需在实现中保持 legacy key 迁移与多 profile fallback 隔离，清除失败必须显式报错，不能静默声称已删除。
+- **红绿证据**:修复前聚焦前端为 3 failed / 47 passed（启动回灌、保存回捞、桌面开关缺失），Rust 两条定向回归均失败（空保存保留旧 fallback、remember=false 仍加载）；修复后前端聚焦 50/50、Rust 全量 38/38 通过。首次全量前端运行另发现 `App.desktop.test.tsx` 把“桌面隐藏记忆开关”固化为旧契约（1 failed / 584 passed），已改为验证桌面开关可用及 fallback 披露。
+- **完成**:Tauri 适配器按 active profile 的 remember 语义水合/保存，不再回捞旧 key；桌面 UI 开放记忆开关并披露 JSON 明文 fallback；Rust 新增 `clear_provider_api_key`，且 `save_config` 自身把 false/空 key 强制解释为按 profile 删除 keyring、legacy 与 JSON fallback。旧版错误遗留且 remember=false 的密钥会在启动时清理，不再回灌。
+
 ### T8 文档一致性收口任务边界
 
 - **请求结果与验收标准**:清除发布草稿英文段落中已过时的“P2 均未修”和“StepFun 需要产品迁移”表述，并将 StepFun 契约的独立 t2i 模型字段结论限定为测试供应商能力判断。

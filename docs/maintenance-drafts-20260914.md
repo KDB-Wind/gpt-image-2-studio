@@ -10,6 +10,8 @@
 - 发布前可靠性:损坏的本地历史不再导致应用启动失败(空历史降级 + 逐条过滤坏记录);已保存图片不再
   因历史刷新失败被误标"生成失败";批量重试失败不再使任务卡在"进行中",完成批次不再被通知/历史回调
   失败改判"已暂停";选择输出目录不再顺带保存未点击"保存"的草稿配置(含 API key)。
+- 桌面端清空 API key 或关闭“记住 API key”后会删除当前供应商的系统凭据与本地回退副本，重启不再
+  复活旧密钥；只有明确启用记忆时才持久化，并在设置页披露系统凭据库不可用时的配置文件回退。
 ### Added
 - mock e2e 覆盖矩阵扩容:单图图生图、单图浏览器下载回退(含错误脱敏断言)、批量取消剩余任务、
   file:// 双击打开页生图、设置编辑请求可达性+重载保持回归;实连新增错误密钥/错误模型两条零成本
@@ -20,7 +22,7 @@
   (生图 5/30、文本 3/60)、全量门禁记录。
 ### Known Issues(未修,详见 docs/audit-20260914.md)
 - P2 剩余:B-2 历史预览竞态、B-3 批次预览吞错、B-5 配额满不裁剪、B-6 目录取消被当失败、B-12 非 JSON
-  200 分类失真;桌面端清除 API key 仍会被 keyring 复活(需 Rust 侧配合,批次 4 待启动)。
+  200 分类失真。
 - (测试基础设施,非产品风险,不入发布阻断)实连 e2e 供应商 StepFun 图像接口 2026-10-10 停服,届时
   替换测试供应商或停用 e2e:static:real 即可。
 ```
@@ -48,6 +50,9 @@ coverage, and live-contract work. The immutable v0.1.7 archive baseline is prese
   history refresh failure no longer relabels a successful image as failed; batch retry and
   completion bookkeeping failures no longer corrupt task state; choosing an output directory
   no longer persists unsaved settings drafts.
+- Desktop API-key retention now follows the remember-key setting. Clearing the key or disabling
+  retention deletes the active provider's system credential and local fallback copy; the key is
+  persisted only after explicit opt-in, and the settings UI discloses the app-config fallback.
 - Expands mock e2e coverage (single image-to-image, single browser-download fallback with
   redaction asserts, batch cancel, file:// generation, settings-edit request targeting and
   reload persistence) and adds zh/en validation key parity guard.
@@ -55,8 +60,9 @@ coverage, and live-contract work. The immutable v0.1.7 archive baseline is prese
   config with a synchronized provider profile.
 - Documents the 2026-09-14 audit (six P2 items fixed; B-2/B-3/B-5/B-6/B-12 remain), StepFun live
   contract matrix (5 images / 3 text calls against the authorized key), and full gate records.
-- Known issue: clearing the API key on desktop is resurrected from the Rust keyring until a
-  Rust-side clear channel lands.
+- Privacy migration note: a desktop key left behind by the previous broken remember-key behavior
+  is removed on startup when retention is disabled; re-enter it and explicitly enable retention
+  only if persistence is desired.
 - Test infrastructure note: the temporary StepFun image provider used by real-provider e2e stops
   serving on 2026-10-10. Replace that test supplier or disable the suite; this is not a product
   migration or release blocker.

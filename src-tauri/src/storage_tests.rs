@@ -393,7 +393,7 @@ fn keyring_results_are_isolated_by_provider_profile() {
 }
 
 #[test]
-fn empty_save_does_not_replace_existing_profile_key() {
+fn empty_save_clears_only_the_target_profile_fallback_key() {
     let temp_root = std::env::temp_dir().join(format!(
         "chat-to-image-empty-key-save-{}",
         std::process::id()
@@ -402,11 +402,103 @@ fn empty_save_does_not_replace_existing_profile_key() {
 
     std::fs::create_dir_all(&temp_root).unwrap();
     crate::storage::persist_api_key_json_fallback(&config_path, "provider-a", "key-a").unwrap();
-    let mode = crate::storage::save_config_for_test(&config_path, "provider-a", "").unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "provider-b", "key-b").unwrap();
+    let mode = crate::storage::save_config_for_test(&config_path, "provider-b", "").unwrap();
 
     assert_eq!(mode, "json-fallback");
     let stored: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     assert_eq!(stored["__apiKeys"]["provider-a"], "key-a");
+    assert!(stored["__apiKeys"].get("provider-b").is_none());
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn load_config_does_not_hydrate_a_fallback_key_when_remember_is_false() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-session-only-key-load-{}",
+        std::process::id()
+    ));
+    let config_path = temp_root.join("config.json");
+    std::fs::create_dir_all(&temp_root).unwrap();
+    std::fs::write(&config_path, serde_json::json!({
+        "rememberApiKey": false,
+        "activeProviderProfileId": "provider-default",
+        "providerProfiles": [{
+            "id": "provider-default",
+            "name": "Default",
+            "baseUrl": "https://one",
+            "textModel": "text",
+            "imageModel": "image",
+            "imageResponseMode": "official",
+            "rememberApiKey": false
+        }],
+        "__apiKeyStorage": "json-fallback",
+        "__apiKeys": { "provider-default": "stale-key" }
+    }).to_string()).unwrap();
+
+    let loaded = crate::storage::load_config_at(&config_path).unwrap();
+
+    assert_eq!(loaded.api_key, "");
+    let stored: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert!(stored.get("__apiKeys").is_none());
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn save_config_clears_a_nonempty_key_when_remember_is_false() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-session-only-key-save-{}",
+        std::process::id()
+    ));
+    let config_path = temp_root.join("config.json");
+    std::fs::create_dir_all(&temp_root).unwrap();
+    crate::storage::persist_api_key_json_fallback(&config_path, "provider-default", "old-key").unwrap();
+
+    let config = crate::storage::default_config();
+    crate::storage::save_config_at(&config_path, crate::models::SaveConfigInput {
+        config,
+        active_profile_api_key: "session-only-key".to_string(),
+    }).unwrap();
+
+    let stored: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert!(stored.get("apiKey").is_none());
+    assert!(stored.get("__apiKeys").is_none());
+    assert_eq!(stored["rememberApiKey"], false);
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn load_config_hydrates_a_fallback_key_when_remember_is_true() {
+    let temp_root = std::env::temp_dir().join(format!(
+        "chat-to-image-remembered-key-load-{}",
+        std::process::id()
+    ));
+    let config_path = temp_root.join("config.json");
+    std::fs::create_dir_all(&temp_root).unwrap();
+    std::fs::write(&config_path, serde_json::json!({
+        "rememberApiKey": true,
+        "activeProviderProfileId": "provider-default",
+        "providerProfiles": [{
+            "id": "provider-default",
+            "name": "Default",
+            "baseUrl": "https://one",
+            "textModel": "text",
+            "imageModel": "image",
+            "imageResponseMode": "official",
+            "rememberApiKey": true
+        }],
+        "__apiKeyStorage": "json-fallback",
+        "__apiKeys": { "provider-default": "remembered-key" }
+    }).to_string()).unwrap();
+
+    let loaded = crate::storage::load_config_at(&config_path).unwrap();
+
+    assert_eq!(loaded.api_key, "remembered-key");
+    assert!(loaded.remember_api_key);
 
     let _ = std::fs::remove_dir_all(&temp_root);
 }
@@ -451,7 +543,7 @@ fn profile_b_does_not_inherit_profile_a_legacy_key() {
 }
 
 #[test]
-fn load_config_migrates_and_removes_legacy_json_key_immediately() {
+fn load_config_removes_legacy_json_key_when_remember_is_false() {
     let temp_root = std::env::temp_dir().join(format!("chat-to-image-load-config-migration-{}", std::process::id()));
     let config_path = temp_root.join("config.json");
     std::fs::create_dir_all(&temp_root).unwrap();
@@ -463,10 +555,10 @@ fn load_config_migrates_and_removes_legacy_json_key_immediately() {
     }).to_string()).unwrap();
 
     let config = crate::storage::load_config_at(&config_path).unwrap();
-    assert_eq!(config.api_key, "legacy-key");
+    assert_eq!(config.api_key, "");
     let stored: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     assert!(stored.get("apiKey").is_none());
-    assert_eq!(stored["__apiKeys"]["provider-default"], "legacy-key");
+    assert!(stored.get("__apiKeys").is_none());
 
     let _ = std::fs::remove_dir_all(&temp_root);
 }
