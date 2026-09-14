@@ -115,6 +115,22 @@ describe("App batch workspace", () => {
     );
   });
 
+  it("keeps a successful generation when the history refresh after saving fails", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([createSaveImageResult("blob:saved-but-history-refresh-failed")]);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    vi.spyOn(apiClient, "generateImages").mockResolvedValue([{ base64: "image" }]);
+
+    await renderApp();
+    vi.mocked(runtime.loadHistory).mockRejectedValueOnce(new Error("history refresh unavailable"));
+    setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create a saved poster.");
+    await clickButtonAsync(copy.actions.generate);
+
+    expect(container.querySelector('.preview-success img[src="blob:saved-but-history-refresh-failed"]')).not.toBeNull();
+    expect(container.querySelector(".preview-placeholder.failed")).toBeNull();
+    expect(container.textContent).toContain("History could not be loaded");
+  });
+
   it("releases the old generated preview when a new single-image preview replaces it", async () => {
     const copy = getTranslations("en-US");
     const runtime = createPreviewRuntime([
@@ -158,7 +174,7 @@ describe("App batch workspace", () => {
     expect(revokeObjectUrl).toHaveBeenCalledWith("blob:single-failed");
   });
 
-  it("releases a saved preview when refreshing history fails", async () => {
+  it("keeps the saved preview alive when refreshing history fails", async () => {
     const copy = getTranslations("en-US");
     const runtime = createPreviewRuntime([createSaveImageResult("blob:single-history-failure")]);
     const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
@@ -170,8 +186,8 @@ describe("App batch workspace", () => {
     setFieldValue(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea"), "Create a poster.");
     await clickButtonAsync(copy.actions.generate);
 
-    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
-    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:single-history-failure");
+    expect(container.querySelector('.preview-success img[src="blob:single-history-failure"]')).not.toBeNull();
+    expect(revokeObjectUrl).not.toHaveBeenCalledWith("blob:single-history-failure");
   });
 
   it("releases its generated preview on unmount", async () => {

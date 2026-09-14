@@ -1240,7 +1240,14 @@ export default function App() {
         return;
       }
       adoptPreviewUrl(savedPreviewUrl);
-      await reloadHistory(runtime);
+      // The image is already saved at this point; a failed history refresh
+      // must not relabel the generation itself as failed.
+      let historyReloadWarning: string | null = null;
+      try {
+        await reloadHistory(runtime);
+      } catch (error) {
+        historyReloadWarning = copy.messages.historyLoadFailed(getErrorMessage(error));
+      }
       if (!isMountedRef.current) {
         return;
       }
@@ -1256,7 +1263,7 @@ export default function App() {
         saveMode: savedResult.saveMode,
         saveFallbackReason: savedResult.saveFallbackReason,
         historyDurability: savedResult.historyDurability,
-        historyWarning: savedResult.historyWarning,
+        historyWarning: savedResult.historyWarning ?? historyReloadWarning ?? undefined,
       });
     } catch (error) {
       if (!isMountedRef.current) {
@@ -2854,7 +2861,7 @@ export default function App() {
                         {copy.messages.saveFallbackToBrowserDownload(previewState.saveFallbackReason)}
                       </div>
                     ) : null}
-                    {previewState.historyDurability === "memory-only" && previewState.historyWarning ? (
+                    {previewState.historyWarning ? (
                       <div className="message-card warning inline-message" data-testid="single-history-durability-warning">
                         {previewState.historyWarning}
                       </div>
