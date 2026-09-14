@@ -64,6 +64,7 @@ export type RuntimeAdapter = {
   loadConfig(): Promise<AppConfig>;
   saveConfig(config: AppConfig): Promise<void>;
   loadProviderApiKey?(profileId: string): Promise<string>;
+  clearProviderApiKey?(profileId: string): Promise<void>;
   getStorageCapabilities?(): Promise<RuntimeStorageCapabilities>;
   loadHistory(): Promise<ImageRecord[]>;
   deleteHistoryRecords(recordIds: string[]): Promise<ImageRecord[]>;

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import * as nodeFs from "node:fs";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -48,10 +48,10 @@ const RULES = [
   {
     name: "sensitive-assignment",
     pattern: new RegExp(
-      `\\b${SENSITIVE_ASSIGNMENT_NAME}\\b\\s*[:=]\\s*["']?([A-Za-z0-9._~+/=-]{20,})`,
+      `\\b${SENSITIVE_ASSIGNMENT_NAME}\\b\\s*[:=]\\s*(?:["']([A-Za-z0-9._~+/=-]{20,})["']|([A-Za-z0-9._~+/-]{20,}={0,2}))`,
       "gi",
     ),
-    value: (match) => match[1],
+    value: (match) => match[1] ?? match[2],
     requireEntropy: true,
   },
 ];
@@ -216,8 +216,17 @@ function assertGitRepository(rootDir) {
   const topLevel = runGit(rootDir, ["rev-parse", "--show-toplevel"], { maxBuffer: 4096 })
     .toString("utf8")
     .trim();
-  if (resolve(topLevel).toLowerCase() !== resolve(rootDir).toLowerCase()) {
+  if (canonicalPath(topLevel) !== canonicalPath(rootDir)) {
     throw new Error("Secret scan root is not the Git worktree root.");
+  }
+}
+
+function canonicalPath(path) {
+  const resolvedPath = resolve(path);
+  try {
+    return realpathSync.native(resolvedPath).toLowerCase();
+  } catch {
+    return resolvedPath.toLowerCase();
   }
 }
 

@@ -65,6 +65,20 @@ pub struct ImageRecord {
     pub duration_ms: u64,
     pub provider_profile_snapshot: Option<ProviderProfileSnapshot>,
     pub error_message: Option<String>,
+    #[serde(default)]
+    pub batch: Option<BatchImageRecordMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchImageRecordMetadata {
+    pub id: String,
+    pub title: String,
+    pub created_at: String,
+    pub task_id: String,
+    pub task_index: usize,
+    pub task_title: String,
+    pub total_tasks: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,6 +118,8 @@ pub struct SaveBatchImageInput {
     pub batch_id: String,
     pub batch_title: String,
     pub batch_created_at: String,
+    #[serde(default)]
+    pub total_tasks: Option<usize>,
     pub task: SaveBatchImageTaskInput,
     pub image_base64: String,
     pub config: AppConfig,

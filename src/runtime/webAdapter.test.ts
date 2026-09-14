@@ -138,6 +138,11 @@ describe("webAdapter history deletion", () => {
       ],
     };
 
+    await webAdapter.saveConfig({
+      ...DEFAULT_CONFIG,
+      apiKey: defaultKey,
+      rememberApiKey: true,
+    });
     await webAdapter.saveConfig(config);
 
     const storedConfig = JSON.parse(localStorage.getItem("chat-to-image.config.v1") ?? "{}");
@@ -150,6 +155,12 @@ describe("webAdapter history deletion", () => {
       .toEqual({ "provider-default": defaultKey });
     expect(JSON.parse(sessionStorage.getItem("chat-to-image.api-keys.session.v1") ?? "{}"))
       .toEqual({ "provider-alt": alternateKey });
+
+    const hydratedConfig = await webAdapter.loadConfig();
+    expect(hydratedConfig.providerProfiles).toEqual([
+      expect.objectContaining({ id: "provider-default", apiKey: "" }),
+      expect.objectContaining({ id: "provider-alt", apiKey: alternateKey }),
+    ]);
 
     await webAdapter.saveConfig({
       ...config,
@@ -166,6 +177,53 @@ describe("webAdapter history deletion", () => {
       apiKey: defaultKey,
       providerProfiles: [expect.objectContaining({ id: "provider-default", apiKey: defaultKey })],
     });
+  });
+
+  it("preserves another profile key when deleting the active profile after refresh hydration", async () => {
+    const defaultKey = "refresh-default-profile-key";
+    const alternateKey = "refresh-alternate-profile-key";
+    const profiles = [
+      { ...DEFAULT_CONFIG.providerProfiles[0], apiKey: defaultKey, rememberApiKey: true },
+      {
+        ...DEFAULT_CONFIG.providerProfiles[0],
+        id: "provider-alt",
+        name: "Alternate provider",
+        apiKey: alternateKey,
+        rememberApiKey: false,
+      },
+    ];
+
+    await webAdapter.saveConfig({
+      ...DEFAULT_CONFIG,
+      apiKey: defaultKey,
+      rememberApiKey: true,
+    });
+    await webAdapter.saveConfig({
+      ...DEFAULT_CONFIG,
+      activeProviderProfileId: "provider-alt",
+      apiKey: alternateKey,
+      rememberApiKey: false,
+      providerProfiles: profiles,
+    });
+
+    const refreshed = await webAdapter.loadConfig();
+    expect(refreshed.providerProfiles).toEqual([
+      expect.objectContaining({ id: "provider-default", apiKey: "" }),
+      expect.objectContaining({ id: "provider-alt", apiKey: alternateKey }),
+    ]);
+
+    const remainingProfile = refreshed.providerProfiles.find((profile) => profile.id === "provider-default");
+    expect(remainingProfile).toBeDefined();
+    await webAdapter.saveConfig({
+      ...refreshed,
+      activeProviderProfileId: "provider-default",
+      apiKey: "",
+      providerProfiles: [remainingProfile!],
+    });
+
+    expect(JSON.parse(localStorage.getItem("chat-to-image.api-keys.persistent.v1") ?? "{}"))
+      .toEqual({ "provider-default": defaultKey });
+    await expect(webAdapter.loadProviderApiKey?.("provider-default")).resolves.toBe(defaultKey);
   });
 
   it("migrates a legacy single key into the default profile map once", async () => {
@@ -1050,6 +1108,142 @@ describe("webAdapter history deletion", () => {
     },
   );
 
+  it("rejects a whitespace-only image URL before resolving it against the current page", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      webAdapter.saveImage({
+        image: { url: "   " },
+        prompt: "A blank image URL.",
+        optimizedPrompt: "",
+        customName: "",
+        config: DEFAULT_CONFIG,
+        generatedAt: new Date("2026-07-05T10:00:00.000Z"),
+        durationMs: 1200,
+      }),
+    ).rejects.toMatchObject({ code: "image-download-failed" });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["blob:revoked-image", "data:image/png;base64,invalid", "ftp://provider.example/image.png"])(
+    "keeps non-http image URL fetch failures generic: %s",
+    async (providerUrl) => {
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValueOnce(new TypeError("Failed to fetch")));
+
+      await expect(
+        webAdapter.saveImage({
+          image: { url: providerUrl },
+          prompt: "A non-provider image URL.",
+          optimizedPrompt: "",
+          customName: "",
+          config: DEFAULT_CONFIG,
+          generatedAt: new Date("2026-07-05T10:00:00.000Z"),
+          durationMs: 1200,
+        }),
+      ).rejects.toMatchObject({
+        code: "image-download-failed",
+        message: "Failed to download generated image.",
+      });
+    },
+  );
+
+  it("migrates legacy provider metadata before applying the current provider schema", async () => {
+    localStorage.setItem("chat-to-image.config.v1", JSON.stringify({
+      uiLanguage: "en-US",
+      hasDismissedWelcome: true,
+      baseUrl: "https://legacy-provider.example/v1",
+      apiKey: "legacy-provider-fake-key",
+      rememberApiKey: false,
+      textModel: "legacy-text-model",
+      imageModel: "legacy-image-model",
+      imageResponseMode: "force-base64",
+    }));
+
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({
+      baseUrl: "https://legacy-provider.example/v1",
+      apiKey: "legacy-provider-fake-key",
+      textModel: "legacy-text-model",
+      imageModel: "legacy-image-model",
+      imageResponseMode: "force-base64",
+      activeProviderProfileId: "provider-default",
+      providerProfiles: [expect.objectContaining({
+        id: "provider-default",
+        name: "Default provider",
+        baseUrl: "https://legacy-provider.example/v1",
+        apiKey: "legacy-provider-fake-key",
+        textModel: "legacy-text-model",
+        imageModel: "legacy-image-model",
+        imageResponseMode: "force-base64",
+        rememberApiKey: false,
+      })],
+    });
+
+    const migrated = JSON.parse(localStorage.getItem("chat-to-image.config.v1") ?? "{}");
+    expect(migrated).not.toHaveProperty("apiKey");
+    expect(migrated).toMatchObject({
+      providerSchemaVersion: 1,
+      activeProviderProfileId: "provider-default",
+      providerProfiles: [expect.objectContaining({
+        id: "provider-default",
+        baseUrl: "https://legacy-provider.example/v1",
+        textModel: "legacy-text-model",
+        imageModel: "legacy-image-model",
+        imageResponseMode: "force-base64",
+      })],
+    });
+    expect(JSON.parse(sessionStorage.getItem("chat-to-image.api-keys.session.v1") ?? "{}"))
+      .toEqual({ "provider-default": "legacy-provider-fake-key" });
+  });
+
+  it("loads and clears one profile key without touching another profile", async () => {
+    const defaultKey = "load-default-profile-key";
+    const alternateKey = "load-alternate-profile-key";
+    await webAdapter.saveConfig({ ...DEFAULT_CONFIG, apiKey: defaultKey, rememberApiKey: true });
+    await webAdapter.saveConfig({
+      ...DEFAULT_CONFIG,
+      activeProviderProfileId: "provider-alt",
+      apiKey: alternateKey,
+      rememberApiKey: false,
+      providerProfiles: [
+        { ...DEFAULT_CONFIG.providerProfiles[0] },
+        { ...DEFAULT_CONFIG.providerProfiles[0], id: "provider-alt", name: "Alternate" },
+      ],
+    });
+
+    await expect(webAdapter.loadProviderApiKey?.("provider-default")).resolves.toBe(defaultKey);
+    await expect(webAdapter.loadProviderApiKey?.("provider-alt")).resolves.toBe(alternateKey);
+    await webAdapter.clearProviderApiKey?.("provider-alt");
+
+    await expect(webAdapter.loadProviderApiKey?.("provider-default")).resolves.toBe(defaultKey);
+    await expect(webAdapter.loadProviderApiKey?.("provider-alt")).resolves.toBe("");
+    expect(JSON.parse(localStorage.getItem("chat-to-image.api-keys.persistent.v1") ?? "{}"))
+      .toEqual({ "provider-default": defaultKey });
+    expect(JSON.parse(sessionStorage.getItem("chat-to-image.api-keys.session.v1") ?? "{}"))
+      .toEqual({});
+  });
+
+  it.each([
+    ["session", "chat-to-image.api-keys.session.v1", sessionStorage],
+    ["local", "chat-to-image.api-keys.persistent.v1", localStorage],
+  ] as const)("reports %s storage write failure and preserves the fallback key", async (kind, storageKey, storage) => {
+    storage.setItem(storageKey, JSON.stringify({ "provider-alt": "key-to-preserve" }));
+    const originalSetItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+      if (key === storageKey) {
+        throw new DOMException(`${kind} storage write failed`, "QuotaExceededError");
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    await expect(webAdapter.clearProviderApiKey?.("provider-alt"))
+      .rejects.toThrow("Provider API key clear was not durable");
+    expect(JSON.parse(storage.getItem(storageKey) ?? "{}")).toEqual({
+      "provider-alt": "key-to-preserve",
+    });
+  });
+
   it.each(["blob:revoked-image", "data:image/png;base64,invalid", "ftp://provider.example/image.png"])(
     "keeps non-http image URL fetch failures generic: %s",
     async (providerUrl) => {
@@ -1609,6 +1803,7 @@ describe("webAdapter history deletion", () => {
       batchId: "batch-20260524",
       batchTitle: "World Cup posters",
       batchCreatedAt: "2026-05-24T00:00:00.000Z",
+      totalTasks: 3,
       task,
       image: { base64: ONE_PIXEL_PNG },
       config: { ...DEFAULT_CONFIG, defaultFormat: "png" },
@@ -1623,7 +1818,7 @@ describe("webAdapter history deletion", () => {
       taskId: "task-2",
       taskIndex: 1,
       taskTitle: "Japan poster",
-      totalTasks: undefined,
+      totalTasks: 3,
     });
     await expect(webAdapter.loadHistory()).resolves.toEqual([expect.objectContaining({ batch: result.record.batch })]);
   });

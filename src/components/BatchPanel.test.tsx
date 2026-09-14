@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_CONFIG } from "../core/config";
 import type { BatchPreviewState } from "../core/batchPreview";
+import type { BatchTask } from "../core/batchTypes";
 import { getTranslations } from "../i18n/translations";
 import type { RuntimeAdapter } from "../runtime/types";
 import { BatchPanel } from "./BatchPanel";
@@ -1428,6 +1429,165 @@ describe("BatchPanel", () => {
       await retryDeferred.promise;
       await Promise.resolve();
     });
+  });
+
+  it("does not leave a task running when a single-task retry rejects", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createRuntime();
+    runBatchTasksMock.mockResolvedValue({ status: "completed", tasks: createFailedTasks(), pauseReason: null });
+    retrySingleBatchTaskMock.mockRejectedValue(new Error("Retry failed."));
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 2 }}
+          runtime={runtime}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+        />,
+      );
+    });
+
+    await createAndRunTwoTaskBatch(copy);
+    clickButton(copy.batch.actions.retryTask);
+    await flushPromises();
+
+    expect(container.querySelectorAll(".batch-task-card .status-pill.running")).toHaveLength(0);
+    expect(container.querySelectorAll(".batch-task-card .status-pill.failed")).toHaveLength(2);
+    expect(container.textContent).toContain("Retry failed.");
+  });
+
+  it("shows the active provider mode and locks quick switching while a batch is running", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createRuntime();
+    const runDeferred = createDeferred<Awaited<ReturnType<typeof import("../core/batchRunner").runBatchTasks>>>();
+    const onProviderProfileChange = vi.fn();
+    const config = {
+      ...DEFAULT_CONFIG,
+      apiKey: "provider-a-key",
+      activeProviderProfileId: "provider-a",
+      providerProfiles: [
+        {
+          ...DEFAULT_CONFIG.providerProfiles[0],
+          id: "provider-a",
+          name: "Profile A",
+          apiKey: "provider-a-key",
+        },
+        {
+          ...DEFAULT_CONFIG.providerProfiles[0],
+          id: "provider-b",
+          name: "Profile B",
+          apiKey: "provider-b-key",
+          imageResponseMode: "force-base64" as const,
+        },
+      ],
+    };
+    runBatchTasksMock.mockReturnValue(runDeferred.promise);
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={config}
+          runtime={runtime}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+          onProviderProfileChange={onProviderProfileChange}
+          getRequestConfig={() => config}
+        />,
+      );
+    });
+
+    const profileSelect = container.querySelector<HTMLSelectElement>('[data-testid="batch-provider-profile"]');
+    expect(profileSelect?.value).toBe("provider-a");
+    expect(profileSelect?.disabled).toBe(false);
+    expect(container.textContent).toContain(copy.options.imageResponseModeOfficial);
+
+    setFieldValue(getField(copy.batch.fields.masterPrompt, "textarea"), "Create one poster.");
+    clickButton(copy.batch.actions.createTasks);
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="batch-start"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(profileSelect?.disabled).toBe(true);
+    expect(runBatchTasksMock).toHaveBeenCalledWith(expect.objectContaining({ config }));
+
+    const tasks = runBatchTasksMock.mock.calls[0][0].tasks.map((task: BatchTask) => ({
+      ...task,
+      status: "succeeded" as const,
+      outputPath: `outputs/${task.id}.png`,
+    }));
+    runDeferred.resolve({ status: "completed", tasks, pauseReason: null });
+    await act(async () => {
+      await runDeferred.promise;
+      await Promise.resolve();
+    });
+
+    expect(profileSelect?.disabled).toBe(false);
+  });
+
+  it("offers a force-base64 action for a paused CORS batch without rerunning tasks", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createRuntime();
+    const onSwitchToForceBase64 = vi.fn().mockResolvedValue(undefined);
+    runBatchTasksMock.mockImplementation(async (input) => ({
+      status: "paused",
+      tasks: input.tasks.map((task: BatchTask, index: number) => ({
+        ...task,
+        status: index === 0 ? "failed" as const : "pending" as const,
+        failureCategory: index === 0 ? "cost_risk" as const : null,
+        suggestedAction: index === 0 ? "force-base64" as const : undefined,
+        errorMessage: index === 0 ? "redacted CORS failure" : "",
+      })),
+      pauseReason: {
+        taskId: input.tasks[0].id,
+        failureCategory: "cost_risk",
+        message: "redacted CORS failure",
+      },
+    }));
+
+    await act(async () => {
+      root.render(
+        <BatchPanel
+          config={{ ...DEFAULT_CONFIG, apiKey: "test-key", batchDefaultTaskCount: 2 }}
+          runtime={runtime}
+          language="en-US"
+          referenceImages={[]}
+          onConfigChange={vi.fn()}
+          onHistoryChanged={vi.fn().mockResolvedValue(undefined)}
+          requireValidConfig={vi.fn().mockReturnValue(true)}
+          setAppMessage={vi.fn()}
+          onSwitchToForceBase64={onSwitchToForceBase64}
+        />,
+      );
+    });
+
+    setFieldValue(getField(copy.batch.fields.masterPrompt, "textarea"), "Create two posters.");
+    clickButton(copy.batch.actions.createTasks);
+    await clickButtonAsync(copy.batch.actions.start);
+    await flushPromises();
+
+    expect(container.textContent).toContain(copy.messages.imageUrlCorsFailure);
+    const action = container.querySelector<HTMLButtonElement>('[data-testid="batch-force-base64"]');
+    expect(action?.textContent).toBe(copy.actions.switchToForceBase64);
+    expect(runBatchTasksMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      action?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(onSwitchToForceBase64).toHaveBeenCalledTimes(1);
+    expect(runBatchTasksMock).toHaveBeenCalledTimes(1);
   });
 
   it("persists the final merged retry snapshot while keeping sibling task state", async () => {

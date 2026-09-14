@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { DEFAULT_CONFIG, type AppConfig } from "./core/config";
 import type { ImageRecord } from "./core/history";
+import { MAX_PROVIDER_PROFILES, type ProviderProfile } from "./core/providerProfiles";
 import { getTranslations } from "./i18n/translations";
 import type { OutputDirectoryState, RuntimeAdapter } from "./runtime/types";
 
@@ -441,6 +442,49 @@ describe("App smoke", () => {
     ]);
   });
 
+  it("keeps the final provider profile and enforces the profile limit", async () => {
+    const copy = getTranslations("en-US");
+    runtimeMock.adapter = createMockRuntime({ uiLanguage: "en-US", hasDismissedWelcome: true });
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushAppEffects();
+    await act(async () => {
+      clickButton(container, copy.tabs.settings);
+    });
+
+    const deleteButton = getButton(container, copy.actions.deleteProviderProfile);
+    expect(deleteButton.disabled).toBe(true);
+    expect(container.querySelectorAll('[data-testid="settings-provider-profile"] option')).toHaveLength(1);
+
+    const profiles = Array.from({ length: MAX_PROVIDER_PROFILES }, (_, index) =>
+      createProviderProfile(index + 1),
+    );
+    runtimeMock.adapter = createMockRuntime({
+      uiLanguage: "en-US",
+      hasDismissedWelcome: true,
+      providerProfiles: profiles,
+      activeProviderProfileId: profiles[0].id,
+      ...profiles[0],
+    });
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushAppEffects();
+    await act(async () => {
+      clickButton(container, copy.tabs.settings);
+    });
+
+    expect(getButton(container, copy.actions.createProviderProfile).disabled).toBe(true);
+    expect(container.querySelectorAll('[data-testid="settings-provider-profile"] option')).toHaveLength(
+      MAX_PROVIDER_PROFILES,
+    );
+  });
+
   it("starts image-to-image editing from a saved history image", async () => {
     const copy = getTranslations("en-US");
     const record = createHistoryRecord({
@@ -604,6 +648,27 @@ function setFieldValue(element: HTMLInputElement | HTMLTextAreaElement, value: s
     setter?.call(element, value);
     element.dispatchEvent(new Event("input", { bubbles: true }));
   });
+}
+
+function getButton(container: HTMLElement, label: string): HTMLButtonElement {
+  const button = Array.from(container.querySelectorAll("button")).find(
+    (candidate) => candidate.textContent?.trim() === label,
+  );
+  if (!button) throw new Error(`Button not found: ${label}`);
+  return button;
+}
+
+function createProviderProfile(index: number): ProviderProfile {
+  return {
+    id: `provider-${index}`,
+    name: `Profile ${index}`,
+    baseUrl: `https://profile-${index}.example/v1`,
+    apiKey: `test-key-${index}`,
+    textModel: `text-model-${index}`,
+    imageModel: `image-model-${index}`,
+    imageResponseMode: index % 2 === 0 ? "force-base64" : "official",
+    rememberApiKey: false,
+  };
 }
 
 function createHistoryRecord(overrides: Partial<ImageRecord>): ImageRecord {

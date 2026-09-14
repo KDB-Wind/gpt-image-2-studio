@@ -48,6 +48,7 @@ import {
 } from "../core/referenceImages";
 import { getTranslations, type UiLanguage } from "../i18n/translations";
 import type { RuntimeAdapter } from "../runtime/types";
+import { ProviderProfileSelector } from "./ProviderProfileSelector";
 
 type BatchPanelProps = {
   config: AppConfig;
@@ -62,6 +63,9 @@ type BatchPanelProps = {
   onBatchPreviewRelease?: (urls: string[]) => string[];
   batchPreviewReleaseVersion?: number;
   renderOutputOptions?: (disabled: boolean) => ReactNode;
+  onProviderProfileChange?: (profileId: string) => void | Promise<void>;
+  getRequestConfig?: () => AppConfig;
+  onSwitchToForceBase64?: () => void | Promise<void>;
 };
 
 export function BatchPanel({
@@ -76,6 +80,9 @@ export function BatchPanel({
   onBatchPreviewRelease,
   batchPreviewReleaseVersion,
   renderOutputOptions,
+  onProviderProfileChange,
+  getRequestConfig,
+  onSwitchToForceBase64,
 }: BatchPanelProps) {
   const copy = getTranslations(language);
   const [source, setSource] = useState<BatchSource>("same-prompt");
@@ -150,6 +157,12 @@ export function BatchPanel({
   const recoverableTaskCount = useMemo(() => countRecoverableBatchTasks(tasks), [tasks]);
   const hasFailedTasks = useMemo(() => hasFailedBatchTasks(tasks), [tasks]);
   const hasExecutedTasks = Boolean(startedAt) || summary.succeeded > 0 || summary.failed > 0 || summary.skipped > 0;
+  const forceBase64SuggestionTask = tasks.find((task) => task.suggestedAction === "force-base64");
+  const forceBase64SuggestionProfileId = forceBase64SuggestionTask?.providerProfileSnapshot?.providerProfileId
+    ?? config.activeProviderProfileId;
+  const hasForceBase64Suggestion = config.imageResponseMode !== "force-base64"
+    && config.activeProviderProfileId === forceBase64SuggestionProfileId
+    && Boolean(forceBase64SuggestionTask);
   const primaryBatchActionLabel =
     hasExecutedTasks && recoverableTaskCount > 0
       ? copy.batch.actions.continueUnfinished
@@ -768,19 +781,20 @@ export function BatchPanel({
     setAppMessage(copy.batch.messages.splitRunning);
 
     try {
+      const requestConfig = getRequestConfig?.() ?? config;
       const planning = await splitPromptWithTextModel({
-        config,
+        config: requestConfig,
         masterPrompt,
         count: taskCount,
         templateId: splitTemplateId,
         customSystemPrompt: customSplitSystemPrompt,
         styleLock,
-        allowAiTaskCountPlanning: config.batchAutoPlanTaskCount,
+        allowAiTaskCountPlanning: requestConfig.batchAutoPlanTaskCount,
       });
       const normalizedPlan = normalizeBatchSplitPlan({
         planning,
         initialCount: taskCount,
-        allowAiTaskCountPlanning: config.batchAutoPlanTaskCount,
+        allowAiTaskCountPlanning: requestConfig.batchAutoPlanTaskCount,
       });
 
       if (normalizedPlan.status === "invalid") {
@@ -994,7 +1008,12 @@ export function BatchPanel({
     }
   }
 
-  async function persistManifest(nextStatus: BatchStatus, nextTasks: BatchTask[], manifestStartedAt: string) {
+  async function persistManifest(
+    nextStatus: BatchStatus,
+    nextTasks: BatchTask[],
+    manifestStartedAt: string,
+    requestConfig: AppConfig = getRequestConfig?.() ?? config,
+  ) {
     if (!runtime) {
       return;
     }
@@ -1008,7 +1027,7 @@ export function BatchPanel({
       startedAt: manifestStartedAt || startedAt,
       completedAt: finishedAt,
       executionConfig,
-      config,
+      config: requestConfig,
       tasks: nextTasks,
     });
 
@@ -1040,11 +1059,13 @@ export function BatchPanel({
     setAppMessage("");
 
     try {
+      const requestConfig = getRequestConfig?.() ?? config;
       const result = await runBatchTasks({
         batchId,
         batchTitle: batchDisplayTitle,
         batchCreatedAt,
-        config,
+        batchTotalTasks: targetTasks.length,
+        config: requestConfig,
         tasks: targetTasks,
         executionConfig,
         referenceImages: batchReferenceImages.map((image) => image.file),
@@ -1066,18 +1087,20 @@ export function BatchPanel({
         return;
       }
       commitTasks(result.tasks);
-      if (result.pauseReason?.failureCategory === "cost_risk") {
+      if (result.tasks.some((task) => task.suggestedAction === "force-base64")) {
+        setPauseMessage(copy.messages.imageUrlCorsFailure);
+      } else if (result.pauseReason?.failureCategory === "cost_risk") {
         setPauseMessage(copy.batch.messages.costRiskPaused);
       } else if (result.pauseReason?.failureCategory === "auth") {
         setPauseMessage(copy.batch.messages.authPaused);
       }
 
-      await persistManifest(result.status, result.tasks, nextStartedAt);
+      await persistManifest(result.status, result.tasks, nextStartedAt, requestConfig);
       if (!isMountedRef.current) {
         return;
       }
-      // The manifest is persisted, so the batch has reached its terminal
-      // state; history/notification failures must not flip it back to paused.
+      // The terminal manifest is durable. Refresh and notification failures
+      // are best-effort and must not change a completed batch to paused.
       const nextSummary = summarizeBatchTasks(result.tasks);
       const message = copy.batch.messages.batchComplete(
         nextSummary.succeeded,
@@ -1154,25 +1177,28 @@ export function BatchPanel({
     );
 
     try {
+      const requestConfig = getRequestConfig?.() ?? config;
       const retried = await retrySingleBatchTask({
-        batchId,
-        batchTitle: batchDisplayTitle,
-        batchCreatedAt,
-        config,
-        task: latestTask,
-        referenceImages: getReferenceImagesForTask(latestTask),
-        saveBatchImage: runtime.saveBatchImage.bind(runtime),
-      });
+          batchId,
+          batchTitle: batchDisplayTitle,
+          batchCreatedAt,
+          batchTotalTasks: latestTasksRef.current.length,
+          config: requestConfig,
+          task: latestTask,
+          referenceImages: getReferenceImagesForTask(latestTask),
+          saveBatchImage: runtime.saveBatchImage.bind(runtime),
+        });
+
       if (!isMountedRef.current) {
         revokeTaskPreviewUrlsOnce([retried.previewUrl]);
         return;
       }
+
       const finalTasks = mergeRetriedBatchTask(latestTasksRef.current, retried);
       commitTasks(finalTasks);
-      // The retried image is already generated and saved; manifest and
-      // history bookkeeping failures must not relabel it as failed.
+
       try {
-        await persistManifest("completed", finalTasks, nextStartedAt);
+        await persistManifest("completed", finalTasks, nextStartedAt, requestConfig);
       } catch (error) {
         if (isMountedRef.current) {
           setAppMessage(safeErrorMessage(error));
@@ -1190,8 +1216,8 @@ export function BatchPanel({
         setPauseMessage("");
       }
     } catch (error) {
-      // Only retrySingleBatchTask rejections reach here: the generation
-      // itself failed, so the task goes back to the failed state.
+      // Only retrySingleBatchTask rejections reach here: the generated task
+      // failed, so it returns to failed instead of remaining stuck running.
       if (isMountedRef.current) {
         const failedTasks = latestTasksRef.current.map((item): BatchTask =>
           item.id === task.id
@@ -1215,6 +1241,16 @@ export function BatchPanel({
 
   return (
     <div className="panel-body form-stack batch-panel">
+      {onProviderProfileChange ? (
+        <ProviderProfileSelector
+          profiles={config.providerProfiles}
+          activeProfileId={config.activeProviderProfileId}
+          language={language}
+          testId="batch-provider-profile"
+          disabled={isTaskMutationLocked}
+          onChange={onProviderProfileChange}
+        />
+      ) : null}
       <div className="batch-source-grid">
         {([
           ["same-prompt", copy.batch.sources.samePrompt],
@@ -1628,7 +1664,21 @@ export function BatchPanel({
         ) : null}
       </div>
 
-      {pauseMessage ? <div className="message-card warning">{pauseMessage}</div> : null}
+      {pauseMessage ? (
+        <div className="message-card warning">
+          <p>{pauseMessage}</p>
+          {hasForceBase64Suggestion && onSwitchToForceBase64 ? (
+            <button
+              type="button"
+              className="secondary-button"
+              data-testid="batch-force-base64"
+              onClick={() => void onSwitchToForceBase64()}
+            >
+              {copy.actions.switchToForceBase64}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="action-row batch-execution-row">
         <button

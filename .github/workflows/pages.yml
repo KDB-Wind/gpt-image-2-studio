@@ -46,6 +46,7 @@ jobs:
           }
 
       - name: Resolve additional push archive base
+        id: resolve-archive-base
         shell: pwsh
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -64,7 +65,12 @@ jobs:
             if ($LASTEXITCODE -ne 0) {
               throw "Pages push archive base must be HEAD or an ancestor of HEAD."
             }
-            "STATIC_ARCHIVE_EVENT_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_ENV -Append
+            if (git cat-file -e "${baseSha}:static-versions/manifest.json" 2>$null) {
+              "STATIC_ARCHIVE_EVENT_BASE_REF=$baseSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            } else {
+              Write-Host "Prior push commit has no static archive manifest; external trusted root remains the historical archive base."
+              "STATIC_ARCHIVE_EVENT_BASE_REF=" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            }
           }
 
       - name: Setup Node.js
@@ -92,6 +98,8 @@ jobs:
         run: npm run artifact:check
 
       - name: Check Pages readiness
+        env:
+          STATIC_ARCHIVE_EVENT_BASE_REF: ${{ steps.resolve-archive-base.outputs.STATIC_ARCHIVE_EVENT_BASE_REF }}
         run: npm run pages:check
 
       - name: Run static page E2E

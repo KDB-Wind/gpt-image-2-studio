@@ -134,6 +134,7 @@ export type BatchImageSaveInput = {
   batchId: string;
   batchTitle: string;
   batchCreatedAt: string;
+  totalTasks?: number;
   task: BatchTask;
   image: ParsedImage;
   config: AppConfig;

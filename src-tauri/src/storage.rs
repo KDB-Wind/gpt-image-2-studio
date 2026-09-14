@@ -13,12 +13,12 @@ use std::{
 use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::{DateTime, Local};
 use directories::ProjectDirs;
-use keyring::{Entry, Error as KeyringError};
+use keyring::Entry;
 use serde::Serialize;
 use tempfile::NamedTempFile;
 
 use crate::models::{
-    AppConfig, ImageRecord, OutputDirectoryStateResult, OutputDirectoryTestResult,
+    AppConfig, BatchImageRecordMetadata, ImageRecord, OutputDirectoryStateResult, OutputDirectoryTestResult,
     SaveBatchImageInput, SaveConfigInput, SaveGeneratedImageInput, SaveImageResult,
 };
 
@@ -334,6 +334,14 @@ fn profile_keyring_account(profile_id: &str) -> String {
     format!("profile:{profile_id}")
 }
 
+fn validate_profile_id(profile_id: &str) -> Result<&str, String> {
+    let profile_id = profile_id.trim();
+    if profile_id.is_empty() || profile_id.len() > 128 || profile_id.contains(['/', '\\']) {
+        return Err("Invalid provider profile id".to_string());
+    }
+    Ok(profile_id)
+}
+
 fn load_api_key(path: &Path, profile_id: &str, allow_legacy_migration: bool) -> String {
     let profile_account = profile_keyring_account(profile_id);
     let keyring_result = Entry::new(KEYRING_SERVICE, &profile_keyring_account(profile_id))
@@ -414,80 +422,165 @@ pub fn persist_api_key_json_fallback(path: &Path, profile_id: &str, api_key: &st
     write_json(path, &value)
 }
 
-fn remove_api_key_json_fallback(path: &Path, profile_id: &str) -> Result<(), String> {
-    let Some(mut value) = read_json_value(path) else {
+pub fn clear_api_key_json_fallback(path: &Path, profile_id: &str) -> Result<(), String> {
+    let Some(mut value) = read_json_value_result(path, "provider API key fallback")? else {
         return Ok(());
     };
-    let mut changed = false;
     if let Some(object) = value.as_object_mut() {
-        changed |= object.remove("apiKey").is_some();
+        object.remove("apiKey");
         if let Some(keys) = object.get_mut(API_KEYS_STORAGE_FIELD).and_then(|keys| keys.as_object_mut()) {
-            changed |= keys.remove(profile_id).is_some();
+            keys.remove(profile_id);
             if keys.is_empty() {
                 object.remove(API_KEYS_STORAGE_FIELD);
             }
         }
     }
-    if changed {
-        write_json(path, &value)?;
-    }
-    Ok(())
+    write_json(path, &value)
 }
 
-fn delete_keyring_credential(account: &str) -> Result<(), String> {
-    let entry = Entry::new(KEYRING_SERVICE, account).map_err(|error| error.to_string())?;
-    match entry.delete_credential() {
-        Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
-        Err(error) => Err(error.to_string()),
+fn read_api_key_fallback_entries(path: &Path) -> Result<Vec<(String, String)>, String> {
+    let Some(value) = read_json_value_result(path, "provider API key fallback")? else {
+        return Ok(Vec::new());
+    };
+    let Some(keys) = value.get(API_KEYS_STORAGE_FIELD) else {
+        return Ok(Vec::new());
+    };
+    let keys = keys
+        .as_object()
+        .ok_or_else(|| "Provider API key fallback must be a JSON object.".to_string())?;
+
+    keys.iter()
+        .map(|(profile_id, value)| {
+            value
+                .as_str()
+                .map(|api_key| (profile_id.clone(), api_key.to_string()))
+                .ok_or_else(|| format!("Provider API key fallback for {profile_id} must be a string."))
+        })
+        .collect()
+}
+
+pub fn resolve_keyring_clear_result(
+    delete_result: Result<(), String>,
+    verify_absent_result: Result<bool, String>,
+) -> Result<(), String> {
+    match delete_result {
+        Ok(()) => Ok(()),
+        Err(delete_error) => match verify_absent_result {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(format!(
+                "Failed to clear provider API key from keyring: {delete_error}"
+            )),
+            Err(verify_error) => Err(format!(
+                "Failed to verify provider API key removal after keyring error ({delete_error}): {verify_error}"
+            )),
+        },
     }
 }
 
-fn clear_api_key(path: &Path, profile_id: &str) -> Result<String, String> {
-    let storage_mode = read_api_key_storage_mode(path);
-    let profile_account = profile_keyring_account(profile_id);
-    let profile_delete_result = delete_keyring_credential(&profile_account);
-    let legacy_delete_result = delete_keyring_credential(LEGACY_KEYRING_ACCOUNT);
+fn clear_api_key(path: &Path, profile_id: &str) -> Result<(), String> {
+    let account = profile_keyring_account(profile_id);
+    let keyring_result = match Entry::new(KEYRING_SERVICE, &account) {
+        Ok(entry) => {
+            let delete_result = entry
+                .delete_credential()
+                .map_err(|error| error.to_string());
+            if delete_result.is_ok() {
+                delete_result
+            } else {
+                let verify_absent_result = match entry.get_password() {
+                    Ok(_) => Ok(false),
+                    Err(keyring::Error::NoEntry) => Ok(true),
+                    Err(error) => Err(error.to_string()),
+                };
+                resolve_keyring_clear_result(delete_result, verify_absent_result)
+            }
+        }
+        Err(error) => Err(format!("Failed to open provider API key in keyring: {error}")),
+    };
+    clear_api_key_with_keyring_result(path, profile_id, keyring_result)
+}
 
-    remove_api_key_json_fallback(path, profile_id)?;
+pub(crate) fn clear_api_key_with_keyring_result(
+    path: &Path,
+    profile_id: &str,
+    keyring_result: Result<(), String>,
+) -> Result<(), String> {
+    let fallback_result = clear_api_key_json_fallback(path, profile_id);
+    match (keyring_result, fallback_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(keyring_error), Ok(())) => Err(keyring_error),
+        (Ok(()), Err(fallback_error)) => Err(fallback_error),
+        (Err(keyring_error), Err(fallback_error)) => Err(format!(
+            "{keyring_error}; failed to clear provider API key fallback: {fallback_error}"
+        )),
+    }
+}
 
-    if storage_mode == KEYRING_STORAGE_MODE {
-        profile_delete_result?;
-        legacy_delete_result?;
+fn write_api_key_to_keyring(profile_id: &str, api_key: &str) -> Result<(), String> {
+    let account = profile_keyring_account(profile_id);
+    let entry = Entry::new(KEYRING_SERVICE, &account).map_err(|error| error.to_string())?;
+    let write_result = entry
+        .set_password(api_key)
+        .map_err(|error| error.to_string());
+    let read_back_result = Entry::new(KEYRING_SERVICE, &account)
+        .map_err(|error| error.to_string())
+        .and_then(|fresh_entry| fresh_entry.get_password().map_err(|error| error.to_string()));
+
+    if should_use_keyring_storage(write_result, read_back_result, api_key) {
+        Ok(())
+    } else {
+        Err("Keyring write verification failed.".to_string())
+    }
+}
+
+pub(crate) fn save_api_key_with_keyring_writer<F>(
+    path: &Path,
+    profile_id: &str,
+    api_key: &str,
+    mut keyring_writer: F,
+) -> Result<String, String>
+where
+    F: FnMut(&str, &str) -> Result<(), String>,
+{
+    // A profile switch can reach the native bridge before the UI has
+    // hydrated that profile's secret. Never replace an existing secret with
+    // an empty value; explicit clearing can be added as a separate command.
+    if api_key.trim().is_empty() {
+        let existing = load_api_key(path, profile_id, false);
+        if !existing.trim().is_empty() {
+            return Ok(read_api_key_storage_mode(path));
+        }
     }
 
-    Ok(storage_mode)
+    let fallback_mode = read_api_key_storage_mode(path) == JSON_FALLBACK_STORAGE_MODE;
+    let fallback_entries = if fallback_mode {
+        Some(read_api_key_fallback_entries(path)?)
+    } else {
+        None
+    };
+
+    if keyring_writer(profile_id, api_key).is_err() {
+        persist_api_key_json_fallback(path, profile_id, api_key)?;
+        return Ok(JSON_FALLBACK_STORAGE_MODE.to_string());
+    }
+
+    if let Some(fallback_entries) = fallback_entries {
+        for (fallback_profile_id, fallback_api_key) in fallback_entries {
+            if fallback_profile_id == profile_id {
+                continue;
+            }
+            if keyring_writer(&fallback_profile_id, &fallback_api_key).is_err() {
+                persist_api_key_json_fallback(path, profile_id, api_key)?;
+                return Ok(JSON_FALLBACK_STORAGE_MODE.to_string());
+            }
+        }
+    }
+
+    Ok(KEYRING_STORAGE_MODE.to_string())
 }
 
 fn save_api_key(path: &Path, profile_id: &str, api_key: &str) -> Result<String, String> {
-    if api_key.trim().is_empty() {
-        return clear_api_key(path, profile_id);
-    }
-
-    let account = profile_keyring_account(profile_id);
-    let keyring_result = Entry::new(KEYRING_SERVICE, &account)
-        .map_err(|error| error.to_string())
-        .map(|entry| {
-            let write_result = entry
-                .set_password(api_key)
-                .map_err(|error| error.to_string());
-            let read_back_result = Entry::new(KEYRING_SERVICE, &account)
-                .map_err(|error| error.to_string())
-                .and_then(|fresh_entry| fresh_entry.get_password().map_err(|error| error.to_string()));
-
-            should_use_keyring_storage(write_result, read_back_result, api_key)
-        });
-
-    match keyring_result {
-        Ok(true) => Ok(KEYRING_STORAGE_MODE.to_string()),
-        Err(_) => {
-            persist_api_key_json_fallback(path, profile_id, api_key)?;
-            Ok(JSON_FALLBACK_STORAGE_MODE.to_string())
-        }
-        Ok(false) => {
-            persist_api_key_json_fallback(path, profile_id, api_key)?;
-            Ok(JSON_FALLBACK_STORAGE_MODE.to_string())
-        }
-    }
+    save_api_key_with_keyring_writer(path, profile_id, api_key, write_api_key_to_keyring)
 }
 
 pub fn sanitize_file_base_name(value: &str) -> String {
@@ -637,6 +730,11 @@ fn output_base_dir() -> Result<PathBuf, String> {
 
 #[cfg(test)]
 pub fn save_config_for_test(path: &Path, profile_id: &str, api_key: &str) -> Result<String, String> {
+    if api_key.trim().is_empty() {
+        let storage_mode = read_api_key_storage_mode(path);
+        clear_api_key_with_keyring_result(path, profile_id, Ok(()))?;
+        return Ok(storage_mode);
+    }
     save_api_key(path, profile_id, api_key)
 }
 
@@ -857,6 +955,7 @@ fn create_record(input: SaveGeneratedImageInput, output_path: &Path) -> ImageRec
         duration_ms: input.duration_ms,
         provider_profile_snapshot: input.provider_profile_snapshot,
         error_message: None,
+        batch: None,
     }
 }
 
@@ -938,23 +1037,15 @@ pub fn load_config() -> Result<AppConfig, String> {
 
 #[tauri::command]
 pub fn load_provider_api_key(profile_id: String) -> Result<String, String> {
-    let profile_id = validate_provider_profile_id(&profile_id)?;
+    let profile_id = validate_profile_id(&profile_id)?;
     let path = config_path()?;
     Ok(load_api_key(&path, profile_id, false))
 }
 
-fn validate_provider_profile_id(profile_id: &str) -> Result<&str, String> {
-    let profile_id = profile_id.trim();
-    if profile_id.is_empty() || profile_id.len() > 128 || profile_id.contains(['/', '\\']) {
-        return Err("Invalid provider profile id".to_string());
-    }
-    Ok(profile_id)
-}
-
 #[tauri::command]
 pub fn clear_provider_api_key(profile_id: String) -> Result<(), String> {
-    let profile_id = validate_provider_profile_id(&profile_id)?;
-    clear_api_key(&config_path()?, profile_id).map(|_| ())
+    let profile_id = validate_profile_id(&profile_id)?;
+    clear_api_key(&config_path()?, profile_id)
 }
 
 #[tauri::command]
@@ -973,7 +1064,9 @@ pub(crate) fn save_config_at(path: &Path, input: SaveConfigInput) -> Result<(), 
     let api_key_storage_mode = if remember_api_key && !input.active_profile_api_key.trim().is_empty() {
         save_api_key(path, &config.active_provider_profile_id, &input.active_profile_api_key)?
     } else {
-        clear_api_key(path, &config.active_provider_profile_id)?
+        let storage_mode = read_api_key_storage_mode(path);
+        clear_api_key(path, &config.active_provider_profile_id)?;
+        storage_mode
     };
     write_config_file(path, &config, &api_key_storage_mode)
 }
@@ -1115,6 +1208,15 @@ pub fn save_batch_image_at(
         duration_ms: input.duration_ms,
         provider_profile_snapshot: input.provider_profile_snapshot,
         error_message: None,
+        batch: Some(BatchImageRecordMetadata {
+            id: input.batch_id,
+            title: input.batch_title,
+            created_at: input.batch_created_at,
+            task_id: input.task.id,
+            task_index: input.task.index,
+            task_title: input.task.title,
+            total_tasks: input.total_tasks,
+        }),
     };
     commit_history_record(history_file, record.clone(), &output_path)?;
 

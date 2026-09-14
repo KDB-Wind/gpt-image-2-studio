@@ -60,6 +60,29 @@ describe("batchRunner", () => {
     });
     expect(result.tasks[0].providerProfileSnapshot).toEqual(savedInput?.providerProfileSnapshot);
   });
+
+  it("passes the full batch task count to each successful save", async () => {
+    const savedInputs: BatchImageSaveInput[] = [];
+
+    await runBatchTasks({
+      batchId: "batch-1",
+      batchTitle: "Batch",
+      batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG,
+      tasks: createTasksFromMultilinePrompts("one\ntwo\nthree"),
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 0 },
+      referenceImages: [],
+      generateImages: async () => [{ base64: "ok" }],
+      saveBatchImage: async (input) => {
+        savedInputs.push(input);
+        return createSaveResult(input);
+      },
+    });
+
+    expect(savedInputs).toHaveLength(3);
+    expect(savedInputs.map((input) => input.totalTasks)).toEqual([3, 3, 3]);
+  });
+
   it("normalizes every batch child to one requested image", async () => {
     const requestedCounts: number[] = [];
 

@@ -149,10 +149,12 @@ export function mergeConfig(value: Partial<AppConfig> | null | undefined): AppCo
     return {
       ...profile,
       baseUrl: normalizeBaseUrl(profile.baseUrl),
-      // A legacy top-level key may still be present when callers spread
-      // DEFAULT_CONFIG and override only apiKey. Keep it as a migration
-      // fallback when the active profile does not carry a key yet.
-      apiKey: inputHasSchema ? sourceApiKey || asString(input.apiKey) : asString(input.apiKey),
+      // A current-schema top-level key is only a fallback for the active
+      // profile. Never copy it into every profile when non-active keys are
+      // intentionally omitted by the desktop runtime.
+      apiKey: inputHasSchema
+        ? sourceApiKey || (profile.id === migrated.activeProviderProfileId ? asString(input.apiKey) : "")
+        : asString(input.apiKey),
     };
   });
   const active = resolveActiveProviderProfile(profiles, migrated.activeProviderProfileId);

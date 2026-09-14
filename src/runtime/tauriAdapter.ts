@@ -94,6 +94,7 @@ async function createBatchImagePayload(input: BatchImageSaveInput) {
     batchId: input.batchId,
     batchTitle: input.batchTitle,
     batchCreatedAt: input.batchCreatedAt,
+    totalTasks: input.totalTasks,
     task: {
       id: input.task.id,
       index: input.task.index,
@@ -126,6 +127,10 @@ export const tauriAdapter: RuntimeAdapter = {
 
   loadProviderApiKey(profileId: string) {
     return invoke<string>("load_provider_api_key", { profileId });
+  },
+
+  clearProviderApiKey(profileId: string) {
+    return invoke<void>("clear_provider_api_key", { profileId });
   },
 
   async saveConfig(config: AppConfig) {

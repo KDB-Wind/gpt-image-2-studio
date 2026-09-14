@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { AppLogo } from "./components/AppLogo";
 import { BatchPanel } from "./components/BatchPanel";
+import { ProviderProfileSelector } from "./components/ProviderProfileSelector";
 import {
   generateImages,
   optimizePrompt,
@@ -13,8 +14,8 @@ import {
 import type { BatchPreviewImage, BatchPreviewState } from "./core/batchPreview";
 import { DEFAULT_CONFIG, mergeConfig, type AppConfig, validateConfig } from "./core/config";
 import { safeErrorMessage } from "./core/errorSanitizer";
+import { isImageDownloadError } from "./core/imageDownloadError";
 import { MAX_BATCH_TASK_COUNT, clampBatchTaskCount, type ImageSaveMode } from "./core/batchTypes";
-import type { ProviderProfile } from "./core/providerProfiles";
 import {
   groupHistoryByDate,
   groupHistoryRecordsForDisplay,
@@ -23,6 +24,14 @@ import {
   type HistoryDisplayItem,
   type ImageRecord,
 } from "./core/history";
+import {
+  MAX_PROVIDER_PROFILES,
+  addProviderProfile,
+  removeProviderProfile,
+  resolveActiveProviderProfile,
+  upsertProviderProfile,
+  type ProviderProfile,
+} from "./core/providerProfiles";
 import {
   MAX_REFERENCE_IMAGES,
   addReferenceImages,
@@ -91,6 +100,11 @@ type SettingsMessage = {
   text: string;
 };
 
+type ImageResponseSuggestion = {
+  profileId: string;
+  action: "force-base64";
+};
+
 type EditFromImageDraft = {
   record: ImageRecord;
   file: File;
@@ -155,19 +169,6 @@ function getErrorMessage(error: unknown): string {
   return safeErrorMessage(error);
 }
 
-const PROVIDER_PROFILE_FIELDS = new Set<keyof ProviderProfile>([
-  "baseUrl",
-  "apiKey",
-  "textModel",
-  "imageModel",
-  "imageResponseMode",
-  "rememberApiKey",
-]);
-
-function isProviderProfileField(key: keyof AppConfig): boolean {
-  return PROVIDER_PROFILE_FIELDS.has(key as keyof ProviderProfile);
-}
-
 function formatDuration(durationMs: number): string {
   const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -219,6 +220,38 @@ function revokeReferenceImages(images: ReferenceImageItem[]) {
   for (const image of images) {
     revokeBlobUrl(image.previewUrl);
   }
+}
+
+function syncActiveProfile(
+  config: AppConfig,
+  profile: ProviderProfile,
+  providerProfiles = config.providerProfiles,
+): AppConfig {
+  return {
+    ...config,
+    activeProviderProfileId: profile.id,
+    providerProfiles,
+    baseUrl: profile.baseUrl,
+    apiKey: profile.apiKey,
+    textModel: profile.textModel,
+    imageModel: profile.imageModel,
+    imageResponseMode: profile.imageResponseMode,
+    rememberApiKey: profile.rememberApiKey,
+  };
+}
+
+function createProviderProfileId(existingIds: Set<string>): string {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const randomPart = typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const id = `provider-${randomPart}`;
+    if (!existingIds.has(id)) {
+      return id;
+    }
+  }
+
+  return `provider-${Date.now()}-${existingIds.size}`;
 }
 
 function getSinglePreviewUrl(state: PreviewState): string | undefined {
@@ -360,6 +393,7 @@ export default function App() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [appMessage, setAppMessage] = useState("");
   const [settingsMessage, setSettingsMessage] = useState<SettingsMessage>({ tone: "neutral", text: "" });
+  const [imageResponseSuggestion, setImageResponseSuggestion] = useState<ImageResponseSuggestion | null>(null);
   const [isLoadingApp, setIsLoadingApp] = useState(true);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -368,6 +402,7 @@ export default function App() {
   const [isTestingImage, setIsTestingImage] = useState(false);
   const [isTestingImageEdit, setIsTestingImageEdit] = useState(false);
   const [isTestingOutputDirectory, setIsTestingOutputDirectory] = useState(false);
+  const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
   const [isUpdateOpen, setIsUpdateOpen] = useState(false);
   const [editFromImageDraft, setEditFromImageDraft] = useState<EditFromImageDraft | null>(null);
   const [editInstructions, setEditInstructions] = useState("");
@@ -381,6 +416,7 @@ export default function App() {
   const promptRef = useRef(prompt);
   const optimizeRequestIdRef = useRef(0);
   const referenceInputRef = useRef<HTMLInputElement | null>(null);
+  const apiKeyInputRef = useRef<HTMLInputElement | null>(null);
   const dragDepthRef = useRef(0);
   const referenceImagesRef = useRef<ReferenceImageItem[]>([]);
   const previewStateRef = useRef<PreviewState>({ status: "idle" });
@@ -392,6 +428,9 @@ export default function App() {
   const revokedPreviewUrlsRef = useRef(new Set<string>());
   const isMountedRef = useRef(true);
   const outputDirectoryStateRequestRef = useRef(0);
+  const providerSwitchRequestRef = useRef(0);
+  const historyPreviewRequestRef = useRef(0);
+  const configRef = useRef<AppConfig>(DEFAULT_CONFIG);
   const setBatchPreviewStateWithCleanup = useCallback((nextPreview: BatchPreviewState | null) => {
     batchPreviewStateRef.current = nextPreview;
     for (const url of getBatchPreviewUrls(nextPreview)) {
@@ -410,6 +449,19 @@ export default function App() {
 
   const language = resolveLanguage(config.uiLanguage);
   const copy = getTranslations(language);
+  const activeProviderProfile = useMemo(
+    () => resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId),
+    [config.activeProviderProfileId, config.providerProfiles],
+  );
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
+  useEffect(() => {
+    const input = apiKeyInputRef.current;
+    if (input) {
+      input.scrollLeft = input.scrollWidth;
+    }
+  }, [activeProviderProfile.id, activeProviderProfile.apiKey, isApiKeyVisible]);
   const validation = useMemo(() => validateConfig(config), [config]);
   const sizeValidation = useMemo(() => validateImageSize(config.defaultSize), [config.defaultSize]);
   const translatedValidationErrors = useMemo(
@@ -572,6 +624,7 @@ export default function App() {
         setRuntime(adapter);
         setOutputDirectoryState(loadedOutputDirectoryState);
         setStorageCapabilities(loadedStorageCapabilities);
+        configRef.current = mergedConfig;
         setConfig(mergedConfig);
         setPersistedConfig(mergedConfig);
         setHistory(loadedHistory);
@@ -655,20 +708,217 @@ export default function App() {
 
   function updateConfig<K extends keyof AppConfig>(key: K, value: AppConfig[K]) {
     setConfig((current) => {
-      if (!isProviderProfileField(key)) {
-        return { ...current, [key]: value };
-      }
-
-      return {
-        ...current,
-        [key]: value,
-        providerProfiles: current.providerProfiles.map((profile): ProviderProfile =>
-          profile.id === current.activeProviderProfileId
-            ? { ...profile, [key]: value }
-            : profile,
-        ),
-      };
+      const nextConfig = { ...current, [key]: value };
+      configRef.current = nextConfig;
+      return nextConfig;
     });
+  }
+
+  function updateProviderProfile<K extends keyof ProviderProfile>(key: K, value: ProviderProfile[K]) {
+    setConfig((current) => {
+      const activeProfile = resolveActiveProviderProfile(current.providerProfiles, current.activeProviderProfileId);
+      const nextProfile = { ...activeProfile, [key]: value } as ProviderProfile;
+      const nextProfiles = upsertProviderProfile(current.providerProfiles, nextProfile);
+      const nextConfig = syncActiveProfile(current, nextProfile, nextProfiles);
+      configRef.current = nextConfig;
+      return nextConfig;
+    });
+  }
+
+  function handleCreateProviderProfile() {
+    if (config.providerProfiles.length >= MAX_PROVIDER_PROFILES) {
+      return;
+    }
+
+    const id = createProviderProfileId(new Set(config.providerProfiles.map((profile) => profile.id)));
+    const nextProfile: ProviderProfile = {
+      id,
+      name: `${copy.sections.providerProfiles} ${config.providerProfiles.length + 1}`,
+      baseUrl: activeProviderProfile.baseUrl,
+      apiKey: "",
+      textModel: activeProviderProfile.textModel,
+      imageModel: activeProviderProfile.imageModel,
+      imageResponseMode: activeProviderProfile.imageResponseMode,
+      rememberApiKey: false,
+    };
+    const nextProfiles = addProviderProfile(config.providerProfiles, nextProfile);
+    const nextConfig = syncActiveProfile(configRef.current, nextProfile, nextProfiles);
+    configRef.current = nextConfig;
+    setConfig(nextConfig);
+    setSettingsMessage({ tone: "neutral", text: "" });
+  }
+
+  async function handleDeleteProviderProfile() {
+    const currentConfig = configRef.current;
+    if (!runtime || currentConfig.providerProfiles.length <= 1) {
+      return;
+    }
+
+    const deletedProfileId = currentConfig.activeProviderProfileId;
+    const nextProfiles = removeProviderProfile(currentConfig.providerProfiles, deletedProfileId);
+    const nextActive = nextProfiles[0];
+    const nextConfig = syncActiveProfile(currentConfig, nextActive, nextProfiles);
+    const nextPersistedProfiles = persistedConfig.providerProfiles.filter((profile) => profile.id !== deletedProfileId);
+    const nextPersistedActive = resolveActiveProviderProfile(
+      nextPersistedProfiles.length > 0 ? nextPersistedProfiles : nextProfiles,
+      nextConfig.activeProviderProfileId,
+    );
+    const nextPersistedConfig = syncActiveProfile(
+      persistedConfig,
+      nextPersistedActive,
+      nextPersistedProfiles.length > 0 ? nextPersistedProfiles : nextProfiles,
+    );
+
+    try {
+      await runtime.saveConfig(nextPersistedConfig);
+    } catch (error) {
+      setSettingsMessage({
+        tone: "error",
+        text: copy.messages.settingsSaveFailed(getErrorMessage(error)),
+      });
+      return;
+    }
+
+    if (runtime.clearProviderApiKey) {
+      try {
+        await runtime.clearProviderApiKey(deletedProfileId);
+      } catch (error) {
+        try {
+          await runtime.saveConfig(persistedConfig);
+        } catch (rollbackError) {
+          setSettingsMessage({
+            tone: "error",
+            text: copy.messages.settingsSaveFailed(
+              `${getErrorMessage(error)}; rollback failed: ${getErrorMessage(rollbackError)}`,
+            ),
+          });
+          return;
+        }
+        setSettingsMessage({
+          tone: "error",
+          text: copy.messages.settingsSaveFailed(getErrorMessage(error)),
+        });
+        return;
+      }
+    }
+
+    configRef.current = nextConfig;
+    setConfig(nextConfig);
+    setPersistedConfig(nextPersistedConfig);
+    setSettingsMessage({ tone: "neutral", text: "" });
+  }
+
+  async function persistActiveProviderProfileId(profileId: string, hydratedApiKey = "") {
+    if (!runtime) {
+      return;
+    }
+
+    const currentProfileIds = new Set(config.providerProfiles.map((profile) => profile.id));
+    const persistedProfiles = persistedConfig.providerProfiles.filter((profile) => currentProfileIds.has(profile.id));
+    const persistedProfile = persistedProfiles.find((profile) => profile.id === profileId);
+    if (!persistedProfile) {
+      return;
+    }
+
+    const nextProfile: ProviderProfile = {
+      ...persistedProfile,
+      apiKey: hydratedApiKey || persistedProfile.apiKey,
+    };
+    const nextConfig = syncActiveProfile(
+      persistedConfig,
+      nextProfile,
+      persistedProfiles.map((profile) => profile.id === profileId ? nextProfile : profile),
+    );
+
+    try {
+      await runtime.saveConfig(nextConfig);
+      setPersistedConfig(nextConfig);
+    } catch (error) {
+      setSettingsMessage({
+        tone: "error",
+        text: copy.messages.settingsSaveFailed(getErrorMessage(error)),
+      });
+    }
+  }
+
+  async function handleProviderProfileChange(profileId: string) {
+    const requestedId = ++providerSwitchRequestRef.current;
+    const targetProfile = configRef.current.providerProfiles.find((profile) => profile.id === profileId);
+    if (!targetProfile) {
+      return;
+    }
+
+    setIsApiKeyVisible(false);
+
+    let hydratedApiKey = targetProfile.apiKey;
+    if (runtime?.loadProviderApiKey && !hydratedApiKey) {
+      try {
+        hydratedApiKey = await runtime.loadProviderApiKey(profileId);
+      } catch {
+        hydratedApiKey = "";
+      }
+    }
+
+    if (requestedId !== providerSwitchRequestRef.current) {
+      return;
+    }
+
+    const latestConfig = configRef.current;
+    const currentTarget = latestConfig.providerProfiles.find((profile) => profile.id === profileId);
+    if (!currentTarget) {
+      return;
+    }
+    const nextTarget = currentTarget.apiKey ? currentTarget : { ...currentTarget, apiKey: hydratedApiKey };
+    const nextConfig = syncActiveProfile(
+      latestConfig,
+      nextTarget,
+      upsertProviderProfile(latestConfig.providerProfiles, nextTarget),
+    );
+    configRef.current = nextConfig;
+    setConfig(nextConfig);
+    setImageResponseSuggestion(null);
+    await persistActiveProviderProfileId(profileId, hydratedApiKey);
+  }
+
+  async function handleSwitchCurrentProfileToForceBase64() {
+    if (!runtime) {
+      return;
+    }
+
+    const currentConfig = configRef.current;
+    const currentProfile = resolveActiveProviderProfile(
+      currentConfig.providerProfiles,
+      currentConfig.activeProviderProfileId,
+    );
+    const suggestedProfileId = imageResponseSuggestion?.profileId ?? currentProfile.id;
+    if (currentProfile.id !== suggestedProfileId || currentProfile.imageResponseMode === "force-base64") {
+      setImageResponseSuggestion(null);
+      return;
+    }
+
+    const nextProfile = { ...currentProfile, imageResponseMode: "force-base64" as const };
+    const nextConfig = syncActiveProfile(
+      currentConfig,
+      nextProfile,
+      upsertProviderProfile(currentConfig.providerProfiles, nextProfile),
+    );
+    const persistedProfile = persistedConfig.providerProfiles.find((profile) => profile.id === currentProfile.id);
+    const nextPersistedProfile = persistedProfile
+      ? { ...persistedProfile, imageResponseMode: "force-base64" as const }
+      : nextProfile;
+    const persistedProfiles = upsertProviderProfile(persistedConfig.providerProfiles, nextPersistedProfile);
+    const nextPersistedConfig = syncActiveProfile(persistedConfig, nextPersistedProfile, persistedProfiles);
+
+    try {
+      await runtime.saveConfig(nextPersistedConfig);
+      configRef.current = nextConfig;
+      setConfig(nextConfig);
+      setPersistedConfig(nextPersistedConfig);
+      setImageResponseSuggestion(null);
+      setAppMessage(copy.messages.imageResponseModeSwitched);
+    } catch (error) {
+      setAppMessage(copy.messages.settingsSaveFailed(getErrorMessage(error)));
+    }
   }
 
   function clearReferenceInput() {
@@ -824,7 +1074,7 @@ export default function App() {
   }
 
   function requireValidConfig(actionLabel: string): boolean {
-    const nextValidation = validateConfig(config);
+    const nextValidation = validateConfig(configRef.current);
     const translatedErrors = translateValidationMessages(nextValidation.errors, language);
 
     if (translatedErrors.length === 0) {
@@ -1141,7 +1391,7 @@ export default function App() {
     optimizeRequestIdRef.current = requestId;
 
     try {
-      const revisedPrompt = await optimizePrompt(config, nextPrompt);
+      const revisedPrompt = await optimizePrompt(configRef.current, nextPrompt);
 
       if (optimizeRequestIdRef.current !== requestId) {
         return;
@@ -1200,13 +1450,15 @@ export default function App() {
 
     setIsGenerating(true);
     setAppMessage("");
+    setImageResponseSuggestion(null);
     const startedAt = Date.now();
     setPreviewStateWithCleanup({ status: "running", startedAt, prompt: finalPrompt });
     let savedPreviewUrl: string | undefined;
+    const requestConfig = configRef.current;
 
     try {
       const generatedImages = await generateImages(
-        config,
+        requestConfig,
         finalPrompt,
         generationMode === "image-to-image" && referenceImages.length > 0
           ? { referenceImages: referenceImages.map((item) => item.file) }
@@ -1228,10 +1480,10 @@ export default function App() {
         prompt: sourcePrompt,
         optimizedPrompt: optimizedPrompt.trim(),
         customName: customName.trim(),
-        config,
+        config: requestConfig,
         generatedAt,
         durationMs,
-        providerProfileSnapshot: createProviderProfileSnapshot(config),
+        providerProfileSnapshot: createProviderProfileSnapshot(requestConfig),
       });
 
       savedPreviewUrl = savedResult.previewUrl;
@@ -1270,10 +1522,26 @@ export default function App() {
         revokePreviewUrl(savedPreviewUrl);
         return;
       }
+      const requestProfile = requestConfig
+        ? resolveActiveProviderProfile(requestConfig.providerProfiles, requestConfig.activeProviderProfileId)
+        : null;
+      const imageDownloadCode = isImageDownloadError(error) ? error.code : null;
+      const canSuggestForceBase64 = Boolean(
+        requestProfile
+        && requestProfile.imageResponseMode !== "force-base64"
+        && imageDownloadCode === "image-url-cors",
+      );
+      if (canSuggestForceBase64 && requestProfile) {
+        setImageResponseSuggestion({ profileId: requestProfile.id, action: "force-base64" });
+      }
       setPreviewStateWithCleanup({
         status: "failed",
         prompt: finalPrompt,
-        message: getErrorMessage(error),
+        message: canSuggestForceBase64
+          ? copy.messages.imageUrlCorsFailure
+          : imageDownloadCode === "image-url-base64-ignored"
+            ? copy.messages.imageUrlBase64Ignored
+            : getErrorMessage(error),
         durationMs: Date.now() - startedAt,
       });
       releaseOwnedPreviewUrl(savedPreviewUrl);
@@ -1289,11 +1557,27 @@ export default function App() {
       return;
     }
 
+    if (!activeProviderProfile.name.trim()) {
+      setSettingsMessage({
+        tone: "error",
+        text: copy.messages.providerProfileNameRequired,
+      });
+      return;
+    }
+
     setIsSavingSettings(true);
 
     try {
-      await runtime.saveConfig(config);
-      setPersistedConfig(config);
+      const nextProfile = { ...activeProviderProfile, name: activeProviderProfile.name.trim() };
+      const nextConfig = syncActiveProfile(
+        config,
+        nextProfile,
+        upsertProviderProfile(config.providerProfiles, nextProfile),
+      );
+      configRef.current = nextConfig;
+      setConfig(nextConfig);
+      await runtime.saveConfig(nextConfig);
+      setPersistedConfig(nextConfig);
       const details = [...translatedValidationErrors, ...translatedValidationWarnings].join(" ");
       const hasErrors = translatedValidationErrors.length > 0;
 
@@ -1323,7 +1607,9 @@ export default function App() {
         // Directory selection is not a save: persist the last explicitly
         // saved config plus the new directory, and keep unsaved form edits
         // in state so an accidental pick cannot leak a draft API key.
-        setConfig((current) => ({ ...current, outputDirectory: selectedDirectory }));
+        const nextConfig = { ...configRef.current, outputDirectory: selectedDirectory };
+        configRef.current = nextConfig;
+        setConfig(nextConfig);
         const persistedNextConfig = { ...persistedConfig, outputDirectory: selectedDirectory };
         await runtime.saveConfig(persistedNextConfig);
         setPersistedConfig(persistedNextConfig);
@@ -1357,7 +1643,7 @@ export default function App() {
     setIsTestingText(true);
 
     try {
-      const response = await testTextModel(config);
+      const response = await testTextModel(configRef.current);
       setSettingsMessage({
         tone: "success",
         text: copy.messages.textTestSuccess(response.trim().slice(0, 120) || "OK"),
@@ -1380,7 +1666,7 @@ export default function App() {
     setIsTestingImage(true);
 
     try {
-      const images = await testImageModel(config);
+      const images = await testImageModel(configRef.current);
       setSettingsMessage({
         tone: "success",
         text: copy.messages.imageTestSuccess(images.length),
@@ -1403,7 +1689,7 @@ export default function App() {
     setIsTestingImageEdit(true);
 
     try {
-      const images = await testImageEditModel(config);
+      const images = await testImageEditModel(configRef.current);
       setSettingsMessage({
         tone: "success",
         text: copy.messages.imageEditTestSuccess(images.length),
@@ -1443,6 +1729,7 @@ export default function App() {
   }
 
   async function handleInspectHistory(record: ImageRecord) {
+    const requestId = ++historyPreviewRequestRef.current;
     setSelectedHistoryId(record.id);
     setHistoryBatchPreviewWithCleanup(null);
     setActiveTab("history");
@@ -1454,7 +1741,7 @@ export default function App() {
     try {
       const imageUrl = await runtime.prepareHistoryPreview(record);
 
-      if (!isMountedRef.current) {
+      if (!isMountedRef.current || requestId !== historyPreviewRequestRef.current) {
         revokePreviewUrl(imageUrl ?? undefined);
         return;
       }
@@ -1530,6 +1817,7 @@ export default function App() {
   }
 
   async function handleInspectHistoryBatch(item: Extract<HistoryDisplayItem, { type: "batch" }>) {
+    const requestId = ++historyPreviewRequestRef.current;
     setSelectedHistoryId(item.records[0]?.id ?? null);
     setActiveTab("history");
 
@@ -1543,7 +1831,7 @@ export default function App() {
       for (const [index, record] of item.records.entries()) {
         const previewUrl = await runtime.prepareHistoryPreview(record);
 
-        if (!isMountedRef.current) {
+        if (!isMountedRef.current || requestId !== historyPreviewRequestRef.current) {
           revokeBatchPreviewUrls([...restoredImages, ...(previewUrl ? [{ previewUrl }] : [])]);
           return;
         }
@@ -1566,9 +1854,14 @@ export default function App() {
       }
     } catch {
       releaseBatchPreviewUrls(restoredImages);
-      if (isMountedRef.current) {
+      if (isMountedRef.current && requestId === historyPreviewRequestRef.current) {
         setHistoryBatchPreviewWithCleanup(null);
       }
+      return;
+    }
+
+    if (!isMountedRef.current || requestId !== historyPreviewRequestRef.current) {
+      releaseBatchPreviewUrls(restoredImages);
       return;
     }
 
@@ -1825,6 +2118,14 @@ export default function App() {
 
             {activeTab === "generate" ? (
               <div className="panel-body form-stack">
+                <ProviderProfileSelector
+                  profiles={config.providerProfiles}
+                  activeProfileId={config.activeProviderProfileId}
+                  language={language}
+                  testId="single-provider-profile"
+                  disabled={isGenerating || isOptimizing || isLoadingApp}
+                  onChange={handleProviderProfileChange}
+                />
                 <div className="mode-toggle" role="tablist" aria-label={copy.labels.mode}>
                   <button
                     type="button"
@@ -2070,6 +2371,9 @@ export default function App() {
                 onBatchPreviewRelease={getReleasableBatchPreviewUrls}
                 batchPreviewReleaseVersion={batchPreviewReleaseVersion}
                 renderOutputOptions={renderQuickOutputOptions}
+                onProviderProfileChange={handleProviderProfileChange}
+                getRequestConfig={() => configRef.current}
+                onSwitchToForceBase64={handleSwitchCurrentProfileToForceBase64}
               />
             </div>
 
@@ -2144,7 +2448,7 @@ export default function App() {
               <div className="panel-body form-stack">
                 <section className="settings-section">
                   <div className="section-heading">
-                    <h3>{copy.sections.connection}</h3>
+                    <h3>{copy.sections.providerProfiles}</h3>
                   </div>
                   <details className="help-details settings-help-details">
                     <summary>{copy.help.connectionNotes}</summary>
@@ -2152,27 +2456,100 @@ export default function App() {
                       <p>{copy.panel.settingsDescription}</p>
                     </div>
                   </details>
+                  <div className="provider-profile-toolbar">
+                    <label className="field">
+                      <span>{copy.sections.providerProfiles}</span>
+                      <select
+                        data-testid="settings-provider-profile"
+                        value={activeProviderProfile.id}
+                        onChange={(event) => void handleProviderProfileChange(event.target.value)}
+                      >
+                        {config.providerProfiles.map((profile) => (
+                          <option key={profile.id} value={profile.id}>
+                            {profile.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="provider-profile-actions">
+                      <span className="profile-status">
+                        {copy.labels.activeProfile}: {activeProviderProfile.name}
+                      </span>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={handleCreateProviderProfile}
+                        disabled={config.providerProfiles.length >= MAX_PROVIDER_PROFILES}
+                      >
+                        {copy.actions.createProviderProfile}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={handleDeleteProviderProfile}
+                        disabled={config.providerProfiles.length <= 1}
+                      >
+                        {copy.actions.deleteProviderProfile}
+                      </button>
+                    </div>
+                  </div>
+                  <p className="panel-note">{copy.notes.providerProfileLimit}</p>
                   <div className="field-grid">
+                    <label className="field">
+                      <span>{copy.fields.providerProfileName}</span>
+                      <input
+                        value={activeProviderProfile.name}
+                        onChange={(event) => updateProviderProfile("name", event.target.value)}
+                      />
+                    </label>
                     <label className="field">
                       <span>{copy.fields.baseUrl}</span>
                       <input
                         data-testid="settings-base-url"
-                        value={config.baseUrl}
-                        onChange={(event) => updateConfig("baseUrl", event.target.value)}
+                        value={activeProviderProfile.baseUrl}
+                        onChange={(event) => updateProviderProfile("baseUrl", event.target.value)}
                         placeholder="https://example.com/v1"
                       />
                     </label>
 
-                    <label className="field">
+                    <label className="field api-key-field">
                       <span>{copy.fields.apiKey}</span>
-                      <input
-                        data-testid="settings-api-key"
-                        value={config.apiKey}
-                        onChange={(event) => updateConfig("apiKey", event.target.value)}
-                        placeholder="sk-..."
-                        type="password"
-                        autoComplete="off"
-                      />
+                      <div className="api-key-input-wrap">
+                        <input
+                          data-testid="settings-api-key"
+                          ref={apiKeyInputRef}
+                          value={activeProviderProfile.apiKey}
+                          onChange={(event) => updateProviderProfile("apiKey", event.target.value)}
+                          placeholder="sk-..."
+                          type={isApiKeyVisible ? "text" : "password"}
+                          dir="ltr"
+                          autoComplete="off"
+                        />
+                        <button
+                          type="button"
+                          className="api-key-visibility-button"
+                          data-testid="settings-toggle-api-key-visibility"
+                          aria-label={isApiKeyVisible ? copy.actions.hideApiKey : copy.actions.showApiKey}
+                          aria-pressed={isApiKeyVisible}
+                          title={isApiKeyVisible ? copy.actions.hideApiKey : copy.actions.showApiKey}
+                          onClick={() => setIsApiKeyVisible((visible) => !visible)}
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                            {isApiKeyVisible ? (
+                              <>
+                                <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
+                                <circle cx="12" cy="12" r="2.5" />
+                              </>
+                            ) : (
+                              <>
+                                <path d="m3 3 18 18" />
+                                <path d="M10.6 6.2A10.7 10.7 0 0 1 12 6c6.5 0 10 6 10 6a18.5 18.5 0 0 1-3.2 3.7M6.2 6.7C3.5 8.3 2 12 2 12s3.5 6 10 6a10.7 10.7 0 0 0 3.4-.5" />
+                                <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+                              </>
+                            )}
+                          </svg>
+                        </button>
+                      </div>
                     </label>
                   </div>
                   {runtime ? (
@@ -2181,9 +2558,9 @@ export default function App() {
                         <input
                           data-testid="settings-remember-api-key"
                           type="checkbox"
-                          checked={config.rememberApiKey}
+                          checked={activeProviderProfile.rememberApiKey}
                           disabled={runtime.mode === "web" && !canRememberWebApiKey}
-                          onChange={(event) => updateConfig("rememberApiKey", event.currentTarget.checked)}
+                          onChange={(event) => updateProviderProfile("rememberApiKey", event.currentTarget.checked)}
                         />
                         <span>{copy.fields.rememberApiKey}</span>
                       </label>
@@ -2204,8 +2581,8 @@ export default function App() {
                       <span>{copy.fields.textModel}</span>
                       <input
                         data-testid="settings-text-model"
-                        value={config.textModel}
-                        onChange={(event) => updateConfig("textModel", event.target.value)}
+                        value={activeProviderProfile.textModel}
+                        onChange={(event) => updateProviderProfile("textModel", event.target.value)}
                       />
                     </label>
 
@@ -2213,11 +2590,24 @@ export default function App() {
                       <span>{copy.fields.imageModel}</span>
                       <input
                         data-testid="settings-image-model"
-                        value={config.imageModel}
-                        onChange={(event) => updateConfig("imageModel", event.target.value)}
+                        value={activeProviderProfile.imageModel}
+                        onChange={(event) => updateProviderProfile("imageModel", event.target.value)}
                       />
                     </label>
                   </div>
+                  <label className="field profile-response-mode-field">
+                    <span>{copy.fields.imageResponseMode}</span>
+                    <select
+                      value={activeProviderProfile.imageResponseMode}
+                      onChange={(event) =>
+                        updateProviderProfile("imageResponseMode", event.target.value as ProviderProfile["imageResponseMode"])
+                      }
+                    >
+                      <option value="official">{copy.options.imageResponseModeOfficial}</option>
+                      <option value="force-base64">{copy.options.imageResponseModeForceBase64}</option>
+                    </select>
+                  </label>
+                  <p className="panel-note">{copy.notes.imageResponseModeHint}</p>
                 </section>
 
                 <section className="settings-section">
@@ -2345,19 +2735,6 @@ export default function App() {
                       </select>
                     </label>
 
-                    <label className="field">
-                      <span>{copy.fields.imageResponseMode}</span>
-                      <select
-                        value={config.imageResponseMode}
-                        onChange={(event) =>
-                          updateConfig("imageResponseMode", event.target.value as AppConfig["imageResponseMode"])
-                        }
-                      >
-                        <option value="official">{copy.options.imageResponseModeOfficial}</option>
-                        <option value="force-base64">{copy.options.imageResponseModeForceBase64}</option>
-                      </select>
-                    </label>
-
                     {showCompressionControls ? (
                       <label className="field">
                         <span>{copy.fields.defaultCompression}</span>
@@ -2393,7 +2770,6 @@ export default function App() {
                       {copy.validation[sizeValidation.warning] ?? sizeValidation.warning}
                     </p>
                   ) : null}
-                  <p className="panel-note">{copy.notes.imageResponseModeHint}</p>
                 </section>
 
                 <section className="settings-section">
@@ -2781,6 +3157,17 @@ export default function App() {
                   <div className="preview-placeholder failed">{copy.preview.failed}</div>
                   <p>{previewState.prompt}</p>
                   <p className="error-copy">{previewState.message}</p>
+                  {imageResponseSuggestion?.profileId === config.activeProviderProfileId
+                    && activeProviderProfile.imageResponseMode !== "force-base64" ? (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      data-testid="single-force-base64"
+                      onClick={() => void handleSwitchCurrentProfileToForceBase64()}
+                    >
+                      {copy.actions.switchToForceBase64}
+                    </button>
+                  ) : null}
                   <p className="panel-note">
                     {copy.preview.elapsedPrefix}
                     {formatDuration(previewState.durationMs)}

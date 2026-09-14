@@ -56,6 +56,21 @@ function pruneKeyMap(value: unknown, profileIds: Set<string>): Record<string, st
   ) as Record<string, string>;
 }
 
+function readProviderApiKey(profileId: string, storageCapabilities: RuntimeStorageCapabilities): string {
+  const sessionKeys = readStoredValue<Record<string, string>>(SESSION_API_KEYS, {}, "session");
+  const sessionKey = sessionKeys[profileId];
+  if (typeof sessionKey === "string" && sessionKey) {
+    return sessionKey;
+  }
+
+  if (!storageCapabilities.local) {
+    return "";
+  }
+
+  const persistentKeys = readStoredValue<Record<string, string>>(PERSISTENT_API_KEYS, {});
+  return typeof persistentKeys[profileId] === "string" ? persistentKeys[profileId] : "";
+}
+
 function hasAnyProfileKey(...maps: Array<Record<string, string>>): boolean {
   return maps.some((map) => Object.values(map).some(Boolean));
 }
@@ -134,11 +149,16 @@ function readStoredValue<T>(key: string, fallback: T, kind: "local" | "session" 
   }
 }
 
-function writeStoredValue(
+type StoredValueWriteStatus = {
+  durability: "persistent" | "memory-only";
+  error?: string;
+};
+
+function writeStoredValueWithStatus(
   key: string,
   value: unknown,
   kind: "local" | "session" = "local",
-): "persistent" | "memory-only" {
+): StoredValueWriteStatus {
   const serializedValue = JSON.stringify(value);
   const storage = getBrowserStorage(kind);
   const memoryStorage = getMemoryStorage(kind);
@@ -147,14 +167,30 @@ function writeStoredValue(
     try {
       storage.setItem(key, serializedValue);
       memoryStorage.delete(key);
-      return "persistent";
-    } catch {
+      return { durability: "persistent" };
+    } catch (error) {
       // Some embedded file:// browsers expose localStorage but deny reads/writes.
+      memoryStorage.set(key, serializedValue);
+      return {
+        durability: "memory-only",
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
   memoryStorage.set(key, serializedValue);
-  return "memory-only";
+  return {
+    durability: "memory-only",
+    error: `${kind} storage is unavailable`,
+  };
+}
+
+function writeStoredValue(
+  key: string,
+  value: unknown,
+  kind: "local" | "session" = "local",
+): "persistent" | "memory-only" {
+  return writeStoredValueWithStatus(key, value, kind).durability;
 }
 
 function removeStoredValue(key: string, kind: "local" | "session" = "local") {
@@ -494,6 +530,9 @@ async function imageToBlob(input: SaveImageInput): Promise<Blob> {
 function parseSupportedImageUrl(value: string): URL | null {
   try {
     const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
     const hasExplicitScheme = /^[a-z][a-z\d+.-]*:/i.test(trimmed);
     const parsed = hasExplicitScheme
       ? new URL(trimmed)
@@ -715,9 +754,10 @@ export const webAdapter: RuntimeAdapter = {
     const legacyApiKey = typeof storedConfig.apiKey === "string" ? storedConfig.apiKey : "";
     const rawProviderProfiles = Array.isArray(storedConfig.providerProfiles) ? storedConfig.providerProfiles : [];
     const persistableConfig = toPersistedConfig(storedConfig);
+    const needsProviderMetadataMigration = storedConfig.providerSchemaVersion !== DEFAULT_CONFIG.providerSchemaVersion
+      || !Array.isArray(storedConfig.providerProfiles);
     let configWithoutKeys = mergeConfig({
       ...persistableConfig,
-      providerSchemaVersion: DEFAULT_CONFIG.providerSchemaVersion,
       apiKey: "",
     } as Partial<AppConfig>);
     const legacyTargetProfileId = configWithoutKeys.activeProviderProfileId;
@@ -779,52 +819,81 @@ export const webAdapter: RuntimeAdapter = {
         }
       }
     }
-    if (legacyApiKey || migratedProfileKey) writeStoredValue(CONFIG_KEY, persistableConfig);
+    const normalizedPersistableConfig = toPersistedConfig(configWithoutKeys);
+    if (needsProviderMetadataMigration || legacyApiKey || migratedProfileKey) {
+      writeStoredValue(CONFIG_KEY, normalizedPersistableConfig);
+    }
 
+    const activeApiKey = cleanedSessionKeys[configWithoutKeys.activeProviderProfileId]
+      || (storageCapabilities.local ? cleanedPersistentKeys[configWithoutKeys.activeProviderProfileId] : "")
+      || "";
     const hydratedProfiles = configWithoutKeys.providerProfiles.map((profile) => ({
       ...profile,
       rememberApiKey: profile.rememberApiKey && storageCapabilities.local,
-      apiKey: cleanedSessionKeys[profile.id]
-        || (profile.rememberApiKey && storageCapabilities.local ? cleanedPersistentKeys[profile.id] : "")
-        || "",
+      apiKey: profile.id === configWithoutKeys.activeProviderProfileId ? activeApiKey : "",
     }));
     writeStoredValue(SESSION_API_KEYS, cleanedSessionKeys, "session");
     writeStoredValue(PERSISTENT_API_KEYS, cleanedPersistentKeys);
     removeStoredValue(LEGACY_SESSION_API_KEY, "session");
     removeStoredValue(LEGACY_PERSISTENT_API_KEY);
     const hydratedConfig = mergeConfig({
-      ...persistableConfig,
-      providerSchemaVersion: DEFAULT_CONFIG.providerSchemaVersion,
+      ...normalizedPersistableConfig,
       providerProfiles: hydratedProfiles,
       apiKey: "",
     });
     return hydratedConfig;
   },
 
+  async loadProviderApiKey(profileId: string) {
+    return readProviderApiKey(profileId, getWebStorageCapabilities());
+  },
+
+  async clearProviderApiKey(profileId: string) {
+    const sessionKeys = readStoredValue<Record<string, string>>(SESSION_API_KEYS, {}, "session");
+    const persistentKeys = readStoredValue<Record<string, string>>(PERSISTENT_API_KEYS, {});
+    const previousSessionKeys = { ...sessionKeys };
+    const previousPersistentKeys = { ...persistentKeys };
+    delete sessionKeys[profileId];
+    delete persistentKeys[profileId];
+    const sessionWrite = writeStoredValueWithStatus(SESSION_API_KEYS, sessionKeys, "session");
+    const persistentWrite = writeStoredValueWithStatus(PERSISTENT_API_KEYS, persistentKeys);
+    const failedWrites = [
+      sessionWrite.durability === "persistent" ? "" : `session: ${sessionWrite.error ?? "write failed"}`,
+      persistentWrite.durability === "persistent" ? "" : `local: ${persistentWrite.error ?? "write failed"}`,
+    ].filter(Boolean);
+
+    if (failedWrites.length > 0) {
+      writeStoredValue(SESSION_API_KEYS, previousSessionKeys, "session");
+      writeStoredValue(PERSISTENT_API_KEYS, previousPersistentKeys);
+      throw new Error(`Provider API key clear was not durable. ${failedWrites.join("; ")}`);
+    }
+  },
+
   async saveConfig(config: AppConfig) {
     const storageCapabilities = getWebStorageCapabilities();
-    const profiles = config.providerProfiles.map((profile) => profile.id === config.activeProviderProfileId && !profile.apiKey
-      ? { ...profile, apiKey: config.apiKey, rememberApiKey: config.rememberApiKey }
-      : profile);
-    const profileIds = new Set(profiles.map((profile) => profile.id));
+    const activeProfile = resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId);
+    const activeApiKey = activeProfile.apiKey || config.apiKey;
+    const activeRememberApiKey = config.rememberApiKey;
+    const profileIds = new Set(config.providerProfiles.map((profile) => profile.id));
     const sessionKeys = pruneKeyMap(readStoredValue<Record<string, string>>(SESSION_API_KEYS, {}, "session"), profileIds);
     const persistentKeys = pruneKeyMap(readStoredValue<Record<string, string>>(PERSISTENT_API_KEYS, {}), profileIds);
-    for (const profile of profiles) {
-      delete sessionKeys[profile.id];
-      delete persistentKeys[profile.id];
-      if (!profile.apiKey) continue;
-      if (profile.rememberApiKey && storageCapabilities.local) {
-        persistentKeys[profile.id] = profile.apiKey;
+    if (activeApiKey) {
+      delete sessionKeys[activeProfile.id];
+      delete persistentKeys[activeProfile.id];
+      if (activeRememberApiKey && storageCapabilities.local) {
+        persistentKeys[activeProfile.id] = activeApiKey;
       } else {
-        sessionKeys[profile.id] = profile.apiKey;
+        sessionKeys[activeProfile.id] = activeApiKey;
       }
     }
     const persistableConfig = toPersistedConfig({
       ...config,
       rememberApiKey: config.rememberApiKey && storageCapabilities.local,
-      providerProfiles: profiles.map(({ apiKey: _apiKey, ...profile }) => ({
+      providerProfiles: config.providerProfiles.map(({ apiKey: _apiKey, ...profile }) => ({
         ...profile,
-        rememberApiKey: profile.rememberApiKey && storageCapabilities.local,
+        rememberApiKey: profile.id === activeProfile.id
+          ? activeRememberApiKey && storageCapabilities.local
+          : profile.rememberApiKey && storageCapabilities.local,
       })),
     });
     writeStoredValue(CONFIG_KEY, persistableConfig);
@@ -1113,7 +1182,7 @@ export const webAdapter: RuntimeAdapter = {
           taskId: input.task.id,
           taskIndex: input.task.index,
           taskTitle: input.task.title,
-          totalTasks: undefined,
+          totalTasks: input.totalTasks,
         },
       };
 
