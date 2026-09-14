@@ -44,16 +44,22 @@ coverage, and live-contract work. The immutable v0.1.7 archive baseline is prese
   remember-key) now apply to same-session requests and persist across reload. Previously these
   edits were silently ignored until a page reload and reverted to the previous profile values
   after reload; on desktop the first-entered API key was never persisted.
+- Improves pre-release reliability: malformed local history now degrades safely; a post-save
+  history refresh failure no longer relabels a successful image as failed; batch retry and
+  completion bookkeeping failures no longer corrupt task state; choosing an output directory
+  no longer persists unsaved settings drafts.
 - Expands mock e2e coverage (single image-to-image, single browser-download fallback with
   redaction asserts, batch cancel, file:// generation, settings-edit request targeting and
   reload persistence) and adds zh/en validation key parity guard.
 - Adds zero-cost real-provider error-path tests (wrong key, wrong model) and seeds the e2e
   config with a synchronized provider profile.
-- Documents the 2026-09-14 audit (P2 backlog recorded, not fixed), StepFun live contract matrix
-  (5 images / 3 text calls against the authorized key), and full gate records.
+- Documents the 2026-09-14 audit (six P2 items fixed; B-2/B-3/B-5/B-6/B-12 remain), StepFun live
+  contract matrix (5 images / 3 text calls against the authorized key), and full gate records.
 - Known issue: clearing the API key on desktop is resurrected from the Rust keyring until a
-  Rust-side clear channel lands; StepFun's step-image-edit-2 and /images/edits are announced to
-  stop serving 2026-10-10 and need a migration decision.
+  Rust-side clear channel lands.
+- Test infrastructure note: the temporary StepFun image provider used by real-provider e2e stops
+  serving on 2026-10-10. Replace that test supplier or disable the suite; this is not a product
+  migration or release blocker.
 - Requires maintainers to advance the external STATIC_ARCHIVE_TRUSTED_BASE after the stable
   v0.1.8 archive exists. This note records the requirement only and does not claim the GitHub
   Repository Variable has already been changed.
