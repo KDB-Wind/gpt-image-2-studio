@@ -1081,6 +1081,17 @@ describe("App batch workspace", () => {
     setFieldValue(getField<HTMLInputElement>(copy.fields.baseUrl, "input"), "https://persist.example/v1");
     setFieldValue(getField<HTMLInputElement>(copy.fields.textModel, "input"), "persist-text-model");
     setFieldValue(getField<HTMLInputElement>(copy.fields.imageModel, "input"), "persist-image-model");
+    setSelectValue(
+      getField<HTMLSelectElement>(copy.fields.imageResponseMode, "select"),
+      "force-base64",
+    );
+    const rememberToggle = container.querySelector<HTMLInputElement>('[data-testid="settings-remember-api-key"]');
+    if (!rememberToggle) {
+      throw new Error(`Field not found: ${copy.fields.rememberApiKey}`);
+    }
+    act(() => {
+      rememberToggle.click();
+    });
     await clickButtonAsync(copy.actions.save);
     await flushPromises();
 
@@ -1095,6 +1106,16 @@ describe("App batch workspace", () => {
       apiKey: "edited-persist-key",
       textModel: "persist-text-model",
       imageModel: "persist-image-model",
+      imageResponseMode: "force-base64",
+      rememberApiKey: true,
+    });
+    expect(savedConfig).toMatchObject({
+      baseUrl: "https://persist.example/v1",
+      apiKey: "edited-persist-key",
+      textModel: "persist-text-model",
+      imageModel: "persist-image-model",
+      imageResponseMode: "force-base64",
+      rememberApiKey: true,
     });
   });
 
