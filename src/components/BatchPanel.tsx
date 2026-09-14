@@ -1169,15 +1169,29 @@ export function BatchPanel({
       }
       const finalTasks = mergeRetriedBatchTask(latestTasksRef.current, retried);
       commitTasks(finalTasks);
-      await persistManifest("completed", finalTasks, nextStartedAt);
+      // The retried image is already generated and saved; manifest and
+      // history bookkeeping failures must not relabel it as failed.
+      try {
+        await persistManifest("completed", finalTasks, nextStartedAt);
+      } catch (error) {
+        if (isMountedRef.current) {
+          setAppMessage(safeErrorMessage(error));
+        }
+      }
       if (!isMountedRef.current) {
         return;
       }
-      await onHistoryChanged();
+      try {
+        await onHistoryChanged();
+      } catch {
+        // Best-effort refresh after a successful retry.
+      }
       if (!hasFailedBatchTasks(finalTasks)) {
         setPauseMessage("");
       }
     } catch (error) {
+      // Only retrySingleBatchTask rejections reach here: the generation
+      // itself failed, so the task goes back to the failed state.
       if (isMountedRef.current) {
         const failedTasks = latestTasksRef.current.map((item): BatchTask =>
           item.id === task.id
