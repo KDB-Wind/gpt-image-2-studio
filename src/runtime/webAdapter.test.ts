@@ -866,6 +866,12 @@ describe("webAdapter history deletion", () => {
     await expect(webAdapter.loadHistory()).resolves.toEqual([oldRecord]);
   });
 
+  it("degrades malformed stored history to an empty list instead of throwing", async () => {
+    localStorage.setItem("chat-to-image.history.v1", JSON.stringify({ records: ["not-an-array"] }));
+
+    await expect(webAdapter.loadHistory()).resolves.toEqual([]);
+  });
+
   it("clears a memory history overlay after a later persistent update succeeds", async () => {
     const oldRecord = createHistoryRecord({
       id: "persisted-old",

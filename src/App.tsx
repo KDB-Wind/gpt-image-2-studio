@@ -539,9 +539,8 @@ export default function App() {
             ? adapter.getStorageCapabilities().catch(() => ({ local: false, session: false }))
             : Promise.resolve({ local: true, session: true })
           : Promise.resolve(null);
-        const [loadedConfig, loadedHistory, loadedOutputDirectoryState, loadedStorageCapabilities] = await Promise.all([
+        const [loadedConfig, loadedOutputDirectoryState, loadedStorageCapabilities] = await Promise.all([
           adapter.loadConfig(),
-          adapter.loadHistory(),
           adapter.getOutputDirectoryState().catch(() => null),
           storageCapabilitiesPromise,
         ]);
@@ -555,6 +554,16 @@ export default function App() {
         const nextLanguage = resolveLanguage(mergedConfig.uiLanguage);
         const nextCopy = getTranslations(nextLanguage);
         const customSizeDraft = getCustomSizeDraft(mergedConfig.defaultSize);
+
+        // History is degradable: a failed read must not take down the whole
+        // workspace, so it loads outside the fatal Promise.all above.
+        let loadedHistory: ImageRecord[] = [];
+        let historyLoadFailure: string | null = null;
+        try {
+          loadedHistory = await adapter.loadHistory();
+        } catch (error) {
+          historyLoadFailure = nextCopy.messages.historyLoadFailed(getErrorMessage(error));
+        }
 
         if (!isMounted) {
           return;
@@ -570,10 +579,14 @@ export default function App() {
         setSizeMode(getImageSizePresetValue(mergedConfig.defaultSize) === "custom" ? "custom" : "preset");
         setCustomWidthInput(customSizeDraft.width);
         setCustomHeightInput(customSizeDraft.height);
-        setSettingsMessage({
-          tone: "neutral",
-          text: nextCopy.messages.runtimeLoaded(formatMode(adapter.mode, nextLanguage)),
-        });
+        setSettingsMessage(
+          historyLoadFailure
+            ? { tone: "error", text: historyLoadFailure }
+            : {
+                tone: "neutral",
+                text: nextCopy.messages.runtimeLoaded(formatMode(adapter.mode, nextLanguage)),
+              },
+        );
       } catch (error) {
         if (!isMounted) {
           return;

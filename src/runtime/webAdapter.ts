@@ -835,7 +835,11 @@ export const webAdapter: RuntimeAdapter = {
   },
 
   async loadHistory() {
-    return sortHistoryNewestFirst(readStoredValue<ImageRecord[]>(HISTORY_KEY, []));
+    const storedHistory = readStoredValue<ImageRecord[]>(HISTORY_KEY, []);
+    if (!Array.isArray(storedHistory)) {
+      return [];
+    }
+    return sortHistoryNewestFirst(storedHistory);
   },
 
   async deleteHistoryRecords(recordIds: string[]) {

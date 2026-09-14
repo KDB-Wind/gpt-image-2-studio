@@ -98,6 +98,23 @@ describe("App batch workspace", () => {
     expect(container.textContent).toContain("History is available only in this open app instance.");
   });
 
+  it("still loads the workspace when stored history cannot be read", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createPreviewRuntime([]);
+    runtime.loadHistory = vi.fn().mockRejectedValue(new Error("history storage unavailable"));
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+
+    expect(container.textContent).not.toContain("Failed to load local state");
+    expect(getField<HTMLTextAreaElement>(copy.fields.prompt, "textarea")).toBeTruthy();
+
+    await clickButtonAsync(copy.tabs.settings);
+    expect(container.querySelector(".message-card.inline-message.error")?.textContent).toContain(
+      "History could not be loaded",
+    );
+  });
+
   it("releases the old generated preview when a new single-image preview replaces it", async () => {
     const copy = getTranslations("en-US");
     const runtime = createPreviewRuntime([
