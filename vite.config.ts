@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig } from "vitest/config";
 
-import packageJson from "./package.json";
+import packageJson from "./package.json" with { type: "json" };
 
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || "http://localhost:3000";
 const trustedStaticVersionManifest = JSON.parse(readFileSync(resolve("static-versions/manifest.json"), "utf8"));
@@ -31,7 +31,7 @@ export default defineConfig({
     },
   },
   test: {
-    exclude: ["node_modules/**", "dist/**", "dist-static/**", "tests/e2e/**"],
+    exclude: ["node_modules/**", ".worktrees/**", "dist/**", "dist-static/**", "tests/e2e/**"],
     environment: "jsdom",
     globals: true,
   },

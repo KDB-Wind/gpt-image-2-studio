@@ -62,6 +62,7 @@ function detectKind(searchable: string, status: number | null, errorKind: string
   }
 
   if (
+    errorKind === "parse" ||
     status === 524 ||
     (status !== null && status >= 500) ||
     searchable.includes("openai_error") ||

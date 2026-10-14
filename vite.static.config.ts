@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig } from "vitest/config";
 
-import packageJson from "./package.json";
+import packageJson from "./package.json" with { type: "json" };
 
 const trustedStaticVersionManifest = JSON.parse(readFileSync(resolve("static-versions/manifest.json"), "utf8"));
 const publicStaticVersionManifest = {

@@ -21,3 +21,8 @@ playwright-report/
 test-results/
 *.trace.zip
 *.webm
+.acceptance/
+.codex-review-artifacts/
+.release-smoke-*/
+platform-outputs/
+.video_agent/

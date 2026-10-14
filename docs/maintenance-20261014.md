@@ -1,0 +1,154 @@
+# 深度修复与优化记录 — 2026-10-14
+
+## 任务边界与验收
+
+- 用户目标：依据持续反馈、真实环境验证、设计记忆与定期治理的工作流，深度修复和优化公开项目。
+- 当前工作分支：`codex/deep-maintenance-20261014`；初始 main：`490edde62a5758330b1496d61f17f16a1e4e69cd`。
+- 范围：已有 PR 的代码审查与本地整合；API 客户端、配置/供应商档案、批量执行、图片下载/历史、Web 与桌面适配器、相关 UI/UX；依赖、测试与构建发布链；可复用的项目维护记录。
+- 保留产品边界：无后端的本地/静态工具；保留用户自选兼容供应商和 `gpt-image-2` 默认模型；不引入账号、托管密钥、支付或平台队列。
+- 验收：证据确认的缺陷有回归验证；单图/图生图/批量/配置/历史关键用户路径通过浏览器实测；类型检查和前端构建、静态产物检查、相关 Rust 检查通过；历史版本不可变，新候选产物可复现；依赖安全检查与密钥扫描通过；已执行与未执行的环境/外部验证明确区分。
+- 外部边界：当前进行读取 GitHub、官方文档和依赖下载，本地修复/测试/候选构建；不发送社区回复，不直接合并远端 main，不发布 Release/部署，不修改分支保护，不调用真实收费供应商。实际发布前按项目既有授权要求处理。
+- 用户已确认没有特定优先缺陷；真实供应商验证另需授权及凭据。macOS 浏览器环境由 PR CI 提供，不声称存在本地 macOS 或原生 macOS 验证。
+
+## 当前证据
+
+- GitHub 无 Issue；PR #9 为尚未合并的可靠性改动，远端该提交 CI 成功；PR #8 的 Vite 更新因源码构建与旧版本静态归档字节不一致失败，不能通过删除该门禁来绕过。
+- main 基线：`npm ci` 成功；`npm run test:run`：35 文件、598 测试通过。
+- 当前锁定依赖审计发现 esbuild、source-map-js、undici、vite 共 4 个受影响包（1 low、3 high）；需要升级并重新验证实际构建。
+- PR #9 的运行时代码已审查：历史失败降级、批量完成/重试错误边界、目录选择不保存配置草稿、桌面凭据记住/清除语义。先本地整合，之后根据当前代码复核其余问题。
+- API 客户端源码发现：JSON 和 multipart 请求均直接 `return response.json()`，`finally` 会在响应体读取结束前清除超时；返回体解析失败也越过本地 catch。将新增慢响应体/无效 JSON 的回归验证，不能仅验证 fetch 等待响应头的超时。
+- 历史已有请求 ID 守卫，仍需复核失败分支及跨类型预览切换；旧审计中的结论不能直接当作当前缺陷。
+
+## 阶段状态
+
+DONE。已完成有证据的修复、候选构建、独立 Linux 验证和草稿 PR 交付。以下分别保留代码修订的本地及远端验证；最终提交的外部状态以 PR 检查为准。
+
+### 最终本地验证（2026-10-14，当前候选）
+
+| 检查 | 结果 |
+| --- | --- |
+| `npm run test:run` | 38 文件、664 测试通过 |
+| `npm run build` / `npm run build:static` | 类型检查和两种构建通过 |
+| `npm run e2e:static:mock:run` | 25 passed，3 skipped（桌面项目跳过由 Pixel 7 项目执行的手机用例） |
+| `npm run e2e:static:file:run` | 3 passed |
+| `cargo check --locked --manifest-path src-tauri/Cargo.toml` | 通过，Tauri 配套版本已对齐 |
+| `cargo test --locked --manifest-path src-tauri/Cargo.toml` | 45 passed |
+| `npm run desktop:build -- --no-bundle` | Windows 优化可执行文件构建通过；未启动应用或安装器 |
+| `npm run release:check`（提交后的干净 HEAD） | 25 门禁测试、干净静态重建和严格归档校验通过 |
+| 独立 Ubuntu / Node 22 | 664 测试、普通/静态构建、产物隔离、站点检查、密钥扫描和 npm 审计通过 |
+| 独立 Ubuntu Chromium | 25 page passed / 3 mobile-only desktop skips；3 file-mode passed |
+| `npm run artifact:check` | 普通包与静态包隔离检查通过 |
+| `npm run site:check` | manifest、归档和静态页检查通过 |
+| `npm run secret:scan` | 通过 |
+| `npm audit --audit-level=low` | 0 vulnerabilities |
+| 已跟踪历史归档 | 0.1.9 及更早无改动 |
+| 0.1.10 发布 HTML 与源码归档 | SHA-256 均为 `f4bfda6d195c1009ab3b8c69a5180a61acbe165d81ce994face1d941833b144f` |
+
+浏览器结果使用受控供应商响应；真实模型费用与供应商端行为未测试。真实本机 HTTP 验证覆盖 JSON、multipart 和返回图片的响应流，不能将它称为真实 OpenAI 生图。
+
+### 提交后验证与交付范围
+
+候选已提交并通过 `release:check` 的干净 HEAD 重建；独立 Linux checkout 的全部本地验证通过；维护分支已推送并创建 [草稿 PR #10](https://github.com/KDB-Wind/gpt-image-2-studio/pull/10)。此步骤是用户项目修复的可审查交付，不合并 main、不创建 tag、不发布、不部署。
+
+Windows 原生优化可执行文件构建已通过；未运行可能读取或改变现有用户凭据的桌面进程，不把构建成功称为真实供应商或安装包交互验收。
+
+### 远端验收与可复核证据
+
+- 已检查 [CI run 38531186091](https://github.com/KDB-Wind/gpt-image-2-studio/actions/runs/38531186091)：代码修订 `a453c0c735684046895cb80fb0a27d84ea8c81c8`，run completed / success，Verify 和三个 Browser job 均 success。
+- Verify 实际通过严格发布/归档检查、664 前端测试、普通/静态构建、包隔离、Windows Rust 编译和 45 Rust 测试；没有降低门禁。
+- 三个操作系统的浏览器 job 日志均为 25 page passed / 3 mobile-only desktop skips、3 file-mode passed；依赖审计和密钥扫描均通过。
+- 本记录的最终完善不改变运行时代码或 0.1.10 HTML。记录提交后再次核对最终 PR revision 的 CI，避免把上一提交的绿色状态当作最终提交的验证。
+- 本地源码修复位于 `b03823b`，跨环境测试兼容修复位于 `a453c0c`；最终文档提交 SHA 可由 `git rev-parse HEAD` 和 PR headRefOid 复核。交付为草稿 PR 与本地候选，未合并或发布。
+
+## M1：API 响应体超时与解析边界
+
+- 先红：`npx vitest run src/core/apiTransport.test.ts`：6 failed / 2 passed；JSON 与 multipart 均确认响应体等待时 signal 未被中止；无效响应直接抛出可能含响应内容的 SyntaxError；断流直接抛出未分类的 TypeError。
+- 修复：在 try 内等待响应体解析，使计时器覆盖完整请求；成功 HTTP 的无效 JSON 使用不含原文的 parse 错误；断流保留 network 分类；无效成功响应按可能已计费处理，批量暂停而不继续自动调用。
+- 范围：`apiClient`、`providerErrors`、`errorClassifier` 和独立传输回归测试；这是已记录 API/错误处理范围内的修复。
+- 本地整合提交保留 PR #9 历史；未在 GitHub 合并该 PR。
+- 聚焦验证：API/错误分类/批量执行 5 文件 101 测试通过；真实本机 HTTP socket 与响应流验证 2/2 通过。
+
+## M2：历史预览与目录选择体验
+
+- 先红：历史旧请求在较新请求成功后失败，会覆盖并撤销当前正确预览；批次预览部分恢复后失败没有错误反馈；取消目录选择会 reject。三条聚焦回归均失败。
+- 修复：失败分支也检查请求 ID；批次失败显示已有的双语历史错误提示并释放部分资源；取消目录选择返回 null，未获授权的新目录不替换旧目录。
+- 首次使用补强：浏览器不支持目录授权时，以下载模式完成设置；同步欢迎页双语说明，保留支持目录授权浏览器的既有准备流程。
+- Vite 更新后暴露 JSON import attributes 提示，补齐两份配置的标准 import 写法。
+
+## M3：依赖安全
+
+- `npm audit fix` 更新 Vite、undici、source-map-js 等可兼容依赖，3 high 已消除；单独更新 tsx 至 `^4.23.15`，解析到修复后的 esbuild，完整审计报告为 0 vulnerabilities。
+- 不通过降低审计阈值或删除静态归档复现门禁来通过检查；后续准备新候选版本并验证其构建。
+
+## M4：浏览器验证发现的测试环境缺陷
+
+- 首轮在线静态 E2E 暴露已有 helper 在 `...config` 之后无条件重建默认 providerProfiles，覆盖用例明确提供的多档案和 profile ID；多档案隔离与 CORS 模式持久化用例因此失败。
+- 保留明确传入的 providerProfiles；只在未提供档案时生成与连接字段一致的默认档案。保留请求 URL、Authorization、模型、响应模式的实际断言，不改断言来迁就错误数据。
+- `file://` 首轮 3/3 通过；Windows Rust 首轮 45/45 通过。完成所有运行时修改后仍需执行最终验证。
+- 修正 helper 后三条原失败场景均通过（多档案、单图 CORS、Pixel 7 长档案名）；旧报告中的绿色结果不能替代这些实际场景。
+
+## M5：批量队列等待与供应商追溯
+
+- 先红：最后一个结果保存后仍等待配置的间隔（最多 300 秒）；间隔内取消不能及时完成；切换供应商后手动重试仍沿用旧档案快照。三条回归均失败。
+- 修复：只在仍有待执行任务时等待，等待阶段每 100ms 响应暂停/取消；实际请求的当前档案生成快照，确保保存结果的归属与真实请求一致。
+- 此处保留每轮 attemptCount 的原有语义，不把它宣称为生命周期计费次数。
+
+## M6：Web 凭据清除与损坏存储恢复
+
+- 先红：输入框清空并保存后仍能加载旧密钥（记住/不记住均复现）；已关闭记住的档案遗留持久密钥未迁移；直接水合 null key map 抛 TypeError。4 条新回归失败，3 条其他损坏形状回归通过。
+- 修复：保存明确空密钥会删除当前档案在两种存储中的旧副本；加载时将已退出记住的遗留密钥迁移至会话并删除持久副本；所有读取/删除路径通过受限形状的 key map 解析。
+- 保留其他供应商的独立凭据，以及正常旧版配置迁移行为；后续执行完整适配器和浏览器回归。
+- 验证捕获了“删除当前档案后激活尚未水合的其他档案”回归，因此密钥清除改为设置保存明确传递 `clearActiveApiKey` 意图；普通元数据保存仍保留尚未加载的密钥，避免用空占位符覆盖真实凭据。
+- UI 独立先红验证还确认：删除当前档案后，未水合的剩余档案会向桌面保存桥发送空密钥。删除前补齐剩余档案的持久凭据，再保存安全的元数据；当前未保存的连接草稿不替代持久字段。水合结果同时受切换请求 ID 与当前档案守卫约束。
+
+## M7：统一 Web/桌面图片下载边界
+
+- 当前源码确认独立图片 URL 下载没有超时，桌面端还绕过 force-base64 和下载失败分类；HTTP 200 的 HTML/JSON 网关错误可能被保存为图片。
+- 先红：共享适配器级场景 9 failed / 1 passed（修正测试自身 FileReader 清理后同样 9/1，不将测试等待误称为产品证据）。
+- 统一图片 payload 解析模块，计时覆盖响应头及图片响应体；阻止明确的 HTML/JSON/空结果；Web 与桌面遵循同一响应模式和脱敏错误分类。
+- 图片下载不会向返回 URL 携带供应商 Authorization；下载失败发生在生成之后，批量按可能已经计费暂停，避免继续累积无效结果。
+- 聚焦下载/适配器/错误分类/队列 6 文件、176 测试通过，类型检查与前端构建通过。
+
+## M8：限流重试冷却
+
+- 先红：收到 Retry-After 仍立即调用第二次；等待超出预算仍连续调用；取消到达前已用完全部重试。3 条回归失败。
+- API 保留 429 的 Retry-After（秒数或 HTTP 日期）；批量使用指数退避和少量抖动，累计冷却等待最多 60 秒。有效服务端等待超过剩余预算时直接保留失败，不提前重试；冷却期间响应暂停/取消以及其他并发任务引起的全批停止。
+- 明确的不足配额/账单状态 429 进入需人工处理的访问失败，不作为瞬时限流自动重试；不改变超时、断网、已接受异常响应等不确定结果禁止自动重试的规则。
+- 依据：[OpenAI 官方限流指南](https://developers.openai.com/api/docs/guides/rate-limits)。
+
+## M9：批量草稿恢复保留事实
+
+- 先红：保存再加载批量草稿后，供应商归属快照、强制 base64 恢复建议、历史持久性与警告全部丢失。
+- 清洗工作区时保留这些有类型边界的事实，继续排除 blob URL、参考文件和额外密钥字段；警告进行脱敏，恢复建议仅限失败且有计费风险的任务。
+
+## M10：环境兼容、持续验证与候选版本
+
+- 真实缺陷补强：普通 HTTP/受限环境可能缺少 randomUUID，参考图和历史保存使用同一 UUID fallback，提示词模板复用该实现。
+- 增加浏览器回归：明确清除密钥后刷新与其他档案隔离；成功 HTTP 但无效 JSON 的批量停止；缺少 randomUUID 时图生图和保存；限流冷却内取消不再调用。
+- CI 在 PR 阶段增加 Windows/Linux/macOS 的 Chromium（含手机布局模拟）以及 file:// 流程，锁定依赖审计与失败证据保留。现有 Windows 原生/归档门禁继续存在，不声称新增 CI 已在远端通过。
+- 已审查 PR #6 的 Tauri 更新，并本地更新至 2.11.1，后续重新执行 Rust 检查；npm 当前已锁定 Vite 8.3.4、tsx 4.23.15、esbuild 0.28.2 等修复版本。
+- 准备 0.1.10 候选：版本号、release notes、维护流程文档以及新静态归档；不改历史版本，不创建 tag，不发布/部署。
+- WSL 实测环境：Ubuntu，Linux 6.18.33.2，Node 22.14.0，npm 10.9.2；后续用独立 Linux checkout 安装依赖并运行验证，不复用 Windows node_modules。
+- 整体验证捕获 CI 校验器的跨 job 误判：Verify 删除关键检查后，Browser 的同名命令仍会使正则门禁通过。已有回归变红后，将关键归档/原生门禁校验限定在 Verify job，保持原验收强度。
+- Tauri 单独更新时 Cargo 选择了比核心更新的宏/运行时，原生编译报 27 个 API 不匹配错误；按 PR #6 对应的 crate 家族版本统一锁定后重新验证。不会把依赖解析成功当作原生构建成功。
+- 密钥扫描对长变量字段表达式误报；改为明确的条件水合赋值，保留扫描规则，源码扫描和 npm 全量审计通过。
+
+## M11：归档命令交付完整产物
+
+- 实际执行 `archive:static` 成功后接 `site:check` 失败：构建阶段复制了尚未计算新摘要的临时 manifest，源码归档完成后 dist 未得到最终 SHA-256 元数据和新增归档文件。
+- 归档 CLI 在源码事务完成后同步最终 manifest 与归档至 dist；不改源码事务的历史不可变规则。新增临时目录回归验证 digest、manifest 字节和新归档一致。
+- 最终验证前保留了未提交候选第一版的备份，仅重建本任务未提交的 0.1.10 候选；0.1.9 及更早已跟踪归档未修改。
+
+## M12：独立 Linux 验证的测试兼容性
+
+- Windows Node 24 全量通过后，独立 Ubuntu/Node 22 checkout 的全量测试为 663 passed / 1 failed；失败位于图片连通性参考文件的 SHA-256 断言，Node Web Crypto 不接受 jsdom 上下文产生的 ArrayBuffer。
+- 将仅用于测试的摘要计算改用 Node crypto 与明确的 Buffer 副本；保留 64×64 尺寸与原 SHA-256 的断言，不改变产品图片或测试期望。此调整属于已授权的验证链范围，运行时产物不变。
+- 当前提交的干净 HEAD 静态重建、严格归档一致检查已通过；Windows 原生可执行文件 no-bundle release 构建通过，未运行安装器或桌面应用。
+- 改动后独立 Linux 全量 664/664 通过，类型检查、普通/静态构建、产物隔离、站点检查、密钥扫描及 npm 审计也通过。WSL 重启会清理 `/tmp`，验证 checkout 改放 `/root/codex-validation/gpt-image-2-studio-maintenance-20261014`，不复用 Windows 依赖。
+
+## 剩余风险与未执行验证
+
+- 未调用真实收费供应商；浏览器供应商响应是受控 fixture。未启动 Windows 桌面应用或安装器，避免读取或改写本机已有应用配置/凭据；Windows release 可执行文件已实际编译。
+- macOS/Linux 验证是静态 Web 的 Chromium 用户流程；没有原生 macOS/Linux 桌面包或实体手机验收。
+- GitHub 的 glib 告警仍存在于 Linux 原生桌面依赖链：`glib 0.18.5 ← gtk/webkit2gtk ← tauri/wry`。`cargo tree --locked --target x86_64-pc-windows-msvc -i glib` 无依赖；Linux target 的反向依赖树确认有该包。当前 Windows 和静态 Web 交付不包含它，但后续支持 Linux 原生桌面前必须处理，不能宣称全项目零漏洞。
+- [RustSec RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429.html) 的修复范围为 glib ≥0.20；当前框架链锁定 0.18，单独增加新版不会替换旧依赖。未通过屏蔽告警、伪造 lockfile 或引入未经 Linux 原生验证的框架迁移来隐藏问题。npm 全量审计为 0；Tauri origin-confusion 告警通过升级至 2.11.1 解决。

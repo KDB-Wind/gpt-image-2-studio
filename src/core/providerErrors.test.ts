@@ -8,6 +8,13 @@ import {
 } from "./providerErrors";
 
 describe("classifyProviderError", () => {
+  it.each(["insufficient_quota", "billing_hard_limit_reached", "billing_not_active"])(
+    "does not treat %s as a transient rate limit", (code) => {
+      expect(classifyProviderError({ status: 429, responseBody: JSON.stringify({ error: { code } }) }))
+        .toMatchObject({ category: "auth", shouldDisableApiKey: false });
+    },
+  );
+
   it("treats HTTP 524 as a cost-risk provider failure", () => {
     const result = classifyProviderError({
       status: 524,

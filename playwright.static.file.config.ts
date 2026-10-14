@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "tests/e2e",
+  outputDir: "test-results/static-file",
   forbidOnly: Boolean(process.env.CI),
   timeout: 120_000,
   expect: {

@@ -4,10 +4,9 @@ import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest, BatchWor
 import { sanitizeBatchWorkspace } from "../core/batchWorkspace";
 import { buildImageFileName, formatDateFolder } from "../core/fileNames";
 import { safeErrorMessage } from "../core/errorSanitizer";
-import { sortHistoryNewestFirst, type ImageRecord } from "../core/history";
-import {
-  classifyImageDownloadFailure,
-} from "../core/imageDownloadError";
+import { normalizeImageRecord, sortHistoryNewestFirst, type ImageRecord } from "../core/history";
+import { decodeBase64Image, resolveImageBlob } from "../core/imagePayload";
+import { createLocalId } from "../core/localId";
 import { resolveActiveProviderProfile } from "../core/providerProfiles";
 import type {
   OutputDirectoryState,
@@ -57,7 +56,7 @@ function pruneKeyMap(value: unknown, profileIds: Set<string>): Record<string, st
 }
 
 function readProviderApiKey(profileId: string, storageCapabilities: RuntimeStorageCapabilities): string {
-  const sessionKeys = readStoredValue<Record<string, string>>(SESSION_API_KEYS, {}, "session");
+  const sessionKeys = readProviderKeyMap("session");
   const sessionKey = sessionKeys[profileId];
   if (typeof sessionKey === "string" && sessionKey) {
     return sessionKey;
@@ -67,8 +66,14 @@ function readProviderApiKey(profileId: string, storageCapabilities: RuntimeStora
     return "";
   }
 
-  const persistentKeys = readStoredValue<Record<string, string>>(PERSISTENT_API_KEYS, {});
+  const persistentKeys = readProviderKeyMap("local");
   return typeof persistentKeys[profileId] === "string" ? persistentKeys[profileId] : "";
+}
+
+function readProviderKeyMap(kind: "local" | "session"): Record<string, string> {
+  const value = readStoredValue<unknown>(kind === "session" ? SESSION_API_KEYS : PERSISTENT_API_KEYS, {}, kind);
+  if (!isRecord(value) || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 }
 
 function hasAnyProfileKey(...maps: Array<Record<string, string>>): boolean {
@@ -468,85 +473,8 @@ export async function isSameOutputDirectoryHandle(
   return false;
 }
 
-function decodeBase64Image(base64: string, format: AppConfig["defaultFormat"]): Blob {
-  const binary = atob(base64);
-  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-  const mimeType = format === "jpeg" ? "image/jpeg" : `image/${format}`;
-
-  return new Blob([bytes], { type: mimeType });
-}
-
 async function imageToBlob(input: SaveImageInput): Promise<Blob> {
-  if (input.image.base64) {
-    return decodeBase64Image(input.image.base64, input.config.defaultFormat);
-  }
-
-  if (input.image.url) {
-    const responseMode = resolveActiveProviderProfile(
-      input.config.providerProfiles,
-      input.config.activeProviderProfileId,
-    ).imageResponseMode;
-
-    const parsedUrl = parseSupportedImageUrl(input.image.url);
-    if (!parsedUrl) {
-      throw classifyImageDownloadFailure({ responseMode: "official", cause: undefined, operation: "url" });
-    }
-
-    if (responseMode === "force-base64") {
-      throw classifyImageDownloadFailure({ responseMode, cause: undefined, operation: "url" });
-    }
-
-    let response: Response;
-    try {
-      response = await fetch(input.image.url);
-    } catch (error) {
-      throw classifyImageDownloadFailure({
-        responseMode,
-        cause: error,
-        operation: "fetch",
-        urlProtocol: parsedUrl.protocol,
-      });
-    }
-
-    if (!response.ok) {
-      throw classifyImageDownloadFailure({
-        responseMode,
-        cause: undefined,
-        operation: "fetch",
-        status: response.status,
-      });
-    }
-
-    try {
-      return await response.blob();
-    } catch (error) {
-      throw classifyImageDownloadFailure({ responseMode, cause: error, operation: "blob" });
-    }
-  }
-
-  throw new Error("Image payload did not include base64 data or a URL.");
-}
-
-function parseSupportedImageUrl(value: string): URL | null {
-  try {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return null;
-    }
-    const hasExplicitScheme = /^[a-z][a-z\d+.-]*:/i.test(trimmed);
-    const parsed = hasExplicitScheme
-      ? new URL(trimmed)
-      : new URL(trimmed, window.location.href);
-    const isHttpUrl = parsed.protocol === "http:" || parsed.protocol === "https:";
-    if ((isHttpUrl && parsed.hostname)
-      || parsed.protocol === "blob:"
-      || parsed.protocol === "data:") {
-      return parsed;
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  return resolveImageBlob(input.image, input.config);
 }
 
 async function batchImageToBlob(input: BatchImageSaveInput): Promise<Blob> {
@@ -564,7 +492,7 @@ async function batchImageToBlob(input: BatchImageSaveInput): Promise<Blob> {
 function buildRecord(input: SaveImageInput, outputPath: string): ImageRecord {
   const activeProfile = resolveActiveProviderProfile(input.config.providerProfiles, input.config.activeProviderProfileId);
   return {
-    id: crypto.randomUUID(),
+    id: createLocalId(),
     status: "success",
     createdAt: input.generatedAt.toISOString(),
     prompt: input.prompt,
@@ -772,8 +700,8 @@ export const webAdapter: RuntimeAdapter = {
           : profile),
       };
     }
-    const sessionKeys = readStoredValue<Record<string, string>>(SESSION_API_KEYS, {}, "session");
-    const persistentKeys = readStoredValue<Record<string, string>>(PERSISTENT_API_KEYS, {});
+    const sessionKeys = readProviderKeyMap("session");
+    const persistentKeys = readProviderKeyMap("local");
     const legacySessionKey = readStoredValue<string>(LEGACY_SESSION_API_KEY, "", "session");
     const legacyPersistentKey = readStoredValue<string>(LEGACY_PERSISTENT_API_KEY, "");
     const profileIds = new Set(configWithoutKeys.providerProfiles.map((profile) => profile.id));
@@ -819,6 +747,15 @@ export const webAdapter: RuntimeAdapter = {
         }
       }
     }
+    for (const profile of configWithoutKeys.providerProfiles) {
+      if (!profile.rememberApiKey || !storageCapabilities.local) {
+        const persistentKey = cleanedPersistentKeys[profile.id];
+        if (persistentKey && !cleanedSessionKeys[profile.id]) {
+          cleanedSessionKeys[profile.id] = persistentKey;
+        }
+        delete cleanedPersistentKeys[profile.id];
+      }
+    }
     const normalizedPersistableConfig = toPersistedConfig(configWithoutKeys);
     if (needsProviderMetadataMigration || legacyApiKey || migratedProfileKey) {
       writeStoredValue(CONFIG_KEY, normalizedPersistableConfig);
@@ -849,8 +786,8 @@ export const webAdapter: RuntimeAdapter = {
   },
 
   async clearProviderApiKey(profileId: string) {
-    const sessionKeys = readStoredValue<Record<string, string>>(SESSION_API_KEYS, {}, "session");
-    const persistentKeys = readStoredValue<Record<string, string>>(PERSISTENT_API_KEYS, {});
+    const sessionKeys = readProviderKeyMap("session");
+    const persistentKeys = readProviderKeyMap("local");
     const previousSessionKeys = { ...sessionKeys };
     const previousPersistentKeys = { ...persistentKeys };
     delete sessionKeys[profileId];
@@ -869,17 +806,21 @@ export const webAdapter: RuntimeAdapter = {
     }
   },
 
-  async saveConfig(config: AppConfig) {
+  async saveConfig(config: AppConfig, options) {
     const storageCapabilities = getWebStorageCapabilities();
     const activeProfile = resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId);
     const activeApiKey = activeProfile.apiKey || config.apiKey;
     const activeRememberApiKey = config.rememberApiKey;
     const profileIds = new Set(config.providerProfiles.map((profile) => profile.id));
-    const sessionKeys = pruneKeyMap(readStoredValue<Record<string, string>>(SESSION_API_KEYS, {}, "session"), profileIds);
-    const persistentKeys = pruneKeyMap(readStoredValue<Record<string, string>>(PERSISTENT_API_KEYS, {}), profileIds);
-    if (activeApiKey) {
+    const sessionKeys = pruneKeyMap(readProviderKeyMap("session"), profileIds);
+    const persistentKeys = pruneKeyMap(readProviderKeyMap("local"), profileIds);
+    // A metadata-only save may activate an unhydrated profile. Only a
+    // nonempty replacement or an explicit user clear changes its key.
+    if (activeApiKey || options?.clearActiveApiKey) {
       delete sessionKeys[activeProfile.id];
       delete persistentKeys[activeProfile.id];
+    }
+    if (activeApiKey) {
       if (activeRememberApiKey && storageCapabilities.local) {
         persistentKeys[activeProfile.id] = activeApiKey;
       } else {
@@ -904,7 +845,14 @@ export const webAdapter: RuntimeAdapter = {
   },
 
   async loadHistory() {
-    return sortHistoryNewestFirst(readStoredValue<ImageRecord[]>(HISTORY_KEY, []));
+    const storedHistory = readStoredValue<unknown[]>(HISTORY_KEY, []);
+    if (!Array.isArray(storedHistory)) {
+      return [];
+    }
+    const records = storedHistory
+      .map((entry) => normalizeImageRecord(entry))
+      .filter((record): record is ImageRecord => record !== null);
+    return sortHistoryNewestFirst(records);
   },
 
   async deleteHistoryRecords(recordIds: string[]) {
@@ -921,18 +869,23 @@ export const webAdapter: RuntimeAdapter = {
       return null;
     }
 
-    const showDirectoryPicker = window.showDirectoryPicker as unknown as (
-      options?: { mode: "read" | "readwrite" },
-    ) => Promise<FileSystemDirectoryHandle>;
-    directoryHandle = await showDirectoryPicker({ mode: "readwrite" });
+    let selectedHandle: FileSystemDirectoryHandle;
+    try {
+      selectedHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+    } catch (error) {
+      if (isRecord(error) && error.name === "AbortError") {
+        return null;
+      }
+      throw error;
+    }
 
-    if (!(await ensureDirectoryPermission(directoryHandle, "readwrite"))) {
-      directoryHandle = null;
+    if (!(await ensureDirectoryPermission(selectedHandle, "readwrite"))) {
       throw new Error("Output folder write permission was not granted.");
     }
 
-    await persistDirectoryHandle(directoryHandle);
+    await persistDirectoryHandle(selectedHandle);
     await clearPersistedReadyOutputDirectory();
+    directoryHandle = selectedHandle;
     return directoryHandle.name;
   },
 
@@ -1158,7 +1111,7 @@ export const webAdapter: RuntimeAdapter = {
 
       const activeProfile = resolveActiveProviderProfile(input.config.providerProfiles, input.config.activeProviderProfileId);
       const record: ImageRecord = {
-        id: crypto.randomUUID(),
+        id: createLocalId(),
         status: "success",
         createdAt: input.generatedAt.toISOString(),
         prompt: input.task.prompt,

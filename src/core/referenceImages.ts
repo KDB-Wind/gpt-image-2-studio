@@ -1,3 +1,5 @@
+import { createLocalId } from "./localId";
+
 export const MAX_REFERENCE_IMAGES = 8;
 export const RECOMMENDED_REFERENCE_IMAGES = 4;
 
@@ -38,7 +40,7 @@ export function addReferenceImages(
     }
 
     nextImages.push({
-      id: crypto.randomUUID(),
+      id: createLocalId(),
       file,
       previewUrl: createPreviewUrl(file),
     });

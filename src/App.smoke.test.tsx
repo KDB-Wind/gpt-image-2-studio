@@ -219,6 +219,20 @@ describe("App smoke", () => {
     expect(container.querySelector(".app-shell")?.classList.contains("tab-generate")).toBe(true);
   });
 
+  it("allows first use through downloads when the browser has no folder access API", async () => {
+    const copy = getTranslations("en-US");
+    runtimeMock.adapter = createMockRuntime(
+      { apiKey: "test-key", uiLanguage: "en-US" },
+      { outputDirectoryState: { status: "unsupported" } },
+    );
+    await act(async () => { root.render(<App />); });
+    await flushAppEffects();
+    expect(container.querySelector(".modal-footer .primary-button")?.textContent).toBe(copy.actions.startUsing);
+    await act(async () => { clickButton(container, copy.actions.startUsing); });
+    await flushAppEffects();
+    expect(container.querySelector(".app-shell")?.classList.contains("tab-generate")).toBe(true);
+  });
+
   it("persists the selected output directory immediately after folder authorization", async () => {
     const copy = getTranslations("en-US");
     runtimeMock.chooseOutputDirectory.mockResolvedValue("gpt-image-2-studio");

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONFIG, type AppConfig } from "./config";
 import {
@@ -34,8 +36,7 @@ async function readPngDimensions(file: File): Promise<{ width: number; height: n
 }
 
 async function sha256(file: File): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
-  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+  return createHash("sha256").update(Buffer.from(await file.arrayBuffer())).digest("hex");
 }
 
 describe("buildResponsesRequest", () => {

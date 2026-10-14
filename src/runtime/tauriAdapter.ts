@@ -4,6 +4,7 @@ import { openPath } from "@tauri-apps/plugin-opener";
 
 import { sanitizeBatchManifest } from "../core/batchManifest";
 import { safeErrorMessage } from "../core/errorSanitizer";
+import { resolveImageBlob } from "../core/imagePayload";
 import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest } from "../core/batchTypes";
 import { mergeConfig, type AppConfig } from "../core/config";
 import { resolveActiveProviderProfile } from "../core/providerProfiles";
@@ -50,17 +51,7 @@ async function imageToBase64(input: SaveImageInput): Promise<string> {
     return input.image.base64;
   }
 
-  if (input.image.url) {
-    const response = await fetch(input.image.url);
-
-    if (!response.ok) {
-      throw new Error(`Failed to download generated image: HTTP ${response.status}.`);
-    }
-
-    return blobToBase64(await response.blob());
-  }
-
-  throw new Error("Image payload did not include base64 data or a URL.");
+  return blobToBase64(await resolveImageBlob(input.image, input.config));
 }
 
 async function batchImageToBase64(input: BatchImageSaveInput): Promise<string> {
@@ -114,11 +105,14 @@ export const tauriAdapter: RuntimeAdapter = {
 
   loadConfig() {
     return invoke<AppConfig>("load_config").then((config) => {
+      const activeProfile = config.providerProfiles.find((profile) => profile.id === config.activeProviderProfileId);
+      const rememberApiKey = activeProfile?.rememberApiKey ?? config.rememberApiKey;
+      const apiKey = rememberApiKey ? config.apiKey : "";
       const providerProfiles = config.providerProfiles.map((profile) => ({
         ...profile,
-        apiKey: profile.id === config.activeProviderProfileId ? config.apiKey : "",
+        apiKey: profile.id === config.activeProviderProfileId ? apiKey : "",
       }));
-      return mergeConfig({ ...config, providerProfiles });
+      return mergeConfig({ ...config, apiKey, rememberApiKey, providerProfiles });
     });
   },
 
@@ -132,9 +126,7 @@ export const tauriAdapter: RuntimeAdapter = {
 
   async saveConfig(config: AppConfig) {
     const activeProfile = resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId);
-    const activeProfileApiKey = activeProfile.apiKey || await invoke<string>("load_provider_api_key", {
-      profileId: activeProfile.id,
-    }).catch(() => "");
+    const activeProfileApiKey = activeProfile.rememberApiKey ? activeProfile.apiKey : "";
     const providerProfiles: ProviderProfileMetadata[] = config.providerProfiles.map(({ apiKey: _apiKey, ...profile }) => profile);
     const { apiKey: _apiKey, ...configWithoutApiKey } = config;
     const bridgeConfig = {

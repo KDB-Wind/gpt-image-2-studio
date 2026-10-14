@@ -104,6 +104,18 @@ export async function openCleanStaticPage(page: Page, config?: Partial<AppConfig
         batchDefaultIntervalSeconds: 0,
         batchDefaultMaxRetries: 0,
         ...config,
+        // The app resolves every outbound request from the active provider
+        // profile, so the seed must keep the profile in sync with the
+        // top-level connection fields or requests silently target the
+        // DEFAULT_CONFIG profile instead of the intended provider.
+        providerProfiles: config?.providerProfiles ?? [{
+          ...DEFAULT_CONFIG.providerProfiles[0],
+          baseUrl: config?.baseUrl ?? "https://example.test/v1",
+          apiKey: config?.apiKey ?? "test-api-key",
+          textModel: config?.textModel ?? "test-text-model",
+          imageModel: config?.imageModel ?? "test-image-model",
+          imageResponseMode: config?.imageResponseMode ?? DEFAULT_CONFIG.providerProfiles[0].imageResponseMode,
+        }],
       },
     },
   );
@@ -166,6 +178,8 @@ export async function installMockOutputDirectory(page: Page, options: MockOutput
     }
 
     function createDirectoryHandle(name: string, path = name): FileSystemDirectoryHandle {
+      // This directory test double supplies the methods exercised by the app,
+      // like the partial file-handle double returned below.
       return {
         name,
         async queryPermission() {
@@ -243,7 +257,7 @@ export async function installMockOutputDirectory(page: Page, options: MockOutput
           delete files[key];
           writeFiles(files);
         },
-      };
+      } as FileSystemDirectoryHandle;
     }
 
     window.showDirectoryPicker = async () => createDirectoryHandle("gpt-image-2-studio");

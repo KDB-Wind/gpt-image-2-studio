@@ -494,7 +494,10 @@ export default function App() {
   const showCompressionControls = isCompressionFormat(config.defaultFormat);
   const showWelcome = !isLoadingApp && !config.hasDismissedWelcome;
   const isWelcomeSetupComplete =
-    validation.errors.length === 0 && outputDirectoryState?.status === "ready";
+    validation.errors.length === 0 && (
+      outputDirectoryState?.status === "ready" ||
+      (runtime?.mode === "web" && outputDirectoryState?.status === "unsupported")
+    );
   const activeBatchPreview = activeTab === "batch" ? batchPreviewState : historyBatchPreviewState;
   const isHistoryBatchPreviewActive = activeTab !== "batch" && Boolean(historyBatchPreviewState);
   const qualityLabels: Record<AppConfig["defaultQuality"], string> = {
@@ -591,9 +594,8 @@ export default function App() {
             ? adapter.getStorageCapabilities().catch(() => ({ local: false, session: false }))
             : Promise.resolve({ local: true, session: true })
           : Promise.resolve(null);
-        const [loadedConfig, loadedHistory, loadedOutputDirectoryState, loadedStorageCapabilities] = await Promise.all([
+        const [loadedConfig, loadedOutputDirectoryState, loadedStorageCapabilities] = await Promise.all([
           adapter.loadConfig(),
-          adapter.loadHistory(),
           adapter.getOutputDirectoryState().catch(() => null),
           storageCapabilitiesPromise,
         ]);
@@ -607,6 +609,16 @@ export default function App() {
         const nextLanguage = resolveLanguage(mergedConfig.uiLanguage);
         const nextCopy = getTranslations(nextLanguage);
         const customSizeDraft = getCustomSizeDraft(mergedConfig.defaultSize);
+
+        // History is degradable: a failed read must not take down the whole
+        // workspace, so it loads outside the fatal Promise.all above.
+        let loadedHistory: ImageRecord[] = [];
+        let historyLoadFailure: string | null = null;
+        try {
+          loadedHistory = await adapter.loadHistory();
+        } catch (error) {
+          historyLoadFailure = nextCopy.messages.historyLoadFailed(getErrorMessage(error));
+        }
 
         if (!isMounted) {
           return;
@@ -623,10 +635,14 @@ export default function App() {
         setSizeMode(getImageSizePresetValue(mergedConfig.defaultSize) === "custom" ? "custom" : "preset");
         setCustomWidthInput(customSizeDraft.width);
         setCustomHeightInput(customSizeDraft.height);
-        setSettingsMessage({
-          tone: "neutral",
-          text: nextCopy.messages.runtimeLoaded(formatMode(adapter.mode, nextLanguage)),
-        });
+        setSettingsMessage(
+          historyLoadFailure
+            ? { tone: "error", text: historyLoadFailure }
+            : {
+                tone: "neutral",
+                text: nextCopy.messages.runtimeLoaded(formatMode(adapter.mode, nextLanguage)),
+              },
+        );
       } catch (error) {
         if (!isMounted) {
           return;
@@ -742,18 +758,33 @@ export default function App() {
     }
 
     const deletedProfileId = currentConfig.activeProviderProfileId;
+    const requestId = ++providerSwitchRequestRef.current;
     const nextProfiles = removeProviderProfile(currentConfig.providerProfiles, deletedProfileId);
-    const nextActive = nextProfiles[0];
-    const nextConfig = syncActiveProfile(currentConfig, nextActive, nextProfiles);
+    let nextActive = nextProfiles[0];
     const nextPersistedProfiles = persistedConfig.providerProfiles.filter((profile) => profile.id !== deletedProfileId);
-    const nextPersistedActive = resolveActiveProviderProfile(
+    let nextPersistedActive = resolveActiveProviderProfile(
       nextPersistedProfiles.length > 0 ? nextPersistedProfiles : nextProfiles,
-      nextConfig.activeProviderProfileId,
+      nextActive.id,
     );
+
+    if (runtime.loadProviderApiKey && (!nextActive.apiKey || !nextPersistedActive.apiKey)) {
+      try {
+        const storedKey = await runtime.loadProviderApiKey(nextActive.id);
+        if (!isMountedRef.current || requestId !== providerSwitchRequestRef.current
+          || configRef.current.activeProviderProfileId !== deletedProfileId) return;
+        if (!nextActive.apiKey) nextActive = { ...nextActive, apiKey: storedKey };
+        if (!nextPersistedActive.apiKey) nextPersistedActive = { ...nextPersistedActive, apiKey: storedKey };
+      } catch (error) {
+        setSettingsMessage({ tone: "error", text: copy.messages.settingsSaveFailed(getErrorMessage(error)) });
+        return;
+      }
+    }
+
+    const nextConfig = syncActiveProfile(currentConfig, nextActive, upsertProviderProfile(nextProfiles, nextActive));
     const nextPersistedConfig = syncActiveProfile(
       persistedConfig,
       nextPersistedActive,
-      nextPersistedProfiles.length > 0 ? nextPersistedProfiles : nextProfiles,
+      upsertProviderProfile(nextPersistedProfiles.length > 0 ? nextPersistedProfiles : nextProfiles, nextPersistedActive),
     );
 
     try {
@@ -1479,7 +1510,14 @@ export default function App() {
         return;
       }
       adoptPreviewUrl(savedPreviewUrl);
-      await reloadHistory(runtime);
+      // The image is already saved at this point; a failed history refresh
+      // must not relabel the generation itself as failed.
+      let historyReloadWarning: string | null = null;
+      try {
+        await reloadHistory(runtime);
+      } catch (error) {
+        historyReloadWarning = copy.messages.historyLoadFailed(getErrorMessage(error));
+      }
       if (!isMountedRef.current) {
         return;
       }
@@ -1495,7 +1533,7 @@ export default function App() {
         saveMode: savedResult.saveMode,
         saveFallbackReason: savedResult.saveFallbackReason,
         historyDurability: savedResult.historyDurability,
-        historyWarning: savedResult.historyWarning,
+        historyWarning: savedResult.historyWarning ?? historyReloadWarning ?? undefined,
       });
     } catch (error) {
       if (!isMountedRef.current) {
@@ -1556,7 +1594,11 @@ export default function App() {
       );
       configRef.current = nextConfig;
       setConfig(nextConfig);
-      await runtime.saveConfig(nextConfig);
+      if (!nextProfile.apiKey.trim()) {
+        await runtime.saveConfig(nextConfig, { clearActiveApiKey: true });
+      } else {
+        await runtime.saveConfig(nextConfig);
+      }
       setPersistedConfig(nextConfig);
       const details = [...translatedValidationErrors, ...translatedValidationWarnings].join(" ");
       const hasErrors = translatedValidationErrors.length > 0;
@@ -1584,11 +1626,15 @@ export default function App() {
       const selectedDirectory = await runtime.chooseOutputDirectory();
 
       if (selectedDirectory) {
-        const nextConfig = { ...config, outputDirectory: selectedDirectory };
+        // Directory selection is not a save: persist the last explicitly
+        // saved config plus the new directory, and keep unsaved form edits
+        // in state so an accidental pick cannot leak a draft API key.
+        const nextConfig = { ...configRef.current, outputDirectory: selectedDirectory };
         configRef.current = nextConfig;
         setConfig(nextConfig);
-        await runtime.saveConfig(nextConfig);
-        setPersistedConfig(nextConfig);
+        const persistedNextConfig = { ...persistedConfig, outputDirectory: selectedDirectory };
+        await runtime.saveConfig(persistedNextConfig);
+        setPersistedConfig(persistedNextConfig);
         await refreshOutputDirectoryState(runtime);
         setSettingsMessage({
           tone: "success",
@@ -1741,7 +1787,7 @@ export default function App() {
         message: copy.messages.historyPreviewFileMissing,
       });
     } catch (error) {
-      if (!isMountedRef.current) {
+      if (!isMountedRef.current || requestId !== historyPreviewRequestRef.current) {
         return;
       }
       setPreviewStateWithCleanup({
@@ -1828,10 +1874,13 @@ export default function App() {
         });
         adoptPreviewUrl(previewUrl);
       }
-    } catch {
+    } catch (error) {
       releaseBatchPreviewUrls(restoredImages);
       if (isMountedRef.current && requestId === historyPreviewRequestRef.current) {
         setHistoryBatchPreviewWithCleanup(null);
+        // Preserve a previously usable single preview (it may share a URL
+        // with the failed batch restoration) while making the failure visible.
+        setAppMessage(copy.messages.historyPreviewPreparationFailed(getErrorMessage(error)));
       }
       return;
     }
@@ -2528,20 +2577,22 @@ export default function App() {
                       </div>
                     </label>
                   </div>
-                  {runtime?.mode === "web" ? (
+                  {runtime ? (
                     <>
                       <label className="toggle-row">
                         <input
                           data-testid="settings-remember-api-key"
                           type="checkbox"
                           checked={activeProviderProfile.rememberApiKey}
-                          disabled={!canRememberWebApiKey}
+                          disabled={runtime.mode === "web" && !canRememberWebApiKey}
                           onChange={(event) => updateProviderProfile("rememberApiKey", event.currentTarget.checked)}
                         />
                         <span>{copy.fields.rememberApiKey}</span>
                       </label>
                       <p className="inline-note">
-                        {isMemoryOnlyWebRuntime
+                        {runtime.mode === "desktop"
+                          ? copy.notes.apiKeyDesktopStorageHint
+                          : isMemoryOnlyWebRuntime
                           ? copy.notes.apiKeyMemoryOnlyHint
                           : storageCapabilities?.local === false
                             ? copy.notes.apiKeySessionOnlyHint
@@ -3227,7 +3278,7 @@ export default function App() {
                         {copy.messages.saveFallbackToBrowserDownload(previewState.saveFallbackReason)}
                       </div>
                     ) : null}
-                    {previewState.historyDurability === "memory-only" && previewState.historyWarning ? (
+                    {previewState.historyWarning ? (
                       <div className="message-card warning inline-message" data-testid="single-history-durability-warning">
                         {previewState.historyWarning}
                       </div>

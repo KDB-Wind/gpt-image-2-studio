@@ -17,5 +17,5 @@ interface FileSystemDirectoryHandle {
 }
 
 interface Window {
-  showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
+  showDirectoryPicker?: (options?: { mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>;
 }

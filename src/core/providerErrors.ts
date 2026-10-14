@@ -39,6 +39,7 @@ const COST_RISK_MARKERS = [
   "accepted upstream",
   "already be billed",
   "already billed",
+  "failed to download generated image",
 ] as const;
 const DEFAULT_SAFE_ERROR_SUMMARY = "Provider error details were redacted.";
 const DEFAULT_SAFE_ERROR_SUMMARY_LENGTH = 280;
@@ -84,6 +85,17 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorC
         reason: "Provider failure may have consumed image-generation cost.",
         shouldOpenProviderCircuit: true,
         shouldCooldownApiKey: true,
+        shouldDisableApiKey: false,
+        userChargeable: false,
+      };
+    }
+
+    if (/\b(?:insufficient_quota|billing_hard_limit_reached|billing_not_active)\b/.test(collectSearchText(input))) {
+      return {
+        category: "auth",
+        reason: "Provider quota or billing settings require attention before another request.",
+        shouldOpenProviderCircuit: false,
+        shouldCooldownApiKey: false,
         shouldDisableApiKey: false,
         userChargeable: false,
       };
@@ -154,6 +166,10 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorC
 }
 
 export function isCostRiskProviderError(input: ProviderErrorInput): boolean {
+  if (input.kind === "parse" && input.status !== undefined && input.status >= 200 && input.status < 300) {
+    return true;
+  }
+
   if (input.status === 524) {
     return true;
   }

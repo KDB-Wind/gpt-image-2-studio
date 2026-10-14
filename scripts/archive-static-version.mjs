@@ -993,9 +993,20 @@ export function runStaticBuildCommand({
   }
 }
 
+export async function runArchiveCommand({ rootDir = defaultRootDir, prepareReleaseHtml } = {}) {
+  archiveStaticVersion({
+    rootDir,
+    prepareReleaseHtml: prepareReleaseHtml ?? (() => runStaticBuildCommand({ rootDir })),
+  });
+  // The build happens before the new archive digest exists. Publish the
+  // finalized manifest and new archive to dist only after source commit.
+  const { copyStaticArchives } = await import("./inline-static-html.mjs");
+  copyStaticArchives({ rootDir });
+}
+
 if (isDirectExecution(import.meta.url, process.argv[1])) {
   try {
-    archiveStaticVersion({ prepareReleaseHtml: ({ rootDir }) => runStaticBuildCommand({ rootDir }) });
+    await runArchiveCommand();
     console.log("Static version archive created.");
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);

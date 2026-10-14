@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 
 import { createProviderSafePngBuffer, openCleanStaticPage } from "./helpers/staticHtmlHarness";
+import { DEFAULT_CONFIG } from "../../src/core/config";
 
 function requireE2eEnv(name: string): string {
   const value = process.env[name];
@@ -43,6 +45,86 @@ function loadDotEnvE2eLocal() {
 
 loadDotEnvE2eLocal();
 const runRealProvider = process.env.E2E_REAL_PROVIDER === "1";
+const textOnly = process.env.E2E_REAL_TEXT_ONLY === "1";
+const textRequests: { endpoint: string; status: number | null; durationMs: number; usage?: Record<string, number>; errorClassification?: string }[] = [];
+const pendingUsage: Promise<void>[] = [];
+let blockedRequests = 0;
+const textPostLimit = Number(process.env.E2E_REAL_POST_LIMIT ?? 8);
+const reportLabel = process.env.E2E_REAL_REPORT_LABEL ?? "";
+if (textOnly && (!Number.isInteger(textPostLimit) || textPostLimit < 1 || textPostLimit > 8)) {
+  throw new Error("Real text request limit must be an integer between 1 and 8.");
+}
+if (textOnly && reportLabel && !/^[a-z0-9-]+$/.test(reportLabel)) {
+  throw new Error("Real text report label must be a plain directory name.");
+}
+
+test.beforeEach(async ({ page }) => {
+  if (!runRealProvider || !textOnly) return;
+  const providerOrigin = new URL(requireE2eEnv("E2E_BASE_URL")).origin;
+  const allowedPaths = new Set(["/step_plan/v1/responses", "/step_plan/v1/chat/completions"]);
+  const starts = new Map<string, number>();
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.hostname === "127.0.0.1" || url.protocol === "file:") return route.continue();
+    if (url.origin !== providerOrigin || !allowedPaths.has(url.pathname)) {
+      blockedRequests += 1;
+      return route.abort("blockedbyclient");
+    }
+    if (request.method() === "POST") {
+      if (textRequests.length >= textPostLimit) {
+        blockedRequests += 1;
+        return route.abort("blockedbyclient");
+      }
+      const payload = request.postDataJSON() as { model?: string };
+      if (payload.model !== requireE2eEnv("E2E_TEXT_MODEL")
+        || request.headers().authorization !== `Bearer ${requireE2eEnv("E2E_API_KEY")}`) {
+        blockedRequests += 1;
+        return route.abort("blockedbyclient");
+      }
+      starts.set(request.url(), Date.now());
+      textRequests.push({ endpoint: url.pathname.endsWith("/responses") ? "responses" : "chat-completions", status: null, durationMs: 0 });
+    }
+    return route.continue();
+  });
+  page.on("response", (response) => {
+    if (response.request().method() !== "POST") return;
+    const started = starts.get(response.url());
+    if (started === undefined) return;
+    starts.delete(response.url());
+    const entry = textRequests.findLast((item) => item.status === null);
+    if (!entry) return;
+    entry.status = response.status();
+    entry.durationMs = Date.now() - started;
+    pendingUsage.push((async () => {
+      try {
+        if (!response.ok()) {
+          const body = await response.text();
+          entry.durationMs = Date.now() - started;
+          entry.errorClassification = /identity verification/i.test(body) ? "identity-verification-required"
+            : /404\s*page\s*not\s*found/i.test(body) ? "plain-route-not-found"
+            : /unsupported (?:endpoint|route|path)|unknown (?:endpoint|route|path)|no route/i.test(body) ? "unsupported-route"
+            : /model.*(?:not found|unsupported|not support)/i.test(body) ? "model-unavailable"
+            : "other-http-error";
+          return;
+        }
+        const payload = await response.json() as { usage?: Record<string, unknown> };
+        entry.durationMs = Date.now() - started;
+        if (payload.usage) entry.usage = Object.fromEntries(Object.entries(payload.usage)
+          .filter((pair): pair is [string, number] => ["prompt_tokens", "completion_tokens", "total_tokens", "input_tokens", "output_tokens"].includes(pair[0])
+            && typeof pair[1] === "number" && Number.isFinite(pair[1])));
+      } catch { /* No response contents or error details enter the ledger. */ }
+    })());
+  });
+});
+
+test.afterAll(async () => {
+  if (!runRealProvider || !textOnly) return;
+  await Promise.allSettled(pendingUsage);
+  const reportDir = resolve(".acceptance", "text-provider-20261014", reportLabel);
+  mkdirSync(reportDir, { recursive: true });
+  writeFileSync(join(reportDir, "request-ledger.json"), JSON.stringify({ requestCount: textRequests.length, blockedRequests, requests: textRequests }, null, 2));
+});
 
 async function openRealProviderPage(page: Parameters<typeof openCleanStaticPage>[0]) {
   await openCleanStaticPage(page, {
@@ -54,8 +136,92 @@ async function openRealProviderPage(page: Parameters<typeof openCleanStaticPage>
   });
 }
 
+async function expectTextConnectivity(page: Parameters<typeof openCleanStaticPage>[0]) {
+  await page.waitForFunction(() => Array.from(document.querySelectorAll(".message-card"))
+    .some((element) => /文字模型响应成功|文字模型测试失败/.test(element.textContent ?? "")), undefined, { timeout: 180_000 });
+  expect(await page.locator(".message-card").filter({ hasText: "文字模型响应成功" }).isVisible()).toBe(true);
+}
+
 test.describe("real provider static page smoke", () => {
   test.skip(!runRealProvider, "Set E2E_REAL_PROVIDER=1 to run real provider page smoke.");
+
+  test("real text settings connectivity succeeds", async ({ page }) => {
+    await openRealProviderPage(page);
+    await page.getByRole("tab", { name: "设置" }).click();
+    await page.getByRole("button", { name: "测试文字模型", exact: true }).click();
+    await expectTextConnectivity(page);
+  });
+
+  test("real text prompt optimization updates the effective prompt", async ({ page }) => {
+    await openRealProviderPage(page);
+    const source = "请将以下描述优化成不超过80字的生图提示词，只返回提示词：蓝色圆形图标，白色背景，扁平风格。";
+    await page.getByTestId("single-prompt").fill(source);
+    await page.getByRole("button", { name: "优化提示词", exact: true }).click();
+    const revised = page.getByRole("textbox", { name: "优化后的提示词", exact: true });
+    await expect(page.getByRole("button", { name: "优化提示词", exact: true })).toBeEnabled({ timeout: 180_000 });
+    const value = await revised.inputValue();
+    expect(Boolean(value.trim()) && value !== source).toBe(true);
+    await expect.poll(async () => {
+      const value = await revised.inputValue();
+      return (await page.locator(".readonly-value").textContent())?.trim() === value.trim();
+    }).toBe(true);
+  });
+
+  test("real text file-mode connectivity succeeds", async ({ page }) => {
+    const profile = {
+      ...DEFAULT_CONFIG.providerProfiles[0],
+      baseUrl: requireE2eEnv("E2E_BASE_URL"),
+      apiKey: requireE2eEnv("E2E_API_KEY"),
+      textModel: requireE2eEnv("E2E_TEXT_MODEL"),
+      rememberApiKey: false,
+    };
+    await page.addInitScript((config) => localStorage.setItem("chat-to-image.config.v1", JSON.stringify(config)), {
+      ...DEFAULT_CONFIG,
+      ...profile,
+      hasDismissedWelcome: true,
+      providerProfiles: [profile],
+    });
+    await page.goto(pathToFileURL(resolve("dist-static/gpt-image-2-studio-lite.html")).href);
+    await page.getByRole("tab", { name: "设置" }).click();
+    await page.getByRole("button", { name: "测试文字模型", exact: true }).click();
+    await expectTextConnectivity(page);
+  });
+
+  test("real wrong api key surfaces an auth-classified failure", async ({ page }) => {
+    await openCleanStaticPage(page, {
+      baseUrl: requireE2eEnv("E2E_BASE_URL"),
+      apiKey: "wrong-key-e2e",
+      textModel: requireE2eEnv("E2E_TEXT_MODEL"),
+      imageModel: requireE2eEnv("E2E_IMAGE_MODEL"),
+      imageResponseMode: "force-base64",
+    });
+
+    await page.getByRole("tab", { name: "单图" }).click();
+    await page.getByTestId("single-prompt").fill("验证错误密钥路径的极简图标");
+    await page.getByTestId("single-generate").click();
+
+    const errorCopy = page.locator(".preview-panel .error-copy");
+    await expect(errorCopy).toBeVisible({ timeout: 60_000 });
+    await expect(errorCopy).toContainText(/401|认证|鉴权|key|api/i);
+  });
+
+  test("real wrong image model surfaces a provider-classified failure", async ({ page }) => {
+    await openCleanStaticPage(page, {
+      baseUrl: requireE2eEnv("E2E_BASE_URL"),
+      apiKey: requireE2eEnv("E2E_API_KEY"),
+      textModel: requireE2eEnv("E2E_TEXT_MODEL"),
+      imageModel: "step-e2e-nonexistent-model",
+      imageResponseMode: "force-base64",
+    });
+
+    await page.getByRole("tab", { name: "单图" }).click();
+    await page.getByTestId("single-prompt").fill("验证错误模型路径的极简图标");
+    await page.getByTestId("single-generate").click();
+
+    const errorCopy = page.locator(".preview-panel .error-copy");
+    await expect(errorCopy).toBeVisible({ timeout: 60_000 });
+    await expect(errorCopy).toContainText(/400|404|model|模型/i);
+  });
 
   test("real text-to-image page flow creates preview and history", async ({ page }) => {
     await openRealProviderPage(page);

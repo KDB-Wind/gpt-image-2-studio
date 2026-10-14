@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildBatchDirectoryName } from "../core/batchManifest";
 import { MAX_BATCH_TASK_COUNT, type BatchManifest, type BatchTask } from "../core/batchTypes";
 import { DEFAULT_CONFIG } from "../core/config";
+import { sanitizeBatchWorkspace } from "../core/batchWorkspace";
 import { __resetWebAdapterForTests, isSameOutputDirectoryHandle, webAdapter } from "./webAdapter";
 
 const ONE_PIXEL_PNG =
@@ -102,6 +103,35 @@ describe("webAdapter history deletion", () => {
     expect(localStorage.getItem("chat-to-image.api-key.persistent.v1")).toBeNull();
     expect(JSON.parse(sessionStorage.getItem("chat-to-image.api-keys.session.v1") ?? "{}"))
       .toEqual({ "provider-default": STALE_API_KEY });
+  });
+
+  it.each([false, true])("does not resurrect a cleared API key after saving (remember=%s)", async (rememberApiKey) => {
+    await webAdapter.saveConfig({ ...DEFAULT_CONFIG, apiKey: REMEMBERED_API_KEY, rememberApiKey });
+    const loaded = await webAdapter.loadConfig();
+    await webAdapter.saveConfig({
+      ...loaded,
+      apiKey: "",
+      providerProfiles: loaded.providerProfiles.map((profile) => ({ ...profile, apiKey: "" })),
+    }, { clearActiveApiKey: true });
+    await expect(webAdapter.loadProviderApiKey?.(loaded.activeProviderProfileId)).resolves.toBe("");
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({ apiKey: "" });
+  });
+
+  it("moves an opted-out profile key out of persistent storage on load", async () => {
+    localStorage.setItem("chat-to-image.config.v1", JSON.stringify(DEFAULT_CONFIG));
+    localStorage.setItem("chat-to-image.api-keys.persistent.v1", JSON.stringify({
+      [DEFAULT_CONFIG.activeProviderProfileId]: STALE_API_KEY,
+    }));
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({ apiKey: STALE_API_KEY, rememberApiKey: false });
+    expect(JSON.parse(localStorage.getItem("chat-to-image.api-keys.persistent.v1") ?? "{}")).toEqual({});
+    sessionStorage.clear();
+    await expect(webAdapter.loadConfig()).resolves.toMatchObject({ apiKey: "" });
+  });
+
+  it.each(["null", "[]", "42", '"bad"'])("ignores malformed key maps during direct profile hydration: %s", async (raw) => {
+    sessionStorage.setItem("chat-to-image.api-keys.session.v1", raw);
+    localStorage.setItem("chat-to-image.api-keys.persistent.v1", raw);
+    await expect(webAdapter.loadProviderApiKey?.("provider-default")).resolves.toBe("");
   });
 
   it("migrates a legacy API key out of the ordinary config into session storage", async () => {
@@ -587,6 +617,26 @@ describe("webAdapter history deletion", () => {
     });
   });
 
+  it("restores provider provenance and recovery warnings with a batch workspace", async () => {
+    const snapshot = {
+      providerProfileId: "provider-alt", providerProfileName: "Alternate", imageModel: "alternate-image",
+      imageResponseMode: "official" as const, apiKey: "must-not-persist",
+    };
+    await webAdapter.saveBatchWorkspace?.(sanitizeBatchWorkspace(createBatchWorkspace({ tasks: [createWorkspaceTask({
+      status: "failed", failureCategory: "cost_risk", suggestedAction: "force-base64",
+      providerProfileSnapshot: snapshot, historyDurability: "memory-only",
+      historyWarning: "History failed at https://provider.example/image?token=private-token",
+    })] }))!);
+    const restored = await webAdapter.loadBatchWorkspace?.();
+    expect(restored?.tasks[0]).toMatchObject({
+      suggestedAction: "force-base64", historyDurability: "memory-only",
+      providerProfileSnapshot: { providerProfileId: "provider-alt", imageModel: "alternate-image" },
+    });
+    const raw = localStorage.getItem("chat-to-image.batch.draft.v1") ?? "";
+    expect(raw).not.toContain("must-not-persist");
+    expect(raw).not.toContain("private-token");
+  });
+
   it("normalizes stale running workspace state to recoverable paused and pending state", async () => {
     const adapter = webAdapter as typeof webAdapter & {
       loadBatchWorkspace(): Promise<unknown>;
@@ -924,6 +974,24 @@ describe("webAdapter history deletion", () => {
     await expect(webAdapter.loadHistory()).resolves.toEqual([oldRecord]);
   });
 
+  it("degrades malformed stored history to an empty list instead of throwing", async () => {
+    localStorage.setItem("chat-to-image.history.v1", JSON.stringify({ records: ["not-an-array"] }));
+
+    await expect(webAdapter.loadHistory()).resolves.toEqual([]);
+  });
+
+  it("filters malformed history entries while keeping valid records", async () => {
+    const validRecord = createHistoryRecord({ id: "valid-history-1", prompt: "Valid record" });
+    localStorage.setItem(
+      "chat-to-image.history.v1",
+      JSON.stringify([validRecord, null, { id: "half-baked" }, "junk-entry"]),
+    );
+
+    await expect(webAdapter.loadHistory()).resolves.toEqual([
+      expect.objectContaining({ id: "valid-history-1", prompt: "Valid record" }),
+    ]);
+  });
+
   it("clears a memory history overlay after a later persistent update succeeds", async () => {
     const oldRecord = createHistoryRecord({
       id: "persisted-old",
@@ -1108,6 +1176,28 @@ describe("webAdapter history deletion", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it.each(["blob:revoked-image", "data:image/png;base64,invalid", "ftp://provider.example/image.png"])(
+    "keeps non-http image URL fetch failures generic: %s",
+    async (providerUrl) => {
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValueOnce(new TypeError("Failed to fetch")));
+
+      await expect(
+        webAdapter.saveImage({
+          image: { url: providerUrl },
+          prompt: "A non-provider image URL.",
+          optimizedPrompt: "",
+          customName: "",
+          config: DEFAULT_CONFIG,
+          generatedAt: new Date("2026-07-05T10:00:00.000Z"),
+          durationMs: 1200,
+        }),
+      ).rejects.toMatchObject({
+        code: "image-download-failed",
+        message: "Failed to download generated image.",
+      });
+    },
+  );
 
   it("migrates legacy provider metadata before applying the current provider schema", async () => {
     localStorage.setItem("chat-to-image.config.v1", JSON.stringify({
@@ -1299,6 +1389,16 @@ describe("webAdapter history deletion", () => {
     });
 
     expect(result.previewUrl).toBe("blob:url-save");
+  });
+
+  it("treats a cancelled directory picker as a no-op and preserves the existing folder", async () => {
+    const handle = createDirectoryHandle({}, { name: "gpt-image-2-studio" });
+    const picker = vi.fn().mockResolvedValueOnce(handle)
+      .mockRejectedValueOnce(new DOMException("User cancelled", "AbortError"));
+    vi.stubGlobal("showDirectoryPicker", picker);
+    await webAdapter.chooseOutputDirectory();
+    await expect(webAdapter.chooseOutputDirectory()).resolves.toBeNull();
+    await expect(webAdapter.getOutputDirectoryState()).resolves.toMatchObject({ name: "gpt-image-2-studio" });
   });
 
   it("requests read-write access when choosing an output directory", async () => {
