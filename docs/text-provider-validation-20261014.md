@@ -85,5 +85,5 @@ DONE。用户完成实名认证后，四个真实文本页面场景和独立 Cha
 
 - `npm run e2e:static:real:run -- --grep 'real text (settings|prompt|file-mode)|real AI planning' --workers=1 --max-failures=1 --retries=0`：4 passed；运行时设置 `E2E_REAL_REPORT_LABEL=after-verification`、`E2E_REAL_POST_LIMIT=8`。
 - 独立 TypeScript 检查（新 E2E 与项目 File System Access 声明）、`npm run secret:scan`、`git diff --check`：通过。最终诊断文本检查未发现密钥（需要脱敏的文件数为 0）。
-- 原 PR #10 与远端 CI 未改动；当前交付为本地测试与脱敏验收记录，不声称本轮付费测试在 CI 执行。提交 SHA 由本地 HEAD 复核。
+- 真实付费验收在本地执行，不声称在 CI 执行。用户已授权推送 GitHub；将本轮测试增强和脱敏记录快进整合到维护分支，更新既有 PR #10，以 PR 当前 head 和实际检查结果复核交付状态。此授权不包含合并 main、发布或部署。
 - 生图仍未进行真实供应商验收。先前被自动审批拒绝删除的临时配置仍在本地、只授予当前 Windows 用户访问、被 Git 忽略；本轮没有绕过拒绝，需要用户手动清理 `.env.e2e.local`。
