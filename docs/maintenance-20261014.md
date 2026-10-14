@@ -21,7 +21,7 @@
 
 ## 阶段状态
 
-进行中。后续在每批改动后追加根因、复现证据、最终验证与交付状态；不把基线通过当作修改后验证。
+DONE。已完成有证据的修复、候选构建、独立 Linux 验证和草稿 PR 交付。以下分别保留代码修订的本地及远端验证；最终提交的外部状态以 PR 检查为准。
 
 ### 最终本地验证（2026-10-14，当前候选）
 
@@ -33,6 +33,10 @@
 | `npm run e2e:static:file:run` | 3 passed |
 | `cargo check --locked --manifest-path src-tauri/Cargo.toml` | 通过，Tauri 配套版本已对齐 |
 | `cargo test --locked --manifest-path src-tauri/Cargo.toml` | 45 passed |
+| `npm run desktop:build -- --no-bundle` | Windows 优化可执行文件构建通过；未启动应用或安装器 |
+| `npm run release:check`（提交后的干净 HEAD） | 25 门禁测试、干净静态重建和严格归档校验通过 |
+| 独立 Ubuntu / Node 22 | 664 测试、普通/静态构建、产物隔离、站点检查、密钥扫描和 npm 审计通过 |
+| 独立 Ubuntu Chromium | 25 page passed / 3 mobile-only desktop skips；3 file-mode passed |
 | `npm run artifact:check` | 普通包与静态包隔离检查通过 |
 | `npm run site:check` | manifest、归档和静态页检查通过 |
 | `npm run secret:scan` | 通过 |
@@ -44,9 +48,17 @@
 
 ### 提交后验证与交付范围
 
-接下来提交候选，执行 `release:check` 的干净 HEAD 重建；建立独立 Linux checkout 进行验证；推送维护分支并创建草稿 PR，以实际远端结果核验三端浏览器与 Windows 原生 CI。此步骤是用户项目修复的可审查交付，不合并 main、不创建 tag、不发布、不部署。
+候选已提交并通过 `release:check` 的干净 HEAD 重建；独立 Linux checkout 的全部本地验证通过；维护分支已推送并创建 [草稿 PR #10](https://github.com/KDB-Wind/gpt-image-2-studio/pull/10)。此步骤是用户项目修复的可审查交付，不合并 main、不创建 tag、不发布、不部署。
 
-Windows 原生可执行文件构建另行验证；未运行可能读取或改变现有用户凭据的桌面进程，不把构建成功称为真实供应商或安装包交互验收。
+Windows 原生优化可执行文件构建已通过；未运行可能读取或改变现有用户凭据的桌面进程，不把构建成功称为真实供应商或安装包交互验收。
+
+### 远端验收与可复核证据
+
+- 已检查 [CI run 38531186091](https://github.com/KDB-Wind/gpt-image-2-studio/actions/runs/38531186091)：代码修订 `a453c0c735684046895cb80fb0a27d84ea8c81c8`，run completed / success，Verify 和三个 Browser job 均 success。
+- Verify 实际通过严格发布/归档检查、664 前端测试、普通/静态构建、包隔离、Windows Rust 编译和 45 Rust 测试；没有降低门禁。
+- 三个操作系统的浏览器 job 日志均为 25 page passed / 3 mobile-only desktop skips、3 file-mode passed；依赖审计和密钥扫描均通过。
+- 本记录的最终完善不改变运行时代码或 0.1.10 HTML。记录提交后再次核对最终 PR revision 的 CI，避免把上一提交的绿色状态当作最终提交的验证。
+- 本地源码修复位于 `b03823b`，跨环境测试兼容修复位于 `a453c0c`；最终文档提交 SHA 可由 `git rev-parse HEAD` 和 PR headRefOid 复核。交付为草稿 PR 与本地候选，未合并或发布。
 
 ## M1：API 响应体超时与解析边界
 
@@ -132,3 +144,11 @@ Windows 原生可执行文件构建另行验证；未运行可能读取或改变
 - Windows Node 24 全量通过后，独立 Ubuntu/Node 22 checkout 的全量测试为 663 passed / 1 failed；失败位于图片连通性参考文件的 SHA-256 断言，Node Web Crypto 不接受 jsdom 上下文产生的 ArrayBuffer。
 - 将仅用于测试的摘要计算改用 Node crypto 与明确的 Buffer 副本；保留 64×64 尺寸与原 SHA-256 的断言，不改变产品图片或测试期望。此调整属于已授权的验证链范围，运行时产物不变。
 - 当前提交的干净 HEAD 静态重建、严格归档一致检查已通过；Windows 原生可执行文件 no-bundle release 构建通过，未运行安装器或桌面应用。
+- 改动后独立 Linux 全量 664/664 通过，类型检查、普通/静态构建、产物隔离、站点检查、密钥扫描及 npm 审计也通过。WSL 重启会清理 `/tmp`，验证 checkout 改放 `/root/codex-validation/gpt-image-2-studio-maintenance-20261014`，不复用 Windows 依赖。
+
+## 剩余风险与未执行验证
+
+- 未调用真实收费供应商；浏览器供应商响应是受控 fixture。未启动 Windows 桌面应用或安装器，避免读取或改写本机已有应用配置/凭据；Windows release 可执行文件已实际编译。
+- macOS/Linux 验证是静态 Web 的 Chromium 用户流程；没有原生 macOS/Linux 桌面包或实体手机验收。
+- GitHub 的 glib 告警仍存在于 Linux 原生桌面依赖链：`glib 0.18.5 ← gtk/webkit2gtk ← tauri/wry`。`cargo tree --locked --target x86_64-pc-windows-msvc -i glib` 无依赖；Linux target 的反向依赖树确认有该包。当前 Windows 和静态 Web 交付不包含它，但后续支持 Linux 原生桌面前必须处理，不能宣称全项目零漏洞。
+- [RustSec RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429.html) 的修复范围为 glib ≥0.20；当前框架链锁定 0.18，单独增加新版不会替换旧依赖。未通过屏蔽告警、伪造 lockfile 或引入未经 Linux 原生验证的框架迁移来隐藏问题。npm 全量审计为 0；Tauri origin-confusion 告警通过升级至 2.11.1 解决。
