@@ -46,9 +46,17 @@ function loadDotEnvE2eLocal() {
 loadDotEnvE2eLocal();
 const runRealProvider = process.env.E2E_REAL_PROVIDER === "1";
 const textOnly = process.env.E2E_REAL_TEXT_ONLY === "1";
-const textRequests: { endpoint: string; status: number | null; durationMs: number; usage?: Record<string, number> }[] = [];
+const textRequests: { endpoint: string; status: number | null; durationMs: number; usage?: Record<string, number>; errorClassification?: string }[] = [];
 const pendingUsage: Promise<void>[] = [];
 let blockedRequests = 0;
+const textPostLimit = Number(process.env.E2E_REAL_POST_LIMIT ?? 8);
+const reportLabel = process.env.E2E_REAL_REPORT_LABEL ?? "";
+if (textOnly && (!Number.isInteger(textPostLimit) || textPostLimit < 1 || textPostLimit > 8)) {
+  throw new Error("Real text request limit must be an integer between 1 and 8.");
+}
+if (textOnly && reportLabel && !/^[a-z0-9-]+$/.test(reportLabel)) {
+  throw new Error("Real text report label must be a plain directory name.");
+}
 
 test.beforeEach(async ({ page }) => {
   if (!runRealProvider || !textOnly) return;
@@ -64,7 +72,7 @@ test.beforeEach(async ({ page }) => {
       return route.abort("blockedbyclient");
     }
     if (request.method() === "POST") {
-      if (textRequests.length >= 8) {
+      if (textRequests.length >= textPostLimit) {
         blockedRequests += 1;
         return route.abort("blockedbyclient");
       }
@@ -90,6 +98,16 @@ test.beforeEach(async ({ page }) => {
     entry.durationMs = Date.now() - started;
     pendingUsage.push((async () => {
       try {
+        if (!response.ok()) {
+          const body = await response.text();
+          entry.durationMs = Date.now() - started;
+          entry.errorClassification = /identity verification/i.test(body) ? "identity-verification-required"
+            : /404\s*page\s*not\s*found/i.test(body) ? "plain-route-not-found"
+            : /unsupported (?:endpoint|route|path)|unknown (?:endpoint|route|path)|no route/i.test(body) ? "unsupported-route"
+            : /model.*(?:not found|unsupported|not support)/i.test(body) ? "model-unavailable"
+            : "other-http-error";
+          return;
+        }
         const payload = await response.json() as { usage?: Record<string, unknown> };
         entry.durationMs = Date.now() - started;
         if (payload.usage) entry.usage = Object.fromEntries(Object.entries(payload.usage)
@@ -103,7 +121,7 @@ test.beforeEach(async ({ page }) => {
 test.afterAll(async () => {
   if (!runRealProvider || !textOnly) return;
   await Promise.allSettled(pendingUsage);
-  const reportDir = resolve(".acceptance", "text-provider-20261014");
+  const reportDir = resolve(".acceptance", "text-provider-20261014", reportLabel);
   mkdirSync(reportDir, { recursive: true });
   writeFileSync(join(reportDir, "request-ledger.json"), JSON.stringify({ requestCount: textRequests.length, blockedRequests, requests: textRequests }, null, 2));
 });
@@ -118,6 +136,12 @@ async function openRealProviderPage(page: Parameters<typeof openCleanStaticPage>
   });
 }
 
+async function expectTextConnectivity(page: Parameters<typeof openCleanStaticPage>[0]) {
+  await page.waitForFunction(() => Array.from(document.querySelectorAll(".message-card"))
+    .some((element) => /文字模型响应成功|文字模型测试失败/.test(element.textContent ?? "")), undefined, { timeout: 180_000 });
+  expect(await page.locator(".message-card").filter({ hasText: "文字模型响应成功" }).isVisible()).toBe(true);
+}
+
 test.describe("real provider static page smoke", () => {
   test.skip(!runRealProvider, "Set E2E_REAL_PROVIDER=1 to run real provider page smoke.");
 
@@ -125,7 +149,7 @@ test.describe("real provider static page smoke", () => {
     await openRealProviderPage(page);
     await page.getByRole("tab", { name: "设置" }).click();
     await page.getByRole("button", { name: "测试文字模型", exact: true }).click();
-    await expect.poll(() => page.locator(".message-card").filter({ hasText: "文字模型响应成功" }).isVisible(), { timeout: 180_000 }).toBe(true);
+    await expectTextConnectivity(page);
   });
 
   test("real text prompt optimization updates the effective prompt", async ({ page }) => {
@@ -134,10 +158,9 @@ test.describe("real provider static page smoke", () => {
     await page.getByTestId("single-prompt").fill(source);
     await page.getByRole("button", { name: "优化提示词", exact: true }).click();
     const revised = page.getByRole("textbox", { name: "优化后的提示词", exact: true });
-    await expect.poll(async () => {
-      const value = await revised.inputValue();
-      return Boolean(value.trim()) && value !== source;
-    }, { timeout: 180_000 }).toBe(true);
+    await expect(page.getByRole("button", { name: "优化提示词", exact: true })).toBeEnabled({ timeout: 180_000 });
+    const value = await revised.inputValue();
+    expect(Boolean(value.trim()) && value !== source).toBe(true);
     await expect.poll(async () => {
       const value = await revised.inputValue();
       return (await page.locator(".readonly-value").textContent())?.trim() === value.trim();
@@ -161,7 +184,7 @@ test.describe("real provider static page smoke", () => {
     await page.goto(pathToFileURL(resolve("dist-static/gpt-image-2-studio-lite.html")).href);
     await page.getByRole("tab", { name: "设置" }).click();
     await page.getByRole("button", { name: "测试文字模型", exact: true }).click();
-    await expect.poll(() => page.locator(".message-card").filter({ hasText: "文字模型响应成功" }).isVisible(), { timeout: 180_000 }).toBe(true);
+    await expectTextConnectivity(page);
   });
 
   test("real wrong api key surfaces an auth-classified failure", async ({ page }) => {
