@@ -178,6 +178,8 @@ export async function installMockOutputDirectory(page: Page, options: MockOutput
     }
 
     function createDirectoryHandle(name: string, path = name): FileSystemDirectoryHandle {
+      // This directory test double supplies the methods exercised by the app,
+      // like the partial file-handle double returned below.
       return {
         name,
         async queryPermission() {
@@ -255,7 +257,7 @@ export async function installMockOutputDirectory(page: Page, options: MockOutput
           delete files[key];
           writeFiles(files);
         },
-      };
+      } as FileSystemDirectoryHandle;
     }
 
     window.showDirectoryPicker = async () => createDirectoryHandle("gpt-image-2-studio");
