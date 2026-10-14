@@ -126,3 +126,9 @@ Windows 原生可执行文件构建另行验证；未运行可能读取或改变
 - 实际执行 `archive:static` 成功后接 `site:check` 失败：构建阶段复制了尚未计算新摘要的临时 manifest，源码归档完成后 dist 未得到最终 SHA-256 元数据和新增归档文件。
 - 归档 CLI 在源码事务完成后同步最终 manifest 与归档至 dist；不改源码事务的历史不可变规则。新增临时目录回归验证 digest、manifest 字节和新归档一致。
 - 最终验证前保留了未提交候选第一版的备份，仅重建本任务未提交的 0.1.10 候选；0.1.9 及更早已跟踪归档未修改。
+
+## M12：独立 Linux 验证的测试兼容性
+
+- Windows Node 24 全量通过后，独立 Ubuntu/Node 22 checkout 的全量测试为 663 passed / 1 failed；失败位于图片连通性参考文件的 SHA-256 断言，Node Web Crypto 不接受 jsdom 上下文产生的 ArrayBuffer。
+- 将仅用于测试的摘要计算改用 Node crypto 与明确的 Buffer 副本；保留 64×64 尺寸与原 SHA-256 的断言，不改变产品图片或测试期望。此调整属于已授权的验证链范围，运行时产物不变。
+- 当前提交的干净 HEAD 静态重建、严格归档一致检查已通过；Windows 原生可执行文件 no-bundle release 构建通过，未运行安装器或桌面应用。
