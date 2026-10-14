@@ -31,7 +31,7 @@ export default defineConfig({
     },
   },
   test: {
-    exclude: ["node_modules/**", "dist/**", "dist-static/**", "tests/e2e/**"],
+    exclude: ["node_modules/**", ".worktrees/**", "dist/**", "dist-static/**", "tests/e2e/**"],
     environment: "jsdom",
     globals: true,
   },

@@ -389,6 +389,7 @@ type TranslationBundle = {
     apiKeyStorageHint: string;
     apiKeySessionOnlyHint: string;
     apiKeyMemoryOnlyHint: string;
+    apiKeyDesktopStorageHint: string;
   };
   welcome: {
     title: string;
@@ -402,6 +403,7 @@ type TranslationBundle = {
   messages: {
     runtimeLoaded: (mode: string) => string;
     runtimeLoadFailed: (detail: string) => string;
+    historyLoadFailed: (detail: string) => string;
     promptChangedCleared: string;
     promptRequiredForOptimize: string;
     promptRequiredForGenerate: string;
@@ -869,6 +871,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       apiKeyStorageHint: "默认只在当前浏览器会话中保存。仅在你信任的个人设备上启用长期保存。",
       apiKeySessionOnlyHint: "API key 可保留到当前浏览器会话结束；其他设置只保留在页面内存中，且无法长期记住 API key。",
       apiKeyMemoryOnlyHint: "浏览器存储当前不可用。配置和 API key 只保留在这个已打开页面的内存中，刷新或关闭页面后即丢失。",
+      apiKeyDesktopStorageHint: "关闭时，密钥仅保留在当前应用进程中，保存设置会删除系统凭据和本地回退副本；启用后优先存入系统凭据库，不可用时会保存到应用配置中。",
       imageResponseModeHint:
         "官方 URL 模式不主动添加 response_format；只有当当前服务明确要求时，才开启强制 base64。",
       providerProfileLimit: "最多保存 20 个档案；至少保留一个档案。",
@@ -889,6 +892,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
     messages: {
       runtimeLoaded: (mode) => `${mode} 已加载。修改后记得保存配置。`,
       runtimeLoadFailed: (detail) => `加载本地状态失败。${detail}`,
+      historyLoadFailed: (detail) => `历史记录加载失败，已改为显示空历史。${detail}`,
       promptChangedCleared: "提示词已变化，旧的优化稿已自动清空。",
       promptRequiredForOptimize: "请先输入提示词，再进行优化。",
       promptRequiredForGenerate: "请先输入提示词，再生成图片。",
@@ -1395,6 +1399,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       apiKeyStorageHint: "By default the key lasts only for this browser session. Enable long-term storage only on a trusted personal device.",
       apiKeySessionOnlyHint: "The API key can last for this browser session, while other settings remain page-memory only. Long-term API key storage is unavailable.",
       apiKeyMemoryOnlyHint: "Browser storage is unavailable. Settings and the API key remain in memory only for this open page and are lost on refresh or close.",
+      apiKeyDesktopStorageHint: "When disabled, the key remains only in the current app process and saving removes system credentials and local fallback copies. When enabled, the system credential store is preferred, with app-config fallback if unavailable.",
     },
     welcome: {
       title: "Welcome to Local Image Studio",
@@ -1418,6 +1423,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
     messages: {
       runtimeLoaded: (mode) => `${mode} loaded. Save after changing settings.`,
       runtimeLoadFailed: (detail) => `Failed to load local state. ${detail}`,
+      historyLoadFailed: (detail) => `History could not be loaded; showing an empty history instead. ${detail}`,
       promptChangedCleared: "The prompt changed, so the previous optimized draft was cleared automatically.",
       promptRequiredForOptimize: "Enter a prompt before optimizing it.",
       promptRequiredForGenerate: "Enter a prompt before generating an image.",
