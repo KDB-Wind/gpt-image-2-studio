@@ -63,6 +63,81 @@ async function readMultipartRequest(request: import("@playwright/test").Request)
   return { fields, files };
 }
 
+test("explicitly clearing the active key survives reload without clearing another profile", async ({ page }) => {
+  const alpha = createSyntheticProviderProfile({ id: "clear-alpha", name: "Alpha", rememberApiKey: true });
+  const beta = createSyntheticProviderProfile({ id: "clear-beta", name: "Beta" });
+  await openCleanStaticPage(page, {
+    uiLanguage: "en-US", activeProviderProfileId: alpha.id, providerProfiles: [alpha, beta],
+    apiKey: alpha.apiKey, baseUrl: alpha.baseUrl,
+  });
+  await page.getByRole("tab", { name: "Settings" }).click();
+  await page.getByTestId("settings-api-key").fill("");
+  await page.getByTestId("settings-save").click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("chat-to-image.api-keys.persistent.v1") ?? "{}")["clear-alpha"])).toBeUndefined();
+  await page.reload();
+  await page.getByRole("tab", { name: "Settings" }).click();
+  await expect(page.getByTestId("settings-api-key")).toHaveValue("");
+  await page.getByTestId("settings-provider-profile").selectOption(beta.id);
+  await expect(page.getByTestId("settings-api-key")).toHaveValue(beta.apiKey);
+});
+
+test("malformed accepted image responses pause a batch without another provider call", async ({ page }) => {
+  let providerCalls = 0;
+  await page.route("**/images/generations", async (route) => {
+    providerCalls += 1;
+    await route.fulfill({ status: 200, contentType: "text/html", body: "<html>private-gateway-details</html>" });
+  });
+  await openCleanStaticPage(page, { uiLanguage: "en-US", batchDefaultMaxRetries: 3 });
+  await page.getByRole("tab", { name: "Batch" }).click();
+  await page.getByTestId("batch-source-custom-prompts").click();
+  await page.getByTestId("batch-custom-prompt-0").fill("First malformed response");
+  await page.getByTestId("batch-custom-prompt-1").fill("Must remain pending");
+  await page.getByTestId("batch-create-tasks").click();
+  await page.getByTestId("batch-start").click();
+  await expect(page.locator(".batch-task-list .status-pill.failed")).toHaveCount(1);
+  await expect(page.locator(".batch-task-list .status-pill.pending")).toHaveCount(1);
+  await expect(page.locator("body")).not.toContainText("private-gateway-details");
+  expect(providerCalls).toBe(1);
+});
+
+test("reference upload and saving still work without crypto.randomUUID", async ({ page }) => {
+  await page.addInitScript(() => { Object.defineProperty(crypto, "randomUUID", { value: undefined, configurable: true }); });
+  let providerCalls = 0;
+  await page.route("**/images/edits", async (route) => {
+    providerCalls += 1;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: [{ b64_json: ONE_PIXEL_PNG_BASE64 }] }) });
+  });
+  await openCleanStaticPage(page);
+  await page.getByRole("tab", { name: "图生图" }).click();
+  await page.getByTestId("single-reference-input").setInputFiles({
+    name: "reference.png", mimeType: "image/png", buffer: Buffer.from(ONE_PIXEL_PNG_BASE64, "base64"),
+  });
+  await page.getByTestId("single-prompt").fill("验证没有 randomUUID 时的参考图与保存");
+  await page.getByTestId("single-generate").click();
+  await expect(page.locator(".preview-panel img").first()).toBeVisible();
+  await expectHistoryContains(page, "验证没有 randomUUID 时的参考图与保存");
+  expect(providerCalls).toBe(1);
+});
+
+test("batch cancellation interrupts a Retry-After cooldown without retrying", async ({ page }) => {
+  let providerCalls = 0;
+  await page.route("**/images/generations", async (route) => {
+    providerCalls += 1;
+    await route.fulfill({ status: 429, contentType: "application/json", headers: { "Retry-After": "30" }, body: '{"error":{"message":"Too many requests"}}' });
+  });
+  await openCleanStaticPage(page, { uiLanguage: "en-US", batchDefaultMaxRetries: 3 });
+  await page.getByRole("tab", { name: "Batch" }).click();
+  await page.getByTestId("batch-source-custom-prompts").click();
+  await page.getByTestId("batch-custom-prompt-0").fill("Rate limited task");
+  await page.getByTestId("batch-custom-prompt-1").fill("Must be skipped");
+  await page.getByTestId("batch-create-tasks").click();
+  await page.getByTestId("batch-start").click();
+  await expect.poll(() => providerCalls).toBe(1);
+  await page.getByRole("button", { name: "Cancel remaining" }).click();
+  await expect(page.locator(".batch-task-list .status-pill.skipped")).toHaveCount(1);
+  expect(providerCalls).toBe(1);
+});
+
 test("static config keeps desktop and Pixel 7 mobile projects", async ({}, testInfo) => {
   expect(testInfo.config.projects.map((project) => project.name)).toEqual(
     expect.arrayContaining(["chromium", "chromium-pixel-7"]),

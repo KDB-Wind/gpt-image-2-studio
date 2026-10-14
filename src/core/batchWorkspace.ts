@@ -1,4 +1,5 @@
 import { summarizeSensitiveError } from "./providerErrors";
+import { normalizeProviderProfileSnapshot } from "./history";
 import {
   clampBatchTaskCount,
   MAX_BATCH_TASK_COUNT,
@@ -94,6 +95,12 @@ function sanitizeBatchWorkspaceTask(value: unknown): BatchTask | null {
     previewUrl: "",
     saveMode: value.saveMode === "authorized-directory" || value.saveMode === "browser-download" ? value.saveMode : undefined,
     saveFallbackReason: optionalSanitizedMessage(value.saveFallbackReason),
+    suggestedAction: status === "failed" && failureCategory === "cost_risk" && value.suggestedAction === "force-base64"
+      ? "force-base64" : undefined,
+    historyDurability: value.historyDurability === "persistent" || value.historyDurability === "memory-only"
+      ? value.historyDurability : undefined,
+    historyWarning: optionalSanitizedMessage(value.historyWarning),
+    providerProfileSnapshot: normalizeProviderProfileSnapshot(value.providerProfileSnapshot),
     durationMs: nonNegativeInteger(value.durationMs),
     startedAt: status === "pending" ? "" : stringValue(value.startedAt),
     completedAt: status === "pending" ? "" : stringValue(value.completedAt),

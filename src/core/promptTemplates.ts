@@ -1,3 +1,5 @@
+import { createLocalId as createId } from "./localId";
+
 export type PromptTemplateCategory = "portrait" | "product" | "social" | "style" | "custom";
 export type PromptTemplateSource = "built-in" | "custom";
 
@@ -137,12 +139,4 @@ export function createCustomPromptTemplate(input: CreateCustomPromptTemplateInpu
 
 export function removeCustomPromptTemplate(customTemplates: PromptTemplate[], id: string): PromptTemplate[] {
   return customTemplates.filter((template) => template.id !== id || template.source !== "custom");
-}
-
-function createId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }

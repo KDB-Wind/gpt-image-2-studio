@@ -55,7 +55,7 @@ export type RequestMultipartInput = {
 
 const IMAGES_PER_TASK = 1;
 
-type ApiClientErrorKind = "timeout" | "http" | "network";
+type ApiClientErrorKind = "timeout" | "http" | "network" | "parse";
 
 type ChatMessageContentPart = {
   type?: string;
@@ -74,13 +74,15 @@ class ApiClientError extends Error {
   kind: ApiClientErrorKind;
   status?: number;
   responseBody?: string;
+  retryAfterMs?: number;
 
-  constructor(message: string, options: { kind: ApiClientErrorKind; status?: number; responseBody?: string }) {
+  constructor(message: string, options: { kind: ApiClientErrorKind; status?: number; responseBody?: string; retryAfterMs?: number }) {
     super(message);
     this.name = "ApiClientError";
     this.kind = options.kind;
     this.status = options.status;
     this.responseBody = options.responseBody;
+    this.retryAfterMs = options.retryAfterMs;
   }
 }
 
@@ -292,10 +294,11 @@ export async function requestJsonWithTimeout(
         kind: "http",
         status: response.status,
         responseBody: details,
+        retryAfterMs: readRetryAfterMs(response),
       });
     }
 
-    return response.json();
+    return await readSuccessfulJson(response);
   } catch (error) {
     if (timedOut || isAbortError(error)) {
       throw new ApiClientError(`Request timed out after ${config.timeoutSeconds} seconds.`, {
@@ -344,10 +347,11 @@ export async function requestMultipartWithTimeout(
         kind: "http",
         status: response.status,
         responseBody: details,
+        retryAfterMs: readRetryAfterMs(response),
       });
     }
 
-    return response.json();
+    return await readSuccessfulJson(response);
   } catch (error) {
     if (timedOut || isAbortError(error)) {
       throw new ApiClientError(`Request timed out after ${config.timeoutSeconds} seconds.`, {
@@ -542,6 +546,34 @@ function decodeBase64(value: string): ArrayBuffer {
   }
 
   return buffer;
+}
+
+async function readSuccessfulJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch (error) {
+    if (error instanceof SyntaxError || asRecord(error).name === "SyntaxError") {
+      // Parsing errors can quote private response contents. Keep the public
+      // error generic and preserve HTTP acceptance for billing-risk handling.
+      throw new ApiClientError("Provider returned an invalid JSON response.", {
+        kind: "parse",
+        status: response.status,
+      });
+    }
+    throw error;
+  }
+}
+
+function readRetryAfterMs(response: Response): number | undefined {
+  if (response.status !== 429) return undefined;
+  const value = response.headers?.get("retry-after")?.trim();
+  if (!value) return undefined;
+  if (/^\d+(?:\.\d+)?$/.test(value)) {
+    const milliseconds = Number(value) * 1_000;
+    return Number.isFinite(milliseconds) ? milliseconds : undefined;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? Math.max(0, timestamp - Date.now()) : undefined;
 }
 
 async function readResponseText(response: Response): Promise<string> {

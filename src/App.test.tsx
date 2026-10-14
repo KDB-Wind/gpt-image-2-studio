@@ -355,6 +355,37 @@ describe("App batch workspace", () => {
     expect(container.querySelector('.preview-success img[src="blob:second-history-preview"]')).toBeNull();
   });
 
+  it("ignores a stale history failure after a newer selection succeeds", async () => {
+    const copy = getTranslations("en-US");
+    const records = [
+      createHistoryRecord({ id: "old-history" }),
+      createHistoryRecord({ id: "new-history", createdAt: "2026-05-24T00:02:00.000Z" }),
+    ];
+    let rejectOld!: (error: Error) => void;
+    const oldPreview = new Promise<string | null>((_resolve, reject) => { rejectOld = reject; });
+    const runtime = createPreviewRuntime([], records);
+    runtime.prepareHistoryPreview = vi.fn()
+      .mockReturnValueOnce(oldPreview)
+      .mockResolvedValueOnce("blob:latest-history");
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+
+    await renderApp();
+    clickButton(copy.tabs.history);
+    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>(".history-item .history-actions button"))
+      .filter((button) => button.textContent?.trim() === copy.actions.inspect);
+    act(() => {
+      buttons[0].click();
+      buttons[1].click();
+    });
+    await flushPromises();
+    expect(container.querySelector('img[src="blob:latest-history"]')).not.toBeNull();
+
+    rejectOld(new Error("Old selection could not be loaded."));
+    await flushPromises();
+    expect(container.querySelector('img[src="blob:latest-history"]')).not.toBeNull();
+    expect(container.textContent).not.toContain("Old selection could not be loaded.");
+  });
+
   it("releases a history batch preview when preparation resolves after unmount", async () => {
     const copy = getTranslations("en-US");
     const preparedPreview = createDeferred<string | null>();
@@ -428,6 +459,7 @@ describe("App batch workspace", () => {
     expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
     expect(revokeObjectUrl).toHaveBeenCalledWith("blob:history-batch-partial");
     expect(container.querySelector('img[src="blob:history-batch-partial"]')).toBeNull();
+    expect(container.textContent).toContain(copy.messages.historyPreviewPreparationFailed("Second preview failed."));
   });
 
   it("keeps a batch preview URL alive while its lightbox is open", async () => {
@@ -1346,6 +1378,33 @@ describe("App batch workspace", () => {
     expect(reloadedProfileSelect?.options).toHaveLength(1);
     expect(reloadedProfileSelect?.value).toBe("provider-a");
     expect(container.textContent).not.toContain("Profile B");
+  });
+
+  it("hydrates the remaining profile before persisting deletion of the active profile", async () => {
+    const copy = getTranslations("en-US");
+    const profiles = [
+      createProviderProfile({ id: "provider-a", name: "Profile A", apiKey: "", rememberApiKey: true }),
+      createProviderProfile({ id: "provider-b", name: "Profile B", apiKey: "profile-b-key" }),
+    ];
+    const runtime = createPreviewRuntime([]);
+    runtime.loadConfig = vi.fn().mockResolvedValue({
+      ...DEFAULT_CONFIG, ...profiles[1], providerProfiles: profiles,
+      activeProviderProfileId: "provider-b", uiLanguage: "en-US", hasDismissedWelcome: true,
+    });
+    runtime.loadProviderApiKey = vi.fn().mockResolvedValue("stored-a-key");
+    runtime.clearProviderApiKey = vi.fn().mockResolvedValue(undefined);
+    runtime.saveConfig = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(runtimeModule, "getRuntimeAdapter").mockResolvedValue(runtime);
+    await renderApp();
+    clickButton(copy.tabs.settings);
+    await clickButtonAsync(copy.actions.deleteProviderProfile);
+    await flushEffects();
+
+    expect(runtime.saveConfig).toHaveBeenCalledWith(expect.objectContaining({
+      activeProviderProfileId: "provider-a", apiKey: "stored-a-key", rememberApiKey: true,
+      providerProfiles: [expect.objectContaining({ id: "provider-a", apiKey: "stored-a-key" })],
+    }));
+    expect(container.querySelector<HTMLInputElement>('[data-testid="settings-api-key"]')?.value).toBe("stored-a-key");
   });
 
   it("does not commit profile deletion when key cleanup is not durable", async () => {

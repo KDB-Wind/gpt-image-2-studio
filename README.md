@@ -160,6 +160,8 @@ npm run build
 - [静态站发布指南](./docs/static-site-hosting.zh-CN.md)
 - [FAQ](./docs/faq.md)
 - [Release 指南](./docs/release.md)
+- [项目维护与验证工作流](./docs/maintenance-workflow.md)
+- [2026-10-14 深度修复记录](./docs/maintenance-20261014.md)
 
 ## License
 

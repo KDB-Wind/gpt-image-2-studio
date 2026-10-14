@@ -1,6 +1,6 @@
 {
   "name": "chat-to-image",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "engines": {
     "node": ">=20.19.0",
@@ -53,9 +53,9 @@
     "@vitejs/plugin-react": "^6.0.1",
     "jsdom": "^29.1.1",
     "semver": "^7.8.5",
-    "tsx": "^4.21.0",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3",
-    "vite": "^8.0.10",
+    "vite": "^8.3.4",
     "vitest": "^4.1.11"
   },
   "description": "一个轻量的 `gpt-image-2` 生图工具台。打开网页，填入自己的 `API key` 和 `Base URL`，就可以做单图、图生图和批量生图。",

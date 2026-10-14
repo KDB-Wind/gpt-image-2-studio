@@ -1,5 +1,7 @@
 # Coding Agent Guide
 
+Project maintenance decisions and verification boundaries: `docs/maintenance-workflow.md`. Record each maintenance task in `docs/maintenance-YYYYMMDD.md`; source code and current external results take precedence over old audit conclusions.
+
 ## Runtime and safety
 
 - Use Node.js `>=20.19.0`, npm `>=10.0.0`, and the committed npm lockfile.

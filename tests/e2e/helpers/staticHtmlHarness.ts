@@ -108,7 +108,7 @@ export async function openCleanStaticPage(page: Page, config?: Partial<AppConfig
         // profile, so the seed must keep the profile in sync with the
         // top-level connection fields or requests silently target the
         // DEFAULT_CONFIG profile instead of the intended provider.
-        providerProfiles: [{
+        providerProfiles: config?.providerProfiles ?? [{
           ...DEFAULT_CONFIG.providerProfiles[0],
           baseUrl: config?.baseUrl ?? "https://example.test/v1",
           apiKey: config?.apiKey ?? "test-api-key",

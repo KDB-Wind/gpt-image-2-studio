@@ -1,14 +1,16 @@
-export type ImageDownloadFailureCode = "image-url-cors" | "image-url-base64-ignored" | "image-download-failed";
+export type ImageDownloadFailureCode = "image-url-cors" | "image-url-base64-ignored" | "image-download-failed" | "image-download-timeout";
 export type ImageResponseMode = "official" | "force-base64";
 export type ImageDownloadOperation = "url" | "fetch" | "blob";
 
 export class ImageDownloadError extends Error {
   readonly code: ImageDownloadFailureCode;
+  readonly kind?: "timeout";
 
   constructor(code: ImageDownloadFailureCode) {
     super(getImageDownloadErrorMessage(code));
     this.name = "ImageDownloadError";
     this.code = code;
+    this.kind = code === "image-download-timeout" ? "timeout" : undefined;
   }
 }
 
@@ -48,6 +50,9 @@ export function classifyImageDownloadFailure(input: {
 }
 
 function getImageDownloadErrorMessage(code: ImageDownloadFailureCode): string {
+  if (code === "image-download-timeout") {
+    return "The generated image download timed out. The provider may already have charged for generation.";
+  }
   if (code === "image-url-base64-ignored") {
     return "The provider returned an image URL even though base64 image data was requested.";
   }

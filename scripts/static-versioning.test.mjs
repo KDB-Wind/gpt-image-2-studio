@@ -18,6 +18,32 @@ import { copyStaticArchives, inlineStaticHtml } from "./inline-static-html.mjs";
 import { runReleaseArchiveParity } from "./release-archive-parity.mjs";
 import { assertStaticVersionArchivesMatch, runStaticSiteCheck } from "./static-site-check.mjs";
 
+it("the archive command copies the finalized trusted manifest and new archive into dist", async () => {
+  const rootDir = createTempRoot();
+  const version = "1.2.3";
+  const manifest = { latestStable: "1.2.2", versions: ["1.2.2"] };
+  writeJson(join(rootDir, "package.json"), { version });
+  writeJson(join(rootDir, "static-versions", "manifest.json"), manifest);
+  writeSourceArchive(rootDir, "1.2.2", versionedArchiveHtml(manifest));
+  await archiveStaticVersionModule.runArchiveCommand({
+    rootDir,
+    prepareReleaseHtml: ({ manifest: pendingManifest }) => {
+      const dist = join(rootDir, "dist-static");
+      mkdirSync(dist, { recursive: true });
+      const bytes = versionedArchiveHtml(pendingManifest);
+      writeFileSync(join(dist, "gpt-image-2-studio-lite.html"), bytes);
+      writeFileSync(join(dist, "index.html"), bytes);
+      copyStaticArchives({ rootDir });
+    },
+  });
+  const source = readFileSync(join(rootDir, "static-versions", "manifest.json"));
+  const built = readFileSync(join(rootDir, "dist-static", "versions", "manifest.json"));
+  expect(built.equals(source)).toBe(true);
+  expect(JSON.parse(built.toString()).sha256[version]).toBe(sha256(join(rootDir, "static-versions", "versions", `v${version}`, "index.html")));
+  expect(readFileSync(join(rootDir, "dist-static", "versions", `v${version}`, "index.html")))
+    .toEqual(readFileSync(join(rootDir, "static-versions", "versions", `v${version}`, "index.html")));
+});
+
 function createTempRoot() {
   return mkdtempSync(join(tmpdir(), "chat-to-image-static-versioning-"));
 }

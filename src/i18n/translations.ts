@@ -883,7 +883,7 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       setupTitle: "开始前的 3 个准备步骤",
       setupSteps: [
         { title: "连接模型", body: "填写 Base URL、API key、文字模型和生图模型。" },
-        { title: "授权并测试保存目录", body: "选择一个专用保存目录并授权，然后运行“测试保存目录”。" },
+        { title: "选择图片保存方式", body: "支持目录授权时，选择保存目录并运行“测试保存目录”；其他浏览器会通过下载保存图片。" },
         { title: "先跑通一张单图", body: "先在“单图”中成功生成一张图片，再开始“批量”。" },
       ],
       privacyNote: "隐私说明：API key 保留在当前设备，请求只会发送到你配置的 Base URL。",
@@ -1409,8 +1409,8 @@ const translations: Record<UiLanguage, TranslationBundle> = {
       setupSteps: [
         { title: "Connect your models", body: "Fill in Base URL, API key, text model, and image model." },
         {
-          title: "Authorize and test the output folder",
-          body: "Authorize a dedicated output folder, then run Test output folder.",
+          title: "Choose how to save images",
+          body: "If folder access is supported, authorize a folder and run Test output folder. Other browsers save images through downloads.",
         },
         {
           title: "Run one single image first",

@@ -161,6 +161,8 @@ npm run build
 - [Static Site Hosting Guide](./docs/static-site-hosting.en-US.md)
 - [FAQ](./docs/faq.md)
 - [Release Guide](./docs/release.en.md)
+- [Project Maintenance and Verification Workflow](./docs/maintenance-workflow.md)
+- [2026-10-14 Maintenance Evidence](./docs/maintenance-20261014.md)
 
 ## License
 

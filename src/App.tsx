@@ -494,7 +494,10 @@ export default function App() {
   const showCompressionControls = isCompressionFormat(config.defaultFormat);
   const showWelcome = !isLoadingApp && !config.hasDismissedWelcome;
   const isWelcomeSetupComplete =
-    validation.errors.length === 0 && outputDirectoryState?.status === "ready";
+    validation.errors.length === 0 && (
+      outputDirectoryState?.status === "ready" ||
+      (runtime?.mode === "web" && outputDirectoryState?.status === "unsupported")
+    );
   const activeBatchPreview = activeTab === "batch" ? batchPreviewState : historyBatchPreviewState;
   const isHistoryBatchPreviewActive = activeTab !== "batch" && Boolean(historyBatchPreviewState);
   const qualityLabels: Record<AppConfig["defaultQuality"], string> = {
@@ -755,18 +758,33 @@ export default function App() {
     }
 
     const deletedProfileId = currentConfig.activeProviderProfileId;
+    const requestId = ++providerSwitchRequestRef.current;
     const nextProfiles = removeProviderProfile(currentConfig.providerProfiles, deletedProfileId);
-    const nextActive = nextProfiles[0];
-    const nextConfig = syncActiveProfile(currentConfig, nextActive, nextProfiles);
+    let nextActive = nextProfiles[0];
     const nextPersistedProfiles = persistedConfig.providerProfiles.filter((profile) => profile.id !== deletedProfileId);
-    const nextPersistedActive = resolveActiveProviderProfile(
+    let nextPersistedActive = resolveActiveProviderProfile(
       nextPersistedProfiles.length > 0 ? nextPersistedProfiles : nextProfiles,
-      nextConfig.activeProviderProfileId,
+      nextActive.id,
     );
+
+    if (runtime.loadProviderApiKey && (!nextActive.apiKey || !nextPersistedActive.apiKey)) {
+      try {
+        const storedKey = await runtime.loadProviderApiKey(nextActive.id);
+        if (!isMountedRef.current || requestId !== providerSwitchRequestRef.current
+          || configRef.current.activeProviderProfileId !== deletedProfileId) return;
+        if (!nextActive.apiKey) nextActive = { ...nextActive, apiKey: storedKey };
+        if (!nextPersistedActive.apiKey) nextPersistedActive = { ...nextPersistedActive, apiKey: storedKey };
+      } catch (error) {
+        setSettingsMessage({ tone: "error", text: copy.messages.settingsSaveFailed(getErrorMessage(error)) });
+        return;
+      }
+    }
+
+    const nextConfig = syncActiveProfile(currentConfig, nextActive, upsertProviderProfile(nextProfiles, nextActive));
     const nextPersistedConfig = syncActiveProfile(
       persistedConfig,
       nextPersistedActive,
-      nextPersistedProfiles.length > 0 ? nextPersistedProfiles : nextProfiles,
+      upsertProviderProfile(nextPersistedProfiles.length > 0 ? nextPersistedProfiles : nextProfiles, nextPersistedActive),
     );
 
     try {
@@ -1576,7 +1594,11 @@ export default function App() {
       );
       configRef.current = nextConfig;
       setConfig(nextConfig);
-      await runtime.saveConfig(nextConfig);
+      if (!nextProfile.apiKey.trim()) {
+        await runtime.saveConfig(nextConfig, { clearActiveApiKey: true });
+      } else {
+        await runtime.saveConfig(nextConfig);
+      }
       setPersistedConfig(nextConfig);
       const details = [...translatedValidationErrors, ...translatedValidationWarnings].join(" ");
       const hasErrors = translatedValidationErrors.length > 0;
@@ -1765,7 +1787,7 @@ export default function App() {
         message: copy.messages.historyPreviewFileMissing,
       });
     } catch (error) {
-      if (!isMountedRef.current) {
+      if (!isMountedRef.current || requestId !== historyPreviewRequestRef.current) {
         return;
       }
       setPreviewStateWithCleanup({
@@ -1852,10 +1874,13 @@ export default function App() {
         });
         adoptPreviewUrl(previewUrl);
       }
-    } catch {
+    } catch (error) {
       releaseBatchPreviewUrls(restoredImages);
       if (isMountedRef.current && requestId === historyPreviewRequestRef.current) {
         setHistoryBatchPreviewWithCleanup(null);
+        // Preserve a previously usable single preview (it may share a URL
+        // with the failed batch restoration) while making the failure visible.
+        setAppMessage(copy.messages.historyPreviewPreparationFailed(getErrorMessage(error)));
       }
       return;
     }

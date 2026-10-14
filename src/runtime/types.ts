@@ -62,7 +62,7 @@ export type LegacyRuntimeConfig = Omit<
 export type RuntimeAdapter = {
   mode: "web" | "desktop";
   loadConfig(): Promise<AppConfig>;
-  saveConfig(config: AppConfig): Promise<void>;
+  saveConfig(config: AppConfig, options?: { clearActiveApiKey?: boolean }): Promise<void>;
   loadProviderApiKey?(profileId: string): Promise<string>;
   clearProviderApiKey?(profileId: string): Promise<void>;
   getStorageCapabilities?(): Promise<RuntimeStorageCapabilities>;

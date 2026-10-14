@@ -4,6 +4,7 @@ import { openPath } from "@tauri-apps/plugin-opener";
 
 import { sanitizeBatchManifest } from "../core/batchManifest";
 import { safeErrorMessage } from "../core/errorSanitizer";
+import { resolveImageBlob } from "../core/imagePayload";
 import type { BatchImageSaveInput, BatchImageSaveResult, BatchManifest } from "../core/batchTypes";
 import { mergeConfig, type AppConfig } from "../core/config";
 import { resolveActiveProviderProfile } from "../core/providerProfiles";
@@ -50,17 +51,7 @@ async function imageToBase64(input: SaveImageInput): Promise<string> {
     return input.image.base64;
   }
 
-  if (input.image.url) {
-    const response = await fetch(input.image.url);
-
-    if (!response.ok) {
-      throw new Error(`Failed to download generated image: HTTP ${response.status}.`);
-    }
-
-    return blobToBase64(await response.blob());
-  }
-
-  throw new Error("Image payload did not include base64 data or a URL.");
+  return blobToBase64(await resolveImageBlob(input.image, input.config));
 }
 
 async function batchImageToBase64(input: BatchImageSaveInput): Promise<string> {

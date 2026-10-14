@@ -330,6 +330,18 @@ export function checkPagesWorkflow(workflowText) {
 }
 
 export function checkCiWorkflow(workflowText) {
+  // Critical archive and native-artifact gates must belong to the Verify
+  // job. A similarly named command in a browser job cannot satisfy them.
+  const verifyLines = [];
+  let inVerifyJob = false;
+  for (const line of workflowText.split(/\r?\n/)) {
+    if (/^  [A-Za-z0-9_-]+:\s*(?:#.*)?$/.test(line)) {
+      if (inVerifyJob) break;
+      inVerifyJob = /^  verify:\s*(?:#.*)?$/.test(line);
+    }
+    if (inVerifyJob) verifyLines.push(line);
+  }
+  const verifyJobText = verifyLines.join("\n");
   const checks = [
     [/fetch-depth:\s*0/, "CI checkout must fetch full history for archive immutability."],
     [/git merge-base HEAD origin\/main/, "PR CI must derive the archive base from merge-base/origin/main."],
@@ -340,8 +352,8 @@ export function checkCiWorkflow(workflowText) {
     [/npm run build:static/, "CI must build the static frontend artifact."],
     [/npm run artifact:check/, "CI must inspect built normal and static artifacts for runtime isolation."],
   ];
-  const errors = checks.filter(([pattern]) => !pattern.test(workflowText)).map(([, message]) => message);
-  errors.push(...externalArchiveTrustRootErrors(workflowText, "CI"));
+  const errors = checks.filter(([pattern]) => !pattern.test(verifyJobText)).map(([, message]) => message);
+  errors.push(...externalArchiveTrustRootErrors(verifyJobText, "CI"));
   return errors;
 }
 

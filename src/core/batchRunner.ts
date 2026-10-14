@@ -80,7 +80,11 @@ export async function runBatchTasks(input: RunBatchTasksInput): Promise<RunBatch
       };
       notify(input, tasks);
 
-      const updated = await runOneTask({ ...input, executionConfig }, task);
+      const updated = await runOneTask({
+        ...input,
+        executionConfig,
+        shouldPause: () => Boolean(stoppedStatus) || Boolean(input.shouldPause?.()),
+      }, task);
       tasks[task.index] = updated;
       notify(input, tasks);
 
@@ -94,8 +98,9 @@ export async function runBatchTasks(input: RunBatchTasksInput): Promise<RunBatch
         return;
       }
 
-      if (executionConfig.intervalSeconds > 0 && !stoppedStatus) {
-        await delay(executionConfig.intervalSeconds * 1000);
+      if (executionConfig.intervalSeconds > 0 && !stoppedStatus
+        && tasks.slice(nextIndex).some((remaining) => remaining.status === "pending" || remaining.status === "failed")) {
+        await waitWhileActive(executionConfig.intervalSeconds * 1000, input, () => Boolean(stoppedStatus));
       }
     }
   }
@@ -128,9 +133,10 @@ export async function retrySingleBatchTask(
 async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<BatchTask> {
   const generateImages = input.generateImages ?? defaultGenerateImages;
   const singleImageConfig = { ...input.config, defaultCount: 1 };
-  const providerProfileSnapshot = task.providerProfileSnapshot ?? createProviderProfileSnapshot(singleImageConfig);
+  const providerProfileSnapshot = createProviderProfileSnapshot(singleImageConfig);
   const maxAttempts = input.executionConfig.maxRetries + 1;
   let attempt = 0;
+  let retryWaitMs = 0;
 
   while (attempt < maxAttempts) {
     attempt += 1;
@@ -204,6 +210,20 @@ async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<B
       if (!isRetryableFailure(failureCategory) || attempt >= maxAttempts) {
         return failedTask;
       }
+      if (input.shouldCancel?.() || input.shouldPause?.()) return failedTask;
+      const serverDelay = asNumber(errorObject(error).retryAfterMs);
+      const serverDelayMs = typeof serverDelay === "number" && Number.isFinite(serverDelay) && serverDelay >= 0 ? serverDelay : 0;
+      const delayMs = Math.max(
+        serverDelayMs,
+        1_000 * 2 ** (attempt - 1),
+      ) + Math.floor(Math.random() * 250);
+      // A server hint is a minimum. Decline a wait above the total budget
+      // instead of capping it and sending a request sooner than permitted.
+      if (delayMs > 60_000 - retryWaitMs) return failedTask;
+      const waitStartedAt = Date.now();
+      await waitWhileActive(delayMs, input);
+      retryWaitMs += Date.now() - waitStartedAt;
+      if (input.shouldCancel?.() || input.shouldPause?.()) return failedTask;
     }
   }
 
@@ -221,9 +241,7 @@ function resolveTaskReferenceImages(input: RunBatchTasksInput, task: BatchTask):
 
 export function classifyBatchFailure(error: unknown): BatchFailureCategory {
   if (isImageDownloadError(error)) {
-    return error.code === "image-url-cors" || error.code === "image-url-base64-ignored"
-      ? "cost_risk"
-      : "unknown";
+    return "cost_risk";
   }
 
   const message = error instanceof Error ? error.message : String(error);
@@ -316,6 +334,13 @@ function notify(input: RunBatchTasksInput, tasks: BatchTask[]) {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+async function waitWhileActive(ms: number, input: RunBatchTasksInput, stopped?: () => boolean): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline && !stopped?.() && !input.shouldCancel?.() && !input.shouldPause?.()) {
+    await delay(Math.min(100, deadline - Date.now()));
+  }
 }
 
 function errorObject(value: unknown): Record<string, unknown> {

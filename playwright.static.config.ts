@@ -2,12 +2,13 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "tests/e2e",
+  outputDir: "test-results/static-page",
   forbidOnly: Boolean(process.env.CI),
   timeout: 120_000,
   expect: {
     timeout: 10_000,
   },
-  reporter: [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],
+  reporter: [["list"], ["html", { outputFolder: "playwright-report/static-page", open: "never" }]],
   use: {
     baseURL: "http://127.0.0.1:4174",
     screenshot: "only-on-failure",

@@ -1,9 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTasksFromMultilinePrompts } from "./batchPlanner";
 import { runBatchTasks, retrySingleBatchTask } from "./batchRunner";
 import { DEFAULT_CONFIG } from "./config";
 import { ImageDownloadError } from "./imageDownloadError";
 import type { BatchImageSaveInput, BatchImageSaveResult } from "./batchTypes";
+
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 function createSaveResult(input: BatchImageSaveInput): BatchImageSaveResult {
   return {
@@ -26,6 +28,113 @@ function createSaveResult(input: BatchImageSaveInput): BatchImageSaveResult {
 }
 
 describe("batchRunner", () => {
+  it("honors the provider retry delay before another rate-limit attempt", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const generateImages = vi.fn().mockRejectedValueOnce(Object.assign(new Error("Too many requests"), {
+      status: 429, retryAfterMs: 2_000,
+    })).mockResolvedValue([{ base64: "ok" }]);
+    const pending = runBatchTasks({
+      batchId: "cooldown", batchTitle: "Batch", batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG, tasks: createTasksFromMultilinePrompts("one"), referenceImages: [],
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 1 },
+      generateImages, saveBatchImage: async (input) => createSaveResult(input),
+    });
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(generateImages).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(generateImages).toHaveBeenCalledTimes(2);
+    expect((await pending).tasks[0].status).toBe("succeeded");
+  });
+
+  it("does not retry sooner when a server delay exceeds the retry budget", async () => {
+    const generateImages = vi.fn().mockRejectedValue(Object.assign(new Error("Too many requests"), {
+      status: 429, retryAfterMs: 120_000,
+    }));
+    const result = await runBatchTasks({
+      batchId: "long-cooldown", batchTitle: "Batch", batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG, tasks: createTasksFromMultilinePrompts("one"), referenceImages: [],
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 3 },
+      generateImages, saveBatchImage: async (input) => createSaveResult(input),
+    });
+    expect(generateImages).toHaveBeenCalledTimes(1);
+    expect(result.tasks[0].failureCategory).toBe("rate_limit");
+  });
+
+  it("stops retries when cancellation arrives during cooldown", async () => {
+    vi.useFakeTimers();
+    let cancel = false;
+    const generateImages = vi.fn().mockRejectedValue(Object.assign(new Error("Too many requests"), { status: 429 }));
+    const pending = runBatchTasks({
+      batchId: "cancel-cooldown", batchTitle: "Batch", batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG, tasks: createTasksFromMultilinePrompts("one\ntwo"), referenceImages: [],
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 3 },
+      generateImages, saveBatchImage: async (input) => createSaveResult(input), shouldCancel: () => cancel,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    cancel = true;
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.runAllTimersAsync();
+    expect((await pending).status).toBe("cancelled");
+    expect(generateImages).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not wait the inter-task interval after the final result", async () => {
+    vi.useFakeTimers();
+    let finished = false;
+    const pending = runBatchTasks({
+      batchId: "batch-final", batchTitle: "Batch", batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG, tasks: createTasksFromMultilinePrompts("one"), referenceImages: [],
+      executionConfig: { concurrency: 1, intervalSeconds: 300, maxRetries: 0 },
+      generateImages: async () => [{ base64: "ok" }],
+      saveBatchImage: async (input) => createSaveResult(input),
+    }).then((result) => { finished = true; return result; });
+    await vi.advanceTimersByTimeAsync(0);
+    const completedWithoutDelay = finished;
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(completedWithoutDelay).toBe(true);
+  });
+
+  it("responds to cancellation during a long interval without sending the next task", async () => {
+    vi.useFakeTimers();
+    let cancel = false;
+    let finished = false;
+    const generateImages = vi.fn().mockResolvedValue([{ base64: "ok" }]);
+    const pending = runBatchTasks({
+      batchId: "batch-cancel-wait", batchTitle: "Batch", batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG, tasks: createTasksFromMultilinePrompts("one\ntwo"), referenceImages: [],
+      executionConfig: { concurrency: 1, intervalSeconds: 300, maxRetries: 0 },
+      generateImages, saveBatchImage: async (input) => createSaveResult(input), shouldCancel: () => cancel,
+    }).then((result) => { finished = true; return result; });
+    await vi.advanceTimersByTimeAsync(0);
+    cancel = true;
+    await vi.advanceTimersByTimeAsync(100);
+    const cancelledPromptly = finished;
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    expect(cancelledPromptly).toBe(true);
+    expect(result.status).toBe("cancelled");
+    expect(result.tasks.map((task) => task.status)).toEqual(["succeeded", "skipped"]);
+    expect(generateImages).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the current provider snapshot when manually retrying after a profile change", async () => {
+    const task = createTasksFromMultilinePrompts("one")[0];
+    task.providerProfileSnapshot = {
+      providerProfileId: "old-provider", providerProfileName: "Old provider",
+      imageModel: "old-model", imageResponseMode: "official",
+    };
+    let savedInput: BatchImageSaveInput | undefined;
+    const retried = await retrySingleBatchTask({
+      batchId: "batch-profile", batchTitle: "Batch", batchCreatedAt: "2026-05-17T12:00:00.000Z",
+      config: DEFAULT_CONFIG, task, referenceImages: [], generateImages: async () => [{ base64: "ok" }],
+      saveBatchImage: async (input) => { savedInput = input; return createSaveResult(input); },
+    });
+    expect(retried.providerProfileSnapshot?.providerProfileId).toBe(DEFAULT_CONFIG.activeProviderProfileId);
+    expect(savedInput?.providerProfileSnapshot?.imageModel).toBe(DEFAULT_CONFIG.providerProfiles[0].imageModel);
+  });
+
   it("passes the active provider snapshot into batch saves and task state", async () => {
     let savedInput: BatchImageSaveInput | undefined;
     const result = await runBatchTasks({
