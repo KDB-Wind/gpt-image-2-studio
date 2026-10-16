@@ -1187,6 +1187,11 @@ export function BatchPanel({
           task: latestTask,
           referenceImages: getReferenceImagesForTask(latestTask),
           saveBatchImage: runtime.saveBatchImage.bind(runtime),
+          onTaskUpdate: ([savingTask]) => {
+            if (isMountedRef.current) {
+              commitTasks((current) => current.map((item) => item.id === task.id ? savingTask : item));
+            }
+          },
         });
 
       if (!isMountedRef.current) {

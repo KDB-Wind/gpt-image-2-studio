@@ -1,7 +1,7 @@
 use std::{
     collections::HashSet,
     fs::{self, OpenOptions},
-    io::{ErrorKind, Write},
+    io::{ErrorKind, Read, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -16,6 +16,7 @@ use directories::ProjectDirs;
 use keyring::Entry;
 use serde::Serialize;
 use tempfile::NamedTempFile;
+use tauri_plugin_opener::OpenerExt;
 
 use crate::models::{
     AppConfig, BatchImageRecordMetadata, ImageRecord, OutputDirectoryStateResult, OutputDirectoryTestResult,
@@ -75,6 +76,15 @@ pub fn default_config() -> AppConfig {
             remember_api_key: false,
         }],
     }
+}
+
+fn keyring_entry(account: &str) -> keyring::Result<Entry> {
+    #[cfg(test)]
+    {
+        static INIT: std::sync::Once = std::sync::Once::new();
+        INIT.call_once(|| keyring::set_default_credential_builder(keyring::mock::default_credential_builder()));
+    }
+    Entry::new(KEYRING_SERVICE, account)
 }
 
 fn project_dirs() -> Result<ProjectDirs, String> {
@@ -344,10 +354,10 @@ fn validate_profile_id(profile_id: &str) -> Result<&str, String> {
 
 fn load_api_key(path: &Path, profile_id: &str, allow_legacy_migration: bool) -> String {
     let profile_account = profile_keyring_account(profile_id);
-    let keyring_result = Entry::new(KEYRING_SERVICE, &profile_keyring_account(profile_id))
+    let keyring_result = keyring_entry(&profile_keyring_account(profile_id))
         .map_err(|error| error.to_string())
         .and_then(|entry| entry.get_password().map_err(|error| error.to_string()));
-    let legacy_keyring_result = Entry::new(KEYRING_SERVICE, LEGACY_KEYRING_ACCOUNT)
+    let legacy_keyring_result = keyring_entry(LEGACY_KEYRING_ACCOUNT)
         .map_err(|error| error.to_string())
         .and_then(|entry| entry.get_password().map_err(|error| error.to_string()));
 
@@ -358,18 +368,18 @@ fn load_api_key(path: &Path, profile_id: &str, allow_legacy_migration: bool) -> 
         && read_api_key_storage_mode(path) != JSON_FALLBACK_STORAGE_MODE;
     let loaded = load_api_key_with_result(path, profile_id, keyring_result, legacy_keyring_result, allow_legacy_migration);
     if should_migrate_legacy {
-        let migrated = Entry::new(KEYRING_SERVICE, &profile_account)
+        let migrated = keyring_entry(&profile_account)
             .map_err(|error| error.to_string())
             .and_then(|entry| {
                 entry.set_password(legacy_key.as_deref().unwrap_or_default())
                     .map_err(|error| error.to_string())?;
-                Entry::new(KEYRING_SERVICE, &profile_account)
+                keyring_entry(&profile_account)
                     .map_err(|error| error.to_string())
                     .and_then(|fresh_entry| fresh_entry.get_password().map_err(|error| error.to_string()))
             })
             .is_ok_and(|value| value == legacy_key.as_deref().unwrap_or_default());
         if migrated {
-            if let Ok(entry) = Entry::new(KEYRING_SERVICE, LEGACY_KEYRING_ACCOUNT) {
+            if let Ok(entry) = keyring_entry(LEGACY_KEYRING_ACCOUNT) {
                 let _ = entry.delete_credential();
             }
         }
@@ -479,7 +489,7 @@ pub fn resolve_keyring_clear_result(
 
 fn clear_api_key(path: &Path, profile_id: &str) -> Result<(), String> {
     let account = profile_keyring_account(profile_id);
-    let keyring_result = match Entry::new(KEYRING_SERVICE, &account) {
+    let keyring_result = match keyring_entry(&account) {
         Ok(entry) => {
             let delete_result = entry
                 .delete_credential()
@@ -518,11 +528,11 @@ pub(crate) fn clear_api_key_with_keyring_result(
 
 fn write_api_key_to_keyring(profile_id: &str, api_key: &str) -> Result<(), String> {
     let account = profile_keyring_account(profile_id);
-    let entry = Entry::new(KEYRING_SERVICE, &account).map_err(|error| error.to_string())?;
+    let entry = keyring_entry(&account).map_err(|error| error.to_string())?;
     let write_result = entry
         .set_password(api_key)
         .map_err(|error| error.to_string());
-    let read_back_result = Entry::new(KEYRING_SERVICE, &account)
+    let read_back_result = keyring_entry(&account)
         .map_err(|error| error.to_string())
         .and_then(|fresh_entry| fresh_entry.get_password().map_err(|error| error.to_string()));
 
@@ -1077,6 +1087,62 @@ pub fn load_history() -> Result<Vec<ImageRecord>, String> {
     let mut history = load_history_for_display(&path)?;
     sort_history(&mut history);
     Ok(history)
+}
+
+const MAX_SAVED_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
+
+fn registered_image_path_at(record: &ImageRecord) -> Result<(PathBuf, &'static str), String> {
+    // The caller obtains the record from the application's history, never a
+    // frontend-supplied arbitrary file path. No global asset scope is granted.
+    let path = PathBuf::from(&record.output_path).canonicalize().map_err(|e| e.to_string())?;
+    let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("").to_ascii_lowercase();
+    let mut file = fs::File::open(&path).map_err(|e| e.to_string())?;
+    let metadata = file.metadata().map_err(|e| e.to_string())?;
+    if !metadata.is_file() || metadata.len() > MAX_SAVED_IMAGE_BYTES {
+        return Err("Saved image is not a regular file or exceeds 64 MiB.".to_string());
+    }
+    let mut header = [0u8; 12];
+    let count = file.read(&mut header).map_err(|e| e.to_string())?;
+    let mime = match extension.as_str() {
+        "png" if count >= 8 && header[..8] == *b"\x89PNG\r\n\x1a\n" => "image/png",
+        "jpg" | "jpeg" if count >= 3 && header[..3] == [0xff, 0xd8, 0xff] => "image/jpeg",
+        "webp" if count == 12 && header[..4] == *b"RIFF" && header[8..12] == *b"WEBP" => "image/webp",
+        _ => return Err("Saved file is not a supported PNG, JPEG or WebP image.".to_string()),
+    };
+    Ok((path, mime))
+}
+
+pub(crate) fn read_saved_image_at(history_file: &Path, record_id: &str) -> Result<String, String> {
+    let record = load_history_for_save(history_file)?.into_iter()
+        .find(|record| record.id == record_id)
+        .ok_or_else(|| "Saved image is not registered in history.".to_string())?;
+    let (path, mime) = registered_image_path_at(&record)?;
+    let mut bytes = Vec::new();
+    fs::File::open(path).map_err(|e| e.to_string())?.take(MAX_SAVED_IMAGE_BYTES + 1)
+        .read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > MAX_SAVED_IMAGE_BYTES {
+        return Err("Saved image exceeds 64 MiB.".to_string());
+    }
+    Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
+}
+
+#[tauri::command]
+pub fn read_saved_image(record_id: String) -> Result<String, String> {
+    read_saved_image_at(&history_path()?, &record_id)
+}
+
+#[tauri::command]
+pub fn open_saved_image(app: tauri::AppHandle, output_path: String) -> Result<(), String> {
+    let path = registered_output_path_at(&history_path()?, &output_path)?;
+    app.opener().open_path(path.to_string_lossy().as_ref(), None::<&str>).map_err(|e| e.to_string())
+}
+
+pub(crate) fn registered_output_path_at(history_file: &Path, output_path: &str) -> Result<PathBuf, String> {
+    let record = load_history_for_save(history_file)?.into_iter()
+        .find(|record| record.output_path == output_path)
+        .ok_or_else(|| "Saved image is not registered in history.".to_string())?;
+    let (path, _) = registered_image_path_at(&record)?;
+    Ok(path)
 }
 
 #[tauri::command]

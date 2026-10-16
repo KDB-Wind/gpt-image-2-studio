@@ -21,6 +21,15 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
 import { tauriAdapter } from "./tauriAdapter";
 
 describe("tauriAdapter output directory state", () => {
+  it("reads history images by record ID and opens only through the registered-image command", async () => {
+    const record = { id: "synthetic-record", outputPath: "C:/custom/images/test.png" } as Parameters<typeof tauriAdapter.prepareHistoryPreview>[0];
+    invokeMock.mockResolvedValue("data:image/png;base64,synthetic");
+    await expect(tauriAdapter.prepareHistoryPreview(record)).resolves.toBe("data:image/png;base64,synthetic");
+    expect(invokeMock).toHaveBeenCalledWith("read_saved_image", { recordId: record.id });
+    await tauriAdapter.openOutputPath(record.outputPath);
+    expect(invokeMock).toHaveBeenCalledWith("open_saved_image", { outputPath: record.outputPath });
+  });
+
   const config = { ...DEFAULT_CONFIG, outputDirectory: "outputs" };
 
   beforeEach(() => {
@@ -281,6 +290,7 @@ describe("tauriAdapter provider profile bridge", () => {
     await tauriAdapter.saveConfig(config);
 
     expect(invokeMock).toHaveBeenCalledWith("save_config", expect.objectContaining({
+      input: expect.objectContaining({
       config: expect.objectContaining({
         providerSchemaVersion: config.providerSchemaVersion,
         activeProviderProfileId: "provider-alt",
@@ -289,8 +299,9 @@ describe("tauriAdapter provider profile bridge", () => {
           expect.objectContaining({ id: "provider-alt", name: "Alternate provider" }),
         ],
       }),
+      }),
     }));
-    const payload = invokeMock.mock.calls[0][1] as { config: Record<string, unknown>; activeProfileApiKey: string };
+    const payload = (invokeMock.mock.calls[0][1] as { input: { config: Record<string, unknown>; activeProfileApiKey: string } }).input;
     expect(payload.config.apiKey).toBeUndefined();
     expect(payload.activeProfileApiKey).toBe("desktop-alt-fake-key");
     expect(JSON.stringify(payload.config.providerProfiles)).not.toContain("desktop-alt-fake-key");
@@ -331,8 +342,10 @@ describe("tauriAdapter provider profile bridge", () => {
 
     expect(invokeMock).not.toHaveBeenCalledWith("load_provider_api_key", expect.anything());
     expect(invokeMock).toHaveBeenCalledWith("save_config", expect.objectContaining({
-      activeProfileApiKey: "",
-      config: expect.objectContaining({ rememberApiKey: false }),
+      input: expect.objectContaining({
+        activeProfileApiKey: "",
+        config: expect.objectContaining({ rememberApiKey: false }),
+      }),
     }));
   });
 

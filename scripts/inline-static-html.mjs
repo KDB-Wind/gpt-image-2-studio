@@ -1,8 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
-
-import { isDirectExecution } from "./archive-static-version.mjs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const defaultRootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -93,6 +91,8 @@ export function inlineStaticHtml({ rootDir = defaultRootDir, distDir = join(root
   copyStaticArchives({ rootDir, distDir });
 }
 
-if (isDirectExecution(import.meta.url, process.argv[1])) {
+// Keep this module independent of the archive CLI, which lazily imports it
+// while awaiting archive completion. Importing that entrypoint would deadlock.
+if (typeof process.argv[1] === "string" && import.meta.url === pathToFileURL(process.argv[1]).href) {
   inlineStaticHtml();
 }

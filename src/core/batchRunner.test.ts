@@ -3,7 +3,8 @@ import { createTasksFromMultilinePrompts } from "./batchPlanner";
 import { runBatchTasks, retrySingleBatchTask } from "./batchRunner";
 import { DEFAULT_CONFIG } from "./config";
 import { ImageDownloadError } from "./imageDownloadError";
-import type { BatchImageSaveInput, BatchImageSaveResult } from "./batchTypes";
+import { sanitizeBatchWorkspace } from "./batchWorkspace";
+import type { BatchImageSaveInput, BatchImageSaveResult, BatchTask } from "./batchTypes";
 
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
@@ -28,6 +29,118 @@ function createSaveResult(input: BatchImageSaveInput): BatchImageSaveResult {
 }
 
 describe("batchRunner", () => {
+  for (const mode of ["new-batch", "save-only-batch", "single-retry"] as const) {
+    it(`preserves save-only recovery when reloaded during ${mode}`, async () => {
+      const [task] = createTasksFromMultilinePrompts("synthetic prompt");
+      const tasks: BatchTask[] = mode === "save-only-batch"
+        ? [{ ...task, status: "failed", failureCategory: "cost_risk", suggestedAction: "retry-save" }]
+        : [task];
+      let signalSave!: () => void;
+      let finishSave!: () => void;
+      const saving = new Promise<void>(resolve => { signalSave = resolve; });
+      const release = new Promise<void>(resolve => { finishSave = resolve; });
+      const snapshots: BatchTask[][] = [];
+      const generateImages = vi.fn().mockResolvedValue([{ base64: "synthetic" }]);
+      const common = {
+        batchId: `reload-during-${mode}`, batchTitle: "Batch", batchCreatedAt: "2026-10-16T00:00:00.000Z",
+        config: DEFAULT_CONFIG, referenceImages: [], generateImages,
+        onTaskUpdate: (next: BatchTask[]) => { snapshots.push(JSON.parse(JSON.stringify(next))); },
+        saveBatchImage: async (input: BatchImageSaveInput) => {
+          signalSave();
+          await release;
+          return createSaveResult(input);
+        },
+      };
+      const pending = mode === "single-retry"
+        ? retrySingleBatchTask({ ...common, task: tasks[0] })
+        : runBatchTasks({ ...common, tasks, executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 0 } });
+      try {
+        // A restored save-only task has no cached image, so it must stop before saving.
+        if (mode === "save-only-batch") await pending;
+        else await saving;
+        const snapshot = mode === "save-only-batch" ? snapshots[0] : snapshots.at(-1);
+        const restored = sanitizeBatchWorkspace({
+          schemaVersion: 1, id: "fresh-session-without-cache", status: "running", tasks: snapshot,
+        });
+        expect(restored?.tasks[0]).toMatchObject({
+          status: "failed", failureCategory: "cost_risk", suggestedAction: "retry-save",
+        });
+        const freshGenerate = vi.fn();
+        const freshSave = vi.fn();
+        await retrySingleBatchTask({ ...common, batchId: "fresh-session-without-cache",
+          task: restored!.tasks[0], generateImages: freshGenerate, saveBatchImage: freshSave });
+        expect(freshGenerate).not.toHaveBeenCalled();
+        expect(freshSave).not.toHaveBeenCalled();
+      } finally {
+        finishSave();
+        await pending;
+      }
+    });
+  }
+
+  it("pauses on a post-generation save error and retries saving without another generation", async () => {
+    const generateImages = vi.fn().mockResolvedValue([{ base64: "synthetic-image" }]);
+    const saveBatchImage = vi.fn().mockRejectedValueOnce(new Error("ENOSPC: disk full"))
+      .mockImplementation(async (input) => createSaveResult(input));
+    const common = {
+      batchId: "save-recovery", batchTitle: "Batch", batchCreatedAt: "2026-10-16T00:00:00.000Z",
+      config: DEFAULT_CONFIG, referenceImages: [], generateImages, saveBatchImage,
+    };
+    const result = await runBatchTasks({ ...common, tasks: createTasksFromMultilinePrompts("one\ntwo\nthree"),
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 3 } });
+    expect(result.status).toBe("paused");
+    expect(result.tasks[0]).toMatchObject({ failureCategory: "cost_risk", suggestedAction: "retry-save" });
+    expect(result.tasks.slice(1).map(task => task.status)).toEqual(["pending", "pending"]);
+    expect(generateImages).toHaveBeenCalledTimes(1);
+    const recovered = await retrySingleBatchTask({ ...common,
+      config: { ...DEFAULT_CONFIG, outputDirectory: "recovered-output" }, task: result.tasks[0] });
+    expect(recovered.status).toBe("succeeded");
+    expect(generateImages).toHaveBeenCalledTimes(1);
+    expect(saveBatchImage).toHaveBeenCalledTimes(2);
+    expect(saveBatchImage.mock.calls[1][0].image).toBe(saveBatchImage.mock.calls[0][0].image);
+    expect(saveBatchImage.mock.calls[1][0].config.outputDirectory).toBe("recovered-output");
+  });
+
+  it("does not regenerate when a restored save-only task has lost its in-memory image", async () => {
+    const generateImages = vi.fn();
+    const [task] = createTasksFromMultilinePrompts("one");
+    const restored = sanitizeBatchWorkspace(JSON.parse(JSON.stringify({
+      schemaVersion: 1, id: "restored-save-only", title: "Batch", source: "custom-prompts", status: "paused",
+      createdAt: "2026-10-16T00:00:00.000Z",
+      tasks: [{ ...task, status: "failed", failureCategory: "cost_risk", suggestedAction: "retry-save" }],
+    })));
+    expect(restored).not.toBeNull();
+    const result = await retrySingleBatchTask({
+      batchId: "restored-save-only", batchTitle: "Batch", batchCreatedAt: "2026-10-16T00:00:00.000Z",
+      config: DEFAULT_CONFIG, referenceImages: [], generateImages, saveBatchImage: vi.fn(),
+      task: restored!.tasks[0],
+    });
+    expect(result).toMatchObject({ status: "failed", failureCategory: "cost_risk", suggestedAction: "retry-save" });
+    expect(generateImages).not.toHaveBeenCalled();
+  });
+
+  it("lets in-flight work settle but schedules no new generation after a parallel save failure", async () => {
+    let releaseSecond!: () => void;
+    const second = new Promise<void>(resolve => { releaseSecond = resolve; });
+    const generateImages = vi.fn()
+      .mockResolvedValueOnce([{ base64: "first" }])
+      .mockImplementationOnce(async () => { await second; return [{ base64: "second" }]; });
+    const resultPromise = runBatchTasks({
+      batchId: "parallel-save-failure", batchTitle: "Batch", batchCreatedAt: "2026-10-16T00:00:00.000Z",
+      config: DEFAULT_CONFIG, referenceImages: [], generateImages,
+      tasks: createTasksFromMultilinePrompts("one\ntwo\nthree\nfour"),
+      executionConfig: { concurrency: 2, intervalSeconds: 0, maxRetries: 0 },
+      saveBatchImage: async input => {
+        if (input.image.base64 === "first") { releaseSecond(); throw new Error("history commit failed"); }
+        return createSaveResult(input);
+      },
+    });
+    const result = await resultPromise;
+    expect(result.status).toBe("paused");
+    expect(generateImages).toHaveBeenCalledTimes(2);
+    expect(result.tasks.slice(2).map(task => task.status)).toEqual(["pending", "pending"]);
+  });
+
   it("honors the provider retry delay before another rate-limit attempt", async () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(0);
