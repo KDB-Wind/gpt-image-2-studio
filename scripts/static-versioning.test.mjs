@@ -18,6 +18,40 @@ import { copyStaticArchives, inlineStaticHtml } from "./inline-static-html.mjs";
 import { runReleaseArchiveParity } from "./release-archive-parity.mjs";
 import { assertStaticVersionArchivesMatch, runStaticSiteCheck } from "./static-site-check.mjs";
 
+it("the real archive CLI finishes its lazy dist copy without an entrypoint import cycle", () => {
+  const rootDir = createTempRoot();
+  try {
+    const scripts = join(rootDir, "scripts");
+    mkdirSync(scripts);
+    for (const name of ["archive-static-version.mjs", "inline-static-html.mjs"]) {
+      nodeFs.copyFileSync(join(process.cwd(), "scripts", name), join(scripts, name));
+    }
+    nodeFs.cpSync(join(process.cwd(), "node_modules", "semver"), join(rootDir, "node_modules", "semver"), { recursive: true });
+    writeJson(join(rootDir, "package.json"), { type: "module", version: "1.2.3" });
+    const previous = { latestStable: "1.2.2", versions: ["1.2.2"] };
+    const next = { latestStable: "1.2.3", versions: ["1.2.3", "1.2.2"] };
+    writeJson(join(rootDir, "static-versions", "manifest.json"), previous);
+    writeSourceArchive(rootDir, "1.2.2", versionedArchiveHtml(previous));
+    const archive = writeSourceArchive(rootDir, "1.2.3", versionedArchiveHtml(next));
+    // Exercise the real CLI's recovery after source bytes were prepared but
+    // before the finalized manifest was copied to the distributable directory.
+    mkdirSync(join(rootDir, "dist-static"));
+    nodeFs.copyFileSync(archive, join(rootDir, "dist-static", "gpt-image-2-studio-lite.html"));
+    const result = spawnSync(process.execPath, [join(scripts, "archive-static-version.mjs")], {
+      cwd: rootDir, encoding: "utf8", timeout: 15_000,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Static version archive created.");
+    expect(readFileSync(join(rootDir, "dist-static", "versions", "manifest.json")))
+      .toEqual(readFileSync(join(rootDir, "static-versions", "manifest.json")));
+    expect(readFileSync(join(rootDir, "dist-static", "versions", "v1.2.3", "index.html")))
+      .toEqual(readFileSync(archive));
+  } finally {
+    expect(rootDir.startsWith(join(tmpdir(), "chat-to-image-static-versioning-"))).toBe(true);
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 it("the archive command copies the finalized trusted manifest and new archive into dist", async () => {
   const rootDir = createTempRoot();
   const version = "1.2.3";

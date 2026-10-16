@@ -17,6 +17,11 @@ import {
 type GenerateImagesFn = typeof defaultGenerateImages;
 type SaveBatchImageFn = (input: BatchImageSaveInput) => Promise<BatchImageSaveResult>;
 
+// Generated payloads stay in this session only: workspace/history serialization
+// must never include image data or provider credentials. A persisted retry-save
+// marker prevents a reload from silently turning recovery into paid generation.
+const pendingImageSaves = new Map<string, BatchImageSaveInput>();
+
 export type RunBatchTasksInput = {
   batchId: string;
   batchTitle: string;
@@ -74,7 +79,7 @@ export async function runBatchTasks(input: RunBatchTasksInput): Promise<RunBatch
         attemptCount: Math.max(1, task.attemptCount + 1),
         errorMessage: "",
         failureCategory: null,
-        suggestedAction: undefined,
+        suggestedAction: task.suggestedAction === "retry-save" ? "retry-save" : undefined,
         startedAt: new Date().toISOString(),
         completedAt: "",
       };
@@ -84,7 +89,10 @@ export async function runBatchTasks(input: RunBatchTasksInput): Promise<RunBatch
         ...input,
         executionConfig,
         shouldPause: () => Boolean(stoppedStatus) || Boolean(input.shouldPause?.()),
-      }, task);
+      }, task, savingTask => {
+        tasks[task.index] = savingTask;
+        notify(input, tasks);
+      });
       tasks[task.index] = updated;
       notify(input, tasks);
 
@@ -115,7 +123,7 @@ export async function runBatchTasks(input: RunBatchTasksInput): Promise<RunBatch
 }
 
 export async function retrySingleBatchTask(
-  input: Omit<RunBatchTasksInput, "tasks" | "executionConfig" | "onTaskUpdate" | "shouldCancel" | "shouldPause"> & {
+  input: Omit<RunBatchTasksInput, "tasks" | "executionConfig" | "shouldCancel" | "shouldPause"> & {
     task: BatchTask;
   },
 ): Promise<BatchTask> {
@@ -127,16 +135,22 @@ export async function retrySingleBatchTask(
       saveBatchImage: input.saveBatchImage,
     },
     { ...input.task, status: "pending", errorMessage: "", failureCategory: null },
+    savingTask => input.onTaskUpdate?.([savingTask]),
   );
 }
 
-async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<BatchTask> {
+async function runOneTask(
+  input: RunBatchTasksInput,
+  task: BatchTask,
+  onSaving?: (task: BatchTask) => void,
+): Promise<BatchTask> {
   const generateImages = input.generateImages ?? defaultGenerateImages;
   const singleImageConfig = { ...input.config, defaultCount: 1 };
   const providerProfileSnapshot = createProviderProfileSnapshot(singleImageConfig);
   const maxAttempts = input.executionConfig.maxRetries + 1;
   let attempt = 0;
   let retryWaitMs = 0;
+  const recoveryKey = JSON.stringify([input.batchId, task.id]);
 
   while (attempt < maxAttempts) {
     attempt += 1;
@@ -153,31 +167,52 @@ async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<B
       completedAt: "",
     };
 
+    let savingGeneratedImage = task.suggestedAction === "retry-save";
     try {
-      const referenceImages = resolveTaskReferenceImages(input, runningTask);
-      const images = await generateImages(
-        singleImageConfig,
-        runningTask.prompt,
-        referenceImages.length > 0 ? { referenceImages } : undefined,
-      );
-      const image = images[0];
-      if (!image) {
-        throw new Error("Image generation response did not contain any image data.");
+      let saveInput = pendingImageSaves.get(recoveryKey);
+      if (!saveInput && task.suggestedAction === "retry-save") {
+        throw new Error("Generated image is no longer available in this session. Start a new task explicitly to generate again.");
       }
+      if (!saveInput) {
+        const referenceImages = resolveTaskReferenceImages(input, runningTask);
+        const images = await generateImages(
+          singleImageConfig,
+          runningTask.prompt,
+          referenceImages.length > 0 ? { referenceImages } : undefined,
+        );
+        const image = images[0];
+        if (!image) {
+          throw new Error("Image generation response did not contain any image data.");
+        }
 
-      const durationMs = Date.now() - startedAt.getTime();
+        saveInput = {
+          batchId: input.batchId,
+          batchTitle: input.batchTitle,
+          batchCreatedAt: input.batchCreatedAt,
+          totalTasks: input.batchTotalTasks ?? input.tasks.length,
+          task: runningTask,
+          image,
+          config: {
+            ...singleImageConfig,
+            apiKey: "",
+            providerProfiles: singleImageConfig.providerProfiles.map(profile => ({ ...profile, apiKey: "" })),
+          },
+          generatedAt: new Date(),
+          durationMs: Date.now() - startedAt.getTime(),
+          providerProfileSnapshot,
+        };
+        pendingImageSaves.set(recoveryKey, saveInput);
+      }
+      savingGeneratedImage = true;
+      // Publish recovery before awaiting disk/history I/O. A refresh during
+      // this await must not restore the task as a fresh paid generation.
+      runningTask.suggestedAction = "retry-save";
+      onSaving?.(runningTask);
       const saved = await input.saveBatchImage({
-        batchId: input.batchId,
-        batchTitle: input.batchTitle,
-        batchCreatedAt: input.batchCreatedAt,
-        totalTasks: input.batchTotalTasks ?? input.tasks.length,
-        task: runningTask,
-        image,
-        config: singleImageConfig,
-        generatedAt: new Date(),
-        durationMs,
-        providerProfileSnapshot,
+        ...saveInput,
+        config: { ...saveInput.config, outputDirectory: input.config.outputDirectory },
       });
+      pendingImageSaves.delete(recoveryKey);
 
       return {
         ...runningTask,
@@ -189,14 +224,18 @@ async function runOneTask(input: RunBatchTasksInput, task: BatchTask): Promise<B
         historyDurability: saved.historyDurability,
         historyWarning: saved.historyWarning ? summarizeSensitiveError(saved.historyWarning) : undefined,
         suggestedAction: undefined,
-        durationMs,
+        durationMs: saveInput.durationMs,
         completedAt: new Date().toISOString(),
-        providerProfileSnapshot,
+        providerProfileSnapshot: saveInput.providerProfileSnapshot,
       };
     } catch (error) {
-      const failureCategory = classifyBatchFailure(error);
-      const suggestedAction = getSuggestedAction(error);
-      const message = summarizeSensitiveError(error);
+      const failureCategory = savingGeneratedImage ? "cost_risk" : classifyBatchFailure(error);
+      // URL download is part of the adapter's save path. Keep its actionable
+      // CORS hint; ordinary disk/history failures still recover by saving only.
+      const suggestedAction = getSuggestedAction(error) ?? (savingGeneratedImage ? "retry-save" : undefined);
+      const message = savingGeneratedImage
+        ? `Image generation has completed; saving needs attention. ${summarizeSensitiveError(error)}`
+        : summarizeSensitiveError(error);
       const failedTask: BatchTask = {
         ...runningTask,
         status: "failed",

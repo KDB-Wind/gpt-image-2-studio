@@ -1,6 +1,5 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
 
 import { sanitizeBatchManifest } from "../core/batchManifest";
 import { safeErrorMessage } from "../core/errorSanitizer";
@@ -139,8 +138,7 @@ export const tauriAdapter: RuntimeAdapter = {
       providerProfiles,
     };
     return invoke<void>("save_config", {
-      config: bridgeConfig,
-      activeProfileApiKey,
+      input: { config: bridgeConfig, activeProfileApiKey },
     });
   },
 
@@ -153,12 +151,13 @@ export const tauriAdapter: RuntimeAdapter = {
   },
 
   async prepareHistoryPreview(record: ImageRecord) {
-    return convertFileSrc(record.outputPath);
+    return invoke<string>("read_saved_image", { recordId: record.id });
   },
 
   async prepareHistoryFile(record: ImageRecord) {
     try {
-      const response = await fetch(convertFileSrc(record.outputPath));
+      const dataUrl = await invoke<string>("read_saved_image", { recordId: record.id });
+      const response = await fetch(dataUrl);
 
       if (!response.ok) {
         return null;
@@ -199,26 +198,28 @@ export const tauriAdapter: RuntimeAdapter = {
   },
 
   async saveImage(input: SaveImageInput): Promise<SaveImageResult> {
+    const payload = await createPayload(input);
     const result = await invoke<SaveImageResult>("save_generated_image", {
-      input: await createPayload(input),
+      input: payload,
     });
 
     return {
       ...result,
-      previewUrl: convertFileSrc(result.record.outputPath),
+      previewUrl: imagePreviewUrl(payload.imageBase64, input.config.defaultFormat),
       saveMode: result.saveMode ?? "authorized-directory",
       historyDurability: result.historyDurability ?? "persistent",
     };
   },
 
   async saveBatchImage(input: BatchImageSaveInput): Promise<BatchImageSaveResult> {
+    const payload = await createBatchImagePayload(input);
     const result = await invoke<BatchImageSaveResult>("save_batch_image", {
-      input: await createBatchImagePayload(input),
+      input: payload,
     });
 
     return {
       ...result,
-      previewUrl: convertFileSrc(result.record.outputPath),
+      previewUrl: imagePreviewUrl(payload.imageBase64, input.config.defaultFormat),
       outputPath: result.record.outputPath,
       saveMode: result.saveMode ?? "authorized-directory",
       historyDurability: result.historyDurability ?? "persistent",
@@ -236,9 +237,14 @@ export const tauriAdapter: RuntimeAdapter = {
   },
 
   async openOutputPath(path: string) {
-    await openPath(path);
+    await invoke<void>("open_saved_image", { outputPath: path });
   },
 };
+
+function imagePreviewUrl(base64: string, format: string): string {
+  const mime = format === "jpeg" || format === "jpg" ? "image/jpeg" : format === "webp" ? "image/webp" : "image/png";
+  return `data:${mime};base64,${base64}`;
+}
 
 function getFileNameFromPath(path: string): string {
   return path.replace(/\\/g, "/").split("/").pop() || "history-image.png";

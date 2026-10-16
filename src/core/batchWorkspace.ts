@@ -77,8 +77,10 @@ function sanitizeBatchWorkspaceTask(value: unknown): BatchTask | null {
   }
 
   const storedStatus = validValue(value.status, VALID_TASK_STATUSES, "pending");
-  const status = storedStatus === "running" ? "pending" : storedStatus;
-  const failureCategory = validNullableValue(value.failureCategory, VALID_FAILURE_CATEGORIES);
+  const interruptedSave = storedStatus === "running" && value.suggestedAction === "retry-save";
+  const status = interruptedSave ? "failed" : storedStatus === "running" ? "pending" : storedStatus;
+  const failureCategory = interruptedSave ? "cost_risk"
+    : validNullableValue(value.failureCategory, VALID_FAILURE_CATEGORIES);
 
   return {
     id,
@@ -89,14 +91,16 @@ function sanitizeBatchWorkspaceTask(value: unknown): BatchTask | null {
     plannerNotes: optionalString(value.plannerNotes),
     status,
     attemptCount: nonNegativeInteger(value.attemptCount),
-    errorMessage: status === "pending" ? "" : sanitizeMessage(value.errorMessage),
+    errorMessage: interruptedSave ? "Image generation completed, but saving was interrupted. Retry saving only."
+      : status === "pending" ? "" : sanitizeMessage(value.errorMessage),
     failureCategory: status === "pending" ? null : failureCategory,
     outputPath: stringValue(value.outputPath),
     previewUrl: "",
     saveMode: value.saveMode === "authorized-directory" || value.saveMode === "browser-download" ? value.saveMode : undefined,
     saveFallbackReason: optionalSanitizedMessage(value.saveFallbackReason),
-    suggestedAction: status === "failed" && failureCategory === "cost_risk" && value.suggestedAction === "force-base64"
-      ? "force-base64" : undefined,
+    suggestedAction: status === "failed" && failureCategory === "cost_risk"
+      && (value.suggestedAction === "force-base64" || value.suggestedAction === "retry-save")
+      ? value.suggestedAction : undefined,
     historyDurability: value.historyDurability === "persistent" || value.historyDurability === "memory-only"
       ? value.historyDurability : undefined,
     historyWarning: optionalSanitizedMessage(value.historyWarning),
