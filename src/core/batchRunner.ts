@@ -230,7 +230,9 @@ async function runOneTask(
       };
     } catch (error) {
       const failureCategory = savingGeneratedImage ? "cost_risk" : classifyBatchFailure(error);
-      const suggestedAction = savingGeneratedImage ? "retry-save" : getSuggestedAction(error);
+      // URL download is part of the adapter's save path. Keep its actionable
+      // CORS hint; ordinary disk/history failures still recover by saving only.
+      const suggestedAction = getSuggestedAction(error) ?? (savingGeneratedImage ? "retry-save" : undefined);
       const message = savingGeneratedImage
         ? `Image generation has completed; saving needs attention. ${summarizeSensitiveError(error)}`
         : summarizeSensitiveError(error);

@@ -10,6 +10,10 @@
 
 交付候选验证：`npm run test:run` 为 677 项通过；`npm run build`、`cargo check --manifest-path src-tauri/Cargo.toml`、`npm run site:check`、`npm run secret:scan`、`npm run artifact:check` 及 release-readiness 均通过。归档脚本定向 76 项通过。`npm run release:check` 需要读取已跟踪 HEAD，提交后另行执行，并以确切提交的 PR CI 为最终远端门禁。
 
+PR #11 首轮网页 CI 发现补修遗漏：URL 图片的下载也发生在 saveBatchImage 内，CORS 的 force-base64 提示被通用 retry-save 覆盖。保留专用下载恢复提示，磁盘保存失败继续使用 retry-save；新增下载阶段回归，不放宽已有 E2E。范围包括重建本 PR 尚未合并/发布的 v0.1.11 候选，先备份其旧字节；main 已有 v0.1.10 及更早归档全部保持不变。该候选从未打 tag、发布或部署。
+
+补修后的最终本地回归：前端 678 项；批处理 38 项；完整网页 E2E 25 项通过、3 项按项目配置跳过；file:// HTML E2E 3 项通过；普通与静态构建通过，真实 archive CLI 正常退出。首轮 CI 失败记录保留，后续远端结论须匹配补修后的新提交，不能引用 138a723 的结果代替。此前 Windows 原生复测覆盖保存/凭据/历史流程，最后 CORS 下载提示补修由单元与完整网页 E2E 覆盖；未重新验收发行安装包。
+
 - 授权：修复本轮审查中可本地处理的问题，验证后留在本地，不推送远端。
 - 范围：F1–F6（IPC 配置、保存失败停止计费、凭据后端、历史图片读取和打开、Web 凭据持久删除），及其必要回归。
 - 验收：对应失败条件不再复现；前端相关测试、构建和必要 Rust 检查通过。原生真机操作与跨平台系统凭据库另列验证边界。

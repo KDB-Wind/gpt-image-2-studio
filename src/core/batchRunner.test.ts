@@ -29,6 +29,23 @@ function createSaveResult(input: BatchImageSaveInput): BatchImageSaveResult {
 }
 
 describe("batchRunner", () => {
+  it("retains the force-base64 action when URL download fails inside the save adapter", async () => {
+    const generateImages = vi.fn().mockResolvedValue([{ url: "https://synthetic.invalid/image.png" }]);
+    const saveBatchImage = vi.fn().mockRejectedValue(new ImageDownloadError("image-url-cors"));
+    const result = await runBatchTasks({
+      batchId: "save-adapter-cors", batchTitle: "Batch", batchCreatedAt: "2026-10-16T00:00:00.000Z",
+      config: DEFAULT_CONFIG, referenceImages: [], tasks: createTasksFromMultilinePrompts("one\ntwo"),
+      executionConfig: { concurrency: 1, intervalSeconds: 0, maxRetries: 3 }, generateImages, saveBatchImage,
+    });
+    expect(result.status).toBe("paused");
+    expect(result.tasks[0]).toMatchObject({
+      status: "failed", failureCategory: "cost_risk", suggestedAction: "force-base64",
+    });
+    expect(result.tasks[1].status).toBe("pending");
+    expect(generateImages).toHaveBeenCalledTimes(1);
+    expect(saveBatchImage).toHaveBeenCalledTimes(1);
+  });
+
   for (const mode of ["new-batch", "save-only-batch", "single-retry"] as const) {
     it(`preserves save-only recovery when reloaded during ${mode}`, async () => {
       const [task] = createTasksFromMultilinePrompts("synthetic prompt");
