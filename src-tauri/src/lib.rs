@@ -15,6 +15,8 @@ pub fn run() {
             storage::clear_provider_api_key,
             storage::save_config,
             storage::load_history,
+            storage::read_saved_image,
+            storage::open_saved_image,
             storage::delete_history_records,
             storage::test_output_directory,
             storage::get_output_directory_state,

@@ -16,6 +16,41 @@ const LEGACY_API_KEY = ["legacy", "provider", "key", "123456789"].join("-");
 const MEMORY_API_KEY = ["memory", "provider", "key", "123456789"].join("-");
 
 describe("webAdapter history deletion", () => {
+  it("reports a legacy credential deletion failure even when map writes still work", async () => {
+    localStorage.setItem("chat-to-image.api-key.persistent.v1", JSON.stringify(LEGACY_API_KEY));
+    const realRemove = Storage.prototype.removeItem;
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function (this: Storage, key) {
+      if (this === localStorage && key === "chat-to-image.api-key.persistent.v1") throw new Error("synthetic deletion denial");
+      return realRemove.call(this, key);
+    });
+    await expect(webAdapter.saveConfig({ ...DEFAULT_CONFIG, apiKey: "", rememberApiKey: false },
+      { clearActiveApiKey: true })).rejects.toThrow(/not durable/);
+    expect(localStorage.getItem("chat-to-image.api-key.persistent.v1")).toContain(LEGACY_API_KEY);
+  });
+
+  it.each(["clear", "stop-remembering"])("rejects %s when an existing persistent key cannot be removed", async operation => {
+    localStorage.clear();
+    sessionStorage.clear();
+    __resetWebAdapterForTests();
+    await webAdapter.saveConfig({ ...DEFAULT_CONFIG, apiKey: REMEMBERED_API_KEY, rememberApiKey: true });
+    const loaded = await webAdapter.loadConfig();
+    const realSetItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+      if (this === localStorage) throw new Error("synthetic local write denial");
+      return realSetItem.call(this, key, value);
+    });
+    const next = { ...loaded, rememberApiKey: false,
+      apiKey: operation === "clear" ? "" : loaded.apiKey,
+      providerProfiles: loaded.providerProfiles.map(profile => ({ ...profile, rememberApiKey: false,
+        apiKey: operation === "clear" ? "" : profile.apiKey })),
+    };
+    await expect(webAdapter.saveConfig(next, { clearActiveApiKey: operation === "clear" })).rejects.toThrow(/not durable/);
+    expect(localStorage.getItem("chat-to-image.api-keys.persistent.v1")).toContain(REMEMBERED_API_KEY);
+    vi.restoreAllMocks();
+    __resetWebAdapterForTests();
+    expect((await webAdapter.loadConfig()).apiKey).toBe(REMEMBERED_API_KEY);
+  });
+
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
@@ -635,6 +670,17 @@ describe("webAdapter history deletion", () => {
     const raw = localStorage.getItem("chat-to-image.batch.draft.v1") ?? "";
     expect(raw).not.toContain("must-not-persist");
     expect(raw).not.toContain("private-token");
+  });
+
+  it("persists a save in progress as save-only recovery across adapter reloads", async () => {
+    const adapter = webAdapter as typeof webAdapter & { saveBatchWorkspace(workspace: unknown): Promise<void> };
+    await adapter.saveBatchWorkspace(createBatchWorkspace({ tasks: [createWorkspaceTask({
+      status: "running", failureCategory: null, suggestedAction: "retry-save",
+    })] }));
+    const restored = await webAdapter.loadBatchWorkspace?.();
+    expect(restored?.tasks[0]).toMatchObject({
+      status: "failed", failureCategory: "cost_risk", suggestedAction: "retry-save",
+    });
   });
 
   it("normalizes stale running workspace state to recoverable paused and pending state", async () => {

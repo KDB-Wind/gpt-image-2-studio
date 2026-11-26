@@ -946,3 +946,50 @@ fn output_directory_test_allows_concurrent_runs_without_colliding() {
 
     let _ = std::fs::remove_dir_all(&temp_root);
 }
+#[test]
+fn reads_registered_saved_images_without_a_global_asset_scope() {
+    let directory = tempfile::tempdir().unwrap();
+    let history = directory.path().join("history.json");
+    let image_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lwP8NwAAAABJRU5ErkJggg==";
+    let input = crate::models::SaveGeneratedImageInput {
+        image_base64: image_base64.to_string(),
+        prompt: "Synthetic image".to_string(),
+        optimized_prompt: String::new(),
+        custom_name: "synthetic".to_string(),
+        config: crate::storage::default_config(),
+        generated_at: "2026-10-16T00:00:00+00:00".to_string(),
+        duration_ms: 1,
+        provider_profile_snapshot: None,
+    };
+    let saved = crate::storage::save_generated_image_at(input, directory.path(), &history).unwrap();
+    assert_eq!(crate::storage::read_saved_image_at(&history, &saved.record.id).unwrap(),
+        format!("data:image/png;base64,{image_base64}"));
+    assert!(crate::storage::read_saved_image_at(&history, "unregistered").is_err());
+    assert!(crate::storage::registered_output_path_at(&history, "C:/unregistered.png").is_err());
+    assert_eq!(crate::storage::registered_output_path_at(&history, &saved.record.output_path).unwrap(),
+        std::path::Path::new(&saved.record.output_path).canonicalize().unwrap());
+    std::fs::write(&saved.record.output_path, b"not an image").unwrap();
+    assert!(crate::storage::read_saved_image_at(&history, &saved.record.id).is_err());
+    assert!(crate::storage::registered_output_path_at(&history, &saved.record.output_path).is_err());
+    std::fs::File::create(&saved.record.output_path).unwrap().set_len(64 * 1024 * 1024 + 1).unwrap();
+    assert!(crate::storage::read_saved_image_at(&history, &saved.record.id).unwrap_err().contains("64 MiB"));
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+#[ignore = "requires the Windows Credential Store; run separately from mock storage tests"]
+fn windows_native_keyring_round_trip() {
+    struct Cleanup(keyring::Entry);
+    impl Drop for Cleanup {
+        fn drop(&mut self) { let _ = self.0.delete_credential(); }
+    }
+    let service = "chat-to-image-isolated-native-test";
+    let account = format!("synthetic-{}-{}", std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    let entry = Cleanup(keyring::Entry::new(service, &account).unwrap());
+    entry.0.set_password("synthetic-not-a-provider-key").unwrap();
+    let fresh = keyring::Entry::new(service, &account).unwrap();
+    assert_eq!(fresh.get_password().unwrap(), "synthetic-not-a-provider-key");
+    fresh.delete_credential().unwrap();
+    assert!(matches!(entry.0.get_password(), Err(keyring::Error::NoEntry)));
+}

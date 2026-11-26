@@ -104,6 +104,36 @@ describe("BatchPanel", () => {
     expect(container.querySelectorAll(".batch-task-list .status-pill.failed")).toHaveLength(1);
   });
 
+  it("persists save-only progress while a single retry is still awaiting storage", async () => {
+    const copy = getTranslations("en-US");
+    const runtime = createRuntime();
+    runtime.loadBatchWorkspace.mockResolvedValue(createSavedBatchWorkspace());
+    const deferred = createDeferred<BatchTask>();
+    let savingTask!: BatchTask;
+    retrySingleBatchTaskMock.mockImplementation((input) => {
+      savingTask = { ...input.task, status: "running", suggestedAction: "retry-save" };
+      input.onTaskUpdate([savingTask]);
+      return deferred.promise;
+    });
+    await act(async () => {
+      root.render(<BatchPanel config={{ ...DEFAULT_CONFIG, apiKey: "synthetic-key" }} runtime={runtime}
+        language="en-US" referenceImages={[]} onConfigChange={vi.fn()}
+        onHistoryChanged={vi.fn().mockResolvedValue(undefined)} requireValidConfig={() => true}
+        setAppMessage={vi.fn()} />);
+    });
+    await flushPromises();
+    clickButton(copy.batch.actions.retryTask);
+    await flushPromises();
+    try {
+      const workspace = runtime.saveBatchWorkspace.mock.calls.at(-1)?.[0];
+      expect(workspace?.tasks.find((task: BatchTask) => task.id === savingTask.id))
+        .toMatchObject({ status: "running", suggestedAction: "retry-save" });
+    } finally {
+      deferred.resolve({ ...savingTask, status: "failed", failureCategory: "cost_risk" });
+      await flushPromises();
+    }
+  });
+
   it("persists edits after hydration and persists a clean workspace after reset", async () => {
     const copy = getTranslations("en-US");
     const runtime = createRuntime();

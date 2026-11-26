@@ -198,7 +198,7 @@ function writeStoredValue(
   return writeStoredValueWithStatus(key, value, kind).durability;
 }
 
-function removeStoredValue(key: string, kind: "local" | "session" = "local") {
+function removeStoredValue(key: string, kind: "local" | "session" = "local"): StoredValueWriteStatus {
   const storage = getBrowserStorage(kind);
   const memoryStorage = getMemoryStorage(kind);
 
@@ -206,13 +206,15 @@ function removeStoredValue(key: string, kind: "local" | "session" = "local") {
     try {
       storage.removeItem(key);
       memoryStorage.delete(key);
-      return;
-    } catch {
-      // Restricted file:// runtimes fall through to the in-memory store.
+      return { durability: "persistent" };
+    } catch (error) {
+      memoryStorage.set(key, null);
+      return { durability: "memory-only", error: error instanceof Error ? error.message : String(error) };
     }
   }
 
   memoryStorage.set(key, null);
+  return { durability: "memory-only", error: `${kind} storage is unavailable` };
 }
 
 function getIndexedDb(): IDBFactory | null {
@@ -809,11 +811,20 @@ export const webAdapter: RuntimeAdapter = {
   async saveConfig(config: AppConfig, options) {
     const storageCapabilities = getWebStorageCapabilities();
     const activeProfile = resolveActiveProviderProfile(config.providerProfiles, config.activeProviderProfileId);
+    if (options?.clearActiveApiKey) {
+      await this.clearProviderApiKey?.(activeProfile.id);
+      const legacySessionClear = removeStoredValue(LEGACY_SESSION_API_KEY, "session");
+      const legacyPersistentClear = removeStoredValue(LEGACY_PERSISTENT_API_KEY);
+      if (legacySessionClear.durability !== "persistent" || legacyPersistentClear.durability !== "persistent") {
+        throw new Error("Legacy provider API key removal was not durable. Please restore browser storage access and retry.");
+      }
+    }
     const activeApiKey = activeProfile.apiKey || config.apiKey;
     const activeRememberApiKey = config.rememberApiKey;
     const profileIds = new Set(config.providerProfiles.map((profile) => profile.id));
     const sessionKeys = pruneKeyMap(readProviderKeyMap("session"), profileIds);
-    const persistentKeys = pruneKeyMap(readProviderKeyMap("local"), profileIds);
+    const previousPersistentKeys = readProviderKeyMap("local");
+    const persistentKeys = pruneKeyMap(previousPersistentKeys, profileIds);
     // A metadata-only save may activate an unhydrated profile. Only a
     // nonempty replacement or an explicit user clear changes its key.
     if (activeApiKey || options?.clearActiveApiKey) {
@@ -837,9 +848,19 @@ export const webAdapter: RuntimeAdapter = {
           : profile.rememberApiKey && storageCapabilities.local,
       })),
     });
+    const sessionWrite = writeStoredValueWithStatus(SESSION_API_KEYS, sessionKeys, "session");
+    const persistentWrite = writeStoredValueWithStatus(PERSISTENT_API_KEYS, persistentKeys);
+    const removedPersistentKey = Object.keys(previousPersistentKeys).some((id) =>
+      previousPersistentKeys[id] && !persistentKeys[id]);
+    if (removedPersistentKey && persistentWrite.durability !== "persistent") {
+      writeStoredValue(PERSISTENT_API_KEYS, previousPersistentKeys);
+      throw new Error("Provider API key removal was not durable. Please restore browser storage access and retry.");
+    }
+    if (activeApiKey && activeRememberApiKey && persistentWrite.durability !== "persistent"
+      && sessionWrite.durability !== "persistent" && storageCapabilities.local) {
+      throw new Error("Provider API key could not be stored durably.");
+    }
     writeStoredValue(CONFIG_KEY, persistableConfig);
-    writeStoredValue(SESSION_API_KEYS, sessionKeys, "session");
-    writeStoredValue(PERSISTENT_API_KEYS, persistentKeys);
     removeStoredValue(LEGACY_SESSION_API_KEY, "session");
     removeStoredValue(LEGACY_PERSISTENT_API_KEY);
   },
