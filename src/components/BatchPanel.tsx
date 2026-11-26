@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
+import { Copy, ListChecks, Play } from "lucide-react";
 
 import { buildBatchManifest, summarizeBatchTasks } from "../core/batchManifest";
 import { revokeBlobUrl } from "../core/blobUrl";
@@ -1258,9 +1259,9 @@ export function BatchPanel({
       ) : null}
       <div className="batch-source-grid">
         {([
-          ["same-prompt", copy.batch.sources.samePrompt],
-          ["custom-prompts", copy.batch.sources.customPrompts],
-        ] as const).map(([value, label]) => (
+          ["same-prompt", copy.batch.sources.samePrompt, Copy],
+          ["custom-prompts", copy.batch.sources.customPrompts, ListChecks],
+        ] as const).map(([value, label, Icon]) => (
           <button
             key={value}
             type="button"
@@ -1273,6 +1274,7 @@ export function BatchPanel({
             }}
             disabled={isTaskMutationLocked}
           >
+            <Icon className="ui-icon-sm" aria-hidden="true" />
             {label}
           </button>
         ))}
@@ -1693,6 +1695,7 @@ export function BatchPanel({
           onClick={() => void handleStartBatch()}
           disabled={!runtime || tasks.length === 0 || isTaskMutationLocked}
         >
+          <Play className="ui-icon-sm" aria-hidden="true" />
           {primaryBatchActionLabel}
         </button>
         <button type="button" className="secondary-button" onClick={handlePauseBatch} disabled={!isRunning}>

@@ -1,6 +1,15 @@
 ﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
-
 import { useCallback } from "react";
+import {
+  Clock,
+  Image as ImageIcon,
+  ImagePlus,
+  Layers,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  Wand2,
+} from "lucide-react";
 import { AppLogo } from "./components/AppLogo";
 import { BatchPanel } from "./components/BatchPanel";
 import { ProviderProfileSelector } from "./components/ProviderProfileSelector";
@@ -2104,11 +2113,11 @@ export default function App() {
 
         <div className="tab-strip" role="tablist" aria-label="Workspace tabs">
           {([
-            ["generate", copy.tabs.generate],
-            ["batch", copy.tabs.batch],
-            ["history", copy.tabs.history],
-            ["settings", copy.tabs.settings],
-          ] as const).map(([tab, label]) => (
+            ["generate", copy.tabs.generate, Sparkles],
+            ["batch", copy.tabs.batch, Layers],
+            ["history", copy.tabs.history, Clock],
+            ["settings", copy.tabs.settings, SlidersHorizontal],
+          ] as const).map(([tab, label, Icon]) => (
             <button
               key={tab}
               type="button"
@@ -2117,6 +2126,7 @@ export default function App() {
               className={`tab-button ${activeTab === tab ? "active" : ""}`}
               onClick={() => setActiveTab(tab)}
             >
+              <Icon className="ui-icon" aria-hidden="true" />
               {label}
             </button>
           ))}
@@ -2159,6 +2169,7 @@ export default function App() {
                     className={generationMode === "text-to-image" ? "active" : ""}
                     onClick={() => handleGenerationModeChange("text-to-image")}
                   >
+                    <Wand2 className="ui-icon-sm" aria-hidden="true" />
                     {copy.modes.textToImage}
                   </button>
                   <button
@@ -2168,6 +2179,7 @@ export default function App() {
                     className={generationMode === "image-to-image" ? "active" : ""}
                     onClick={() => handleGenerationModeChange("image-to-image")}
                   >
+                    <ImagePlus className="ui-icon-sm" aria-hidden="true" />
                     {copy.modes.imageToImage}
                   </button>
                 </div>
@@ -2324,6 +2336,7 @@ export default function App() {
                     onClick={handleGenerate}
                     disabled={isGenerating || isLoadingApp || !runtime || isOptimizing}
                   >
+                    <Sparkles className="ui-icon-sm" aria-hidden="true" />
                     {isGenerating ? copy.actions.generateBusy : copy.actions.generate}
                   </button>
                 </div>
@@ -3148,7 +3161,12 @@ export default function App() {
 
               {!isLoadingApp && !activeBatchPreview && previewState.status === "idle" ? (
                 <div className="preview-state">
-                  <div className="preview-placeholder">{copy.preview.idle}</div>
+                  <div className="preview-placeholder">
+                    <span className="preview-placeholder-icon" aria-hidden="true">
+                      <ImageIcon />
+                    </span>
+                    {copy.preview.idle}
+                  </div>
                   <p>{copy.preview.idleBody}</p>
                   {selectedRecord ? (
                     <div className="info-card preview-details">
@@ -3535,7 +3553,10 @@ export default function App() {
             </ol>
           </div>
 
-          <p className="welcome-privacy">{copy.welcome.privacyNote}</p>
+          <p className="welcome-privacy">
+            <ShieldCheck className="ui-icon" aria-hidden="true" />
+            <span>{copy.welcome.privacyNote}</span>
+          </p>
           <p className="welcome-relay">
             {copy.welcome.relayPrompt}{" "}
             <button
